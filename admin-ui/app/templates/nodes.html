@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+  <h3>Nodes</h3>
+
+  <div class="card" style="max-width: 720px;">
+    <h4 style="margin-top:0;">Add secondary node</h4>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <form method="post" action="/nodes/generate">
+      <label>Node name</label>
+      <input name="name" placeholder="fred" />
+
+      <label>Primary URL (reachable from secondary)</label>
+      <input name="primary_url" value="{{ default_primary_url }}" />
+
+      <button type="submit">Generate package (.zip)</button>
+    </form>
+    <p style="margin-bottom:0; font-size: 0.9rem; color:#555;">
+      Generated package contains docker-compose.yml + .env for the secondary host.
+    </p>
+  </div>
+
+  <h4>Existing nodes</h4>
+  <table cellpadding="6" cellspacing="0" border="1" style="border-collapse: collapse;">
+    <tr>
+      <th>Name</th>
+      <th>Status</th>
+      <th>Last seen</th>
+      <th>IP</th>
+      <th>Version</th>
+    </tr>
+    {% for n in nodes %}
+      <tr>
+        <td>{{ n.name }}</td>
+        <td>{{ n.status }}</td>
+        <td>{{ n.last_seen or "-" }}</td>
+        <td>{{ n.ip_address or "-" }}</td>
+        <td>{{ n.version or "-" }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endblock %}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or "PowerBlockade" }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              bg: {
+                900: '#0b1020',
+                800: '#0f172a',
+                700: '#111c33'
+              }
+            }
+          }
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-bg-900 text-slate-100">
+    <div class="min-h-screen">
+      <header class="sticky top-0 z-20 border-b border-slate-800 bg-bg-900/80 backdrop-blur">
+        <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="h-9 w-9 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-400"></div>
+            <div>
+              <div class="text-lg font-semibold leading-tight">PowerBlockade</div>
+              <div class="text-xs text-slate-400">DNS control plane</div>
+            </div>
+          </div>
+
+          {% if user %}
+          <nav class="flex flex-wrap items-center gap-2 text-sm">
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-300" href="/help">Help</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/">Dashboard</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/logs">Logs</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/clients">Clients</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/domains">Domains</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/blocked">Blocked</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/failures">Failures</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/blocklists">Blocklists</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/forwardzones">Forward Zones</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/precache">Precache</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/nodes">Nodes</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/setup">Setup</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-300" href="/logout">Logout</a>
+          </nav>
+          {% endif %}
+        </div>
+      </header>
+
+      <main class="mx-auto max-w-6xl px-4 py-6">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

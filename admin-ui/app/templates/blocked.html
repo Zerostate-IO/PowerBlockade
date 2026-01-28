@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">Blocked</h1>
+  <p class="mt-1 text-sm text-slate-400">Blocked queries (placeholder until blocking pipeline wired).</p>
+
+  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
+    <table class="min-w-full text-sm">
+      <thead class="bg-bg-900 text-slate-300">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium">Time</th>
+          <th class="px-4 py-3 text-left font-medium">Client</th>
+          <th class="px-4 py-3 text-left font-medium">Domain</th>
+          <th class="px-4 py-3 text-left font-medium">Reason</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800">
+        {% for e in events %}
+          <tr class="hover:bg-bg-700">
+            <td class="px-4 py-3 whitespace-nowrap text-slate-300">{{ e.ts }}</td>
+            <td class="px-4 py-3 text-slate-200">{{ e.client_label }}</td>
+            <td class="px-4 py-3 font-mono text-slate-200">{{ e.qname }}</td>
+            <td class="px-4 py-3 text-slate-300">{{ e.block_reason or '-' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

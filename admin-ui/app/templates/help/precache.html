@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">Precache & Caching</h1>
+  <p class="mt-1 text-sm text-slate-400">Understanding DNS caching performance and time saved.</p>
+
+  <div class="mt-6 space-y-6">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">How DNS caching works</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        When a client queries a domain (e.g., <code class="bg-bg-900 px-1 rounded">example.com</code>), PowerDNS Recursor first checks if it has a cached answer. If found, it responds immediately—no external lookup needed.
+      </p>
+      <p class="mt-2 text-sm text-slate-300">
+        Cached answers have TTLs (Time To Live) set by authoritative nameservers (typically minutes to hours). High cache hit rates mean faster responses and lower traffic to upstream DNS.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Cache hit detection</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        PowerBlockade uses a <strong>latency threshold</strong> to detect cache hits in query logs. If a query completes in ≤5ms, it's counted as a cache hit.
+      </p>
+      <div class="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+        <p class="text-sm text-amber-200">
+          ⚠️ <strong>This 5ms threshold is a heuristic</strong> and may need tuning based on your network. If you see suspiciously low hit rates, the threshold might be too low. If hit rates seem inflated, it might be too high.
+        </p>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">
+        Cache hits are calculated on-the-fly from DNSQueryEvent data—no extra schema required.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Metrics to watch</h2>
+      <table class="mt-2 w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-700">
+            <th class="py-2 text-left text-slate-200">Metric</th>
+            <th class="py-2 text-left text-slate-200">Explanation</th>
+          </tr>
+        </thead>
+        <tbody class="text-slate-300">
+          <tr class="border-b border-slate-800">
+            <td class="py-2"><strong>Cache hit rate</strong></td>
+            <td class="py-2">percentage of queries served from cache. Higher = better performance</td>
+          </tr>
+          <tr class="border-b border-slate-800">
+            <td class="py-2"><strong>Time saved</strong></td>
+            <td class="py-2">total latency saved by caching (sum of cached query time savings)</td>
+          </tr>
+          <tr>
+            <td class="py-2"><strong>Top cached domains</strong></td>
+            <td class="py-2">domains with highest cached request volume</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Improving cache performance</h2>
+      <ul class="mt-2 list-disc pl-5 text-sm text-slate-300 space-y-2">
+        <li><strong>High cache hit rates</strong> typically mean clients are repeating queries to the same domains (normal behavior)</li>
+        <li><strong>Low cache hit rates</strong> may indicate short TTLs or many unique domains being queried</li>
+        <li><strong>Very high hit rates</strong> can sometimes indicate DNS loops or misconfigurations</li>
+        <li>Monitor after enabling/disabling blocklists—changes can affect caching behavior</li>
+      </ul>
+    </div>
+
+    <a class="inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" href="/precache">→ Go to Precache</a>
+  </div>
+{% endblock %}

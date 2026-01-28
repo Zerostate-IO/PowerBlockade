@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="grid gap-4 md:grid-cols-3">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5 md:col-span-2">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Dashboard</h2>
+        <div class="text-xs text-slate-400">Logged in as {{ user.username }}</div>
+      </div>
+      <p class="mt-2 text-sm text-slate-300">DNS performance and statistics.</p>
+
+      <div class="mt-4 grid gap-2">
+        <div class="rounded-xl border border-slate-800 bg-bg-900 px-4 py-3">
+          <div class="text-xs text-slate-400">Total queries (24h)</div>
+          <div class="text-2xl font-semibold text-slate-100">{{ total }}</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-bg-900 px-4 py-3">
+          <div class="text-xs text-slate-400">Blocked</div>
+          <div class="text-2xl font-semibold text-red-400">{{ blocked }}</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-bg-900 px-4 py-3">
+          <div class="text-xs text-slate-400">Cache hit rate</div>
+          <div class="text-2xl font-semibold text-emerald-400">{{ "%.1f"|format(hit_rate) }}%</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-bg-900 px-4 py-3">
+          <div class="text-xs text-slate-400">Time saved</div>
+          <div class="text-2xl font-semibold text-cyan-400">{{ "%.1f"|format(time_saved / 1000) }}s</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <div class="flex gap-4 items-end">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-200">Health</h3>
+          <div class="mt-1 text-xs text-slate-400"><a class="text-cyan-300 hover:underline" href="/precache">Precache stats</a> · <a class="text-cyan-300 hover:underline" href="/metrics">Prometheus metrics</a></div>
+        </div>
+        <div class="text-xs text-slate-200"><span class="text-emerald-400">All systems operational</span></div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

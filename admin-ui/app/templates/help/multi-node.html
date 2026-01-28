@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">Multi-Node Architecture</h1>
+  <p class="mt-1 text-sm text-slate-400">Deploying multiple DNS servers with centralized logging and configuration.</p>
+
+  <div class="mt-6 space-y-6">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Why multiple nodes?</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Running multiple DNS nodes provides:
+      </p>
+      <ul class="mt-2 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li><strong>High availability</strong> – One node down? Others keep serving DNS</li>
+        <li><strong>Reduced latency</strong> – Place nodes closer to clients (home/office/remote sites)</li>
+        <li><strong>Resilience</strong> – Local DNS continues working during network partitions (with planned buffering)</li>
+        <li><strong>Scalability</strong> – Handle more queries by distributing load</li>
+      </ul>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Architecture overview</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        PowerBlockade uses a <strong>hub-and-spoke</strong> model:
+      </p>
+      <ul class="mt-2 list-disc pl-5 text-sm text-slate-300 space-y-2">
+        <li><strong>Primary node</strong> runs the Admin UI API, Postgres, dnstap-processor, and the full monitoring stack</li>
+        <li><strong>Secondary nodes</strong> are lightweight: just PowerDNS Recursor + sync-agent</li>
+        <li>All nodes send DNS query events to the primary via <code class="bg-bg-900 px-1 rounded">POST /api/node-sync/ingest</code></li>
+        <li>Secondaries pull RPZ/forward-zone config from primary via sync-agent</li>
+      </ul>
+      <p class="mt-2 text-sm text-slate-300">
+        This design provides a single pane of glass for centralized logging and config management, without duplicating the heavy UI/database infrastructure on every node.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Node registration and heartbeats</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Secondary nodes register with the primary using an API key:
+      </p>
+      <ol class="mt-2 list-decimal pl-5 text-sm text-slate-300 space-y-1">
+        <li>Generate a secondary node on the primary (creates <code class="bg-bg-900 px-1 rounded">api_key</code>)</li>
+        <li>Deploy sync-agent on the secondary with that key</li>
+        <li>sync-agent sends heartbeats every 30s to prove it's alive</li>
+        <li>If primary misses 10 consecutive heartbeats (5 min), the node shows as <em>offline</em></li>
+      </ol>
+      <div class="mt-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
+        <p class="text-sm text-indigo-200">
+          💡 <strong>Planned:</strong> sync-agent will buffer query events locally during network partitions and retry upload when connectivity returns, with idempotent deduplication (via <code class="bg-bg-900 px-1 rounded">event_id</code>).
+        </p>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Config synchronization</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Blocklists and forward zones defined on the primary are synchronized to all secondary nodes:
+      </p>
+      <ul class="mt-2 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li>Primary generates RPZ zone files → shared volume → recursor-reloader reloads</li>
+        <li>sync-agent on secondaries pulls latest RPZ files from primary (TBD)</li>
+        <li>Secondary reloads when files change</li>
+      </ul>
+      <p class="mt-2 text-sm text-slate-400">
+        Note: Multi-node config push is <strong>not yet fully implemented</strong>. Currently, secondaries need manual configuration or planned sync-agent updates.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Network topology</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Typical deployment:
+      </p>
+      <div class="mt-2 rounded-lg bg-bg-900 p-4 text-sm font-mono">
+        <pre>                   Primary Node
+             (UI + API + Postgres + dnstap-processor)
+                        ↓
+                   dnstap ingestion
+                        ↓
+    ┌──────────────────┴──────────────────┐
+    │                                     │
+Secondary 1                       Secondary 2
+  (home network)                    (office network)
+  192.168.1.10                      10.0.0.10
+    DNS:53                           DNS:53</pre>
+      </div>
+      <p class="mt-2 text-sm text-slate-300">
+        Each site's DHCP points clients to its local secondary for low-latency DNS, while all query data centralizes at the primary for unified visibility.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Current status</h2>
+      <ul class="mt-2 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li>✅ Primary node UI and API complete</li>
+        <li>✅ Node registration and heartbeat endpoints work</li>
+        <li>✅ dnstap-processor ships events to primary</li>
+        <li>⏸️ sync-agent Dockerfile exists but not added to docker-compose.yml yet</li>
+        <li>⏸️ Config push (RPZ/forward-zones) to secondaries: TODO</li>
+        <li>⏸️ Event buffering on secondaries: TODO</li>
+      </ul>
+    </div>
+
+    <a class="inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" href="/nodes">→ Go to Nodes</a>
+  </div>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">Help & Documentation</h1>
+  <p class="mt-1 text-sm text-slate-400">Understanding PowerBlockade concepts and features.</p>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <a href="/help/dns-blocking" class="group rounded-2xl border border-slate-800 bg-bg-800 p-5 hover:border-slate-700 transition">
+      <div class="flex items-center gap-3 mb-2">
+        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500/20 text-red-400">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+          </svg>
+        </div>
+        <h2 class="text-base font-semibold text-slate-200">DNS Blocking & RPZ</h2>
+      </div>
+      <p class="text-sm text-slate-400">How blocklists work, RPZ zones, and applying DNS filtering.</p>
+    </a>
+
+    <a href="/help/precache" class="group rounded-2xl border border-slate-800 bg-bg-800 p-5 hover:border-slate-700 transition">
+      <div class="flex items-center gap-3 mb-2">
+        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-400">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <h2 class="text-base font-semibold text-slate-200">Precache & Caching</h2>
+      </div>
+      <p class="text-sm text-slate-400">Understanding DNS caching, hit rates, and performance tuning.</p>
+    </a>
+
+    <a href="/help/forward-zones" class="group rounded-2xl border border-slate-800 bg-bg-800 p-5 hover:border-slate-700 transition">
+      <div class="flex items-center gap-3 mb-2">
+        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/20 text-green-400">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+        <h2 class="text-base font-semibold text-slate-200">Forward Zones (Split DNS)</h2>
+      </div>
+      <p class="text-sm text-slate-400">Routing specific domains or subnets to different DNS servers.</p>
+    </a>
+
+    <a href="/help/multi-node" class="group rounded-2xl border border-slate-800 bg-bg-800 p-5 hover:border-slate-700 transition">
+      <div class="flex items-center gap-3 mb-2">
+        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/20 text-purple-400">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </div>
+        <h2 class="text-base font-semibold text-slate-200">Multi-Node Architecture</h2>
+      </div>
+      <p class="text min-w-[50px] text-slate-400">Deploying multiple DNS servers with centralized logging.</p>
+    </a>
+  </div>
+{% endblock %}

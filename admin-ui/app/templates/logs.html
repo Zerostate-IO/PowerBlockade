@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Query Logs</h1>
+      <p class="mt-1 text-sm text-slate-400">Recent queries received by the primary.</p>
+    </div>
+  </div>
+
+  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
+    <table class="min-w-full text-sm">
+      <thead class="bg-bg-900 text-slate-300">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium">Time</th>
+          <th class="px-4 py-3 text-left font-medium">Client</th>
+          <th class="px-4 py-3 text-left font-medium">Domain</th>
+          <th class="px-4 py-3 text-left font-medium">Type</th>
+          <th class="px-4 py-3 text-left font-medium">Rcode</th>
+          <th class="px-4 py-3 text-left font-medium">Latency</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800">
+        {% for e in events %}
+          <tr class="hover:bg-bg-700">
+            <td class="px-4 py-3 whitespace-nowrap text-slate-300">{{ e.ts }}</td>
+            <td class="px-4 py-3 text-slate-200">{{ e.client_label }}</td>
+            <td class="px-4 py-3 font-mono text-slate-200">{{ e.qname }}</td>
+            <td class="px-4 py-3 text-slate-300">{{ e.qtype }}</td>
+            <td class="px-4 py-3 text-slate-300">{{ e.rcode }}</td>
+            <td class="px-4 py-3 text-slate-300">{% if e.latency_ms is not none %}{{ e.latency_ms }}ms{% else %}-{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

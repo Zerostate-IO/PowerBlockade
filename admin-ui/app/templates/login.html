@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="mx-auto max-w-md">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6 shadow-lg">
+      <h1 class="text-xl font-semibold">Sign in</h1>
+      <p class="mt-1 text-sm text-slate-400">Admin access</p>
+
+      {% if error %}
+        <div class="mt-4 rounded-lg border border-rose-900/60 bg-rose-950/40 px-3 py-2 text-sm text-rose-200">
+          {{ error }}
+        </div>
+      {% endif %}
+
+      <form class="mt-5 space-y-4" method="post" action="/login">
+        <div>
+          <label class="text-sm text-slate-300">Username</label>
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-400" name="username" autocomplete="username" />
+        </div>
+        <div>
+          <label class="text-sm text-slate-300">Password</label>
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-400" name="password" type="password" autocomplete="current-password" />
+        </div>
+        <button class="w-full rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 font-medium text-slate-950" type="submit">Sign in</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}
