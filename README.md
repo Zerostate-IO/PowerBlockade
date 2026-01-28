@@ -4,6 +4,8 @@ Modern, performant DNS filtering stack built around **PowerDNS Recursor** with f
 
 Modern dark UI, multi-node support, Docker-first.
 
+> **New to PowerBlockade?** See the [Getting Started Guide](docs/GETTING_STARTED.md) for a complete walkthrough including Docker installation, initial setup, and understanding the interface.
+
 ## Quick start (single-node)
 
 ### Option 1: Use pre-built images (faster, no build)
