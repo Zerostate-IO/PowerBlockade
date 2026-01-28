@@ -1,0 +1,12 @@
+{
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": false,
+  "executionEnvironments": [
+    {
+      "root": "admin-ui",
+      "venvPath": "admin-ui",
+      "venv": ".venv",
+      "extraPaths": ["."]
+    }
+  ]
+}

@@ -1,0 +1,178 @@
+# Docker Compose configuration for pre-built images from GitHub Container Registry (GHCR)
+#
+# Usage:
+#   export POWERBLOCKADE_REPO=your-org-here
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Replace 'your-org-here' with your GitHub username or organization name where images are hosted.
+
+services:
+  dnsdist:
+    image: powerdns/dnsdist-19:latest
+    container_name: powerblockade-dnsdist
+    restart: unless-stopped
+    entrypoint: ["dnsdist"]
+    command: ["--supervised", "-C", "/etc/dnsdist/dnsdist.conf"]
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    volumes:
+      - ./dnsdist/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
+      - dnstap-socket:/var/run/dnstap
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      recursor:
+        condition: service_started
+      dnstap-processor:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: powerblockade-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-powerblockade}
+      POSTGRES_USER: ${POSTGRES_USER:-powerblockade}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-powerblockade} -d ${POSTGRES_DB:-powerblockade}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  recursor:
+    image: ghcr.io/${POWERBLOCKADE_REPO:-YOUR_GITHUB_USERNAME}/powerblockade-recursor:latest
+    container_name: powerblockade-recursor
+    restart: unless-stopped
+    environment:
+      TZ: ${TIMEZONE:-America/Los_Angeles}
+      RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./recursor/recursor.conf.template:/etc/pdns-recursor/recursor.conf.template:ro
+      - ./recursor/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
+      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+      - ./recursor/rpz:/etc/pdns-recursor/rpz
+      - dnstap-socket:/var/run/dnstap
+      - recursor-control-socket:/var/run/pdns-recursor
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+
+  dnstap-processor:
+    image: ghcr.io/${POWERBLOCKADE_REPO:-YOUR_GITHUB_USERNAME}/powerblockade-dnstap-processor:latest
+    container_name: powerblockade-dnstap-processor
+    restart: unless-stopped
+    environment:
+      NODE_NAME: ${NODE_NAME:-primary}
+      DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
+      PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
+      PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
+      PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      DEBUG_DNSTAP: ${DEBUG_DNSTAP:-false}
+      GELF_ENABLED: ${GELF_ENABLED:-false}
+      GELF_ENDPOINT: ${GELF_ENDPOINT:-}
+    expose:
+      - "50001"
+    networks:
+      default:
+        ipv4_address: 172.30.0.20
+    volumes:
+      - dnstap-socket:/var/run/dnstap
+      - ./recursor/rpz:/shared/rpz:ro
+    depends_on:
+      recursor:
+        condition: service_started
+      admin-ui:
+        condition: service_started
+    user: "0:0"
+
+  admin-ui:
+    image: ghcr.io/${POWERBLOCKADE_REPO:-YOUR_GITHUB_USERNAME}/powerblockade-admin-ui:latest
+    container_name: powerblockade-admin-ui
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://powerblockade:change-me@postgres:5432/powerblockade}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me-32+-chars}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
+      PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
+      RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
+      TIMEZONE: ${TIMEZONE:-America/Los_Angeles}
+    ports:
+      - "${ADMIN_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      recursor:
+        condition: service_started
+    volumes:
+      - ./recursor/rpz:/shared/rpz
+      - ./recursor/forward-zones.conf:/shared/forward-zones.conf
+
+  recursor-reloader:
+    image: powerdns/pdns-recursor-51:latest
+    container_name: powerblockade-recursor-reloader
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        while true; do
+          rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
+          rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
+          sleep ${RECURSOR_RELOAD_INTERVAL_SECONDS:-5};
+        done
+    volumes:
+      - recursor-control-socket:/var/run/pdns-recursor
+    depends_on:
+      recursor:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: powerblockade-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: powerblockade-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+  dnstap-socket:
+  recursor-control-socket:
+
+networks:
+  default:
+    name: powerblockade
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
