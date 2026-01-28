@@ -1,0 +1,96 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'admin-ui/**'
+      - 'recursor/**'
+      - 'dnstap-processor/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/powerblockade
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for admin-ui
+        id: meta-admin
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-admin-ui
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract metadata for recursor
+        id: meta-recursor
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-recursor
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract metadata for dnstap-processor
+        id: meta-dnstap
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-dnstap-processor
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push admin-ui
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-ui
+          push: true
+          tags: ${{ steps.meta-admin.outputs.tags }}
+          labels: ${{ steps.meta-admin.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push recursor
+        uses: docker/build-push-action@v5
+        with:
+          context: ./recursor
+          push: true
+          tags: ${{ steps.meta-recursor.outputs.tags }}
+          labels: ${{ steps.meta-recursor.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push dnstap-processor
+        uses: docker/build-push-action@v5
+        with:
+          context: ./dnstap-processor
+          push: true
+          tags: ${{ steps.meta-dnstap.outputs.tags }}
+          labels: ${{ steps.meta-dnstap.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

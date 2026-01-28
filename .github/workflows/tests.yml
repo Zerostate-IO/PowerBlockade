@@ -1,0 +1,132 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ -v
+
+      - name: Check type safety
+        run: uv run pyright || true
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: test_powerblockade
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    defaults:
+      run:
+        working-directory: admin-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v -m integration
+
+  playwright-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install dependencies
+        run: |
+          uv sync --dev
+          uv run playwright install chromium
+
+      - name: Install Playwright browsers
+        run: uv run playwright install
+
+      - name: Run Playwright tests
+        run: uv run pytest tests/playwright/ -v -m playwright
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run linter
+        run: uv run ruff check .
+
+      - name: Run formatter
+        run: uv run ruff format --check .
