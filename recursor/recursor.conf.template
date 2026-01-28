@@ -1,0 +1,30 @@
+# Minimal PowerDNS Recursor config for PowerBlockade
+
+# Network
+local-address=0.0.0.0
+local-port=5300
+allow-from=172.30.0.0/16, ::1/128
+
+# Control socket (used for reloads)
+socket-dir=/var/run/pdns-recursor
+socket-mode=0666
+
+# Performance (tune per host)
+threads=2
+pdns-distributes-queries=yes
+
+# RPZ
+lua-config-file=/etc/pdns-recursor/rpz.lua
+
+# Forward zones
+forward-zones-file=/etc/pdns-recursor/forward-zones.conf
+
+# API
+webserver=yes
+webserver-address=0.0.0.0
+webserver-port=8082
+webserver-allow-from=0.0.0.0/0
+api-key=${RECURSOR_API_KEY}
+
+# Metrics
+# Recursor exposes Prometheus metrics on the webserver at /metrics.
