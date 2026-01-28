@@ -112,3 +112,130 @@ Show friendly client names without running DHCP.
 ### Config sync
 - Global config + per-node overrides must be supported.
 - Nodes pull config bundles and reload recursor.
+
+## Observability
+
+### Design principles
+- **Single UI**: All monitoring visible from admin-ui (no separate Grafana/Prometheus URLs).
+- **Push-based metrics**: Secondary nodes push to primary (works through NAT).
+- **Zero config for secondaries**: sync-agent handles everything automatically.
+
+### Two categories of data
+
+| Category | Source | Storage | Display |
+|----------|--------|---------|---------|
+| DNS Query Stats | dnstap → dnstap-processor | Postgres (`dns_query_events`, `query_rollups`) | ApexCharts in admin-ui dashboard |
+| System Performance | Recursor `/metrics` | Postgres (`node_metrics`) → Prometheus | Grafana embedded in admin-ui |
+
+### Multi-node metrics flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         PRIMARY NODE                             │
+│                                                                  │
+│  ┌──────────────┐    ┌────────────┐    ┌─────────────────────┐  │
+│  │  Prometheus  │───▶│  Grafana   │◀───│   admin-ui          │  │
+│  │  (internal)  │    │ (internal) │    │  /system/health     │  │
+│  │              │    │ anonymous  │    │  (iframe embed)     │  │
+│  └──────┬───────┘    │ + kiosk    │    └─────────────────────┘  │
+│         │            └────────────┘                              │
+│         │ scrapes admin-ui:8080/metrics                         │
+│         ▼            (includes all nodes)                        │
+│  ┌──────────────┐                                               │
+│  │  admin-ui    │◀─── metrics push ───┐                         │
+│  │  /api/node-  │                     │                         │
+│  │  sync/metrics│                     │                         │
+│  └──────────────┘                     │                         │
+│         │                             │                         │
+│         ▼                             │                         │
+│  ┌──────────────┐              ┌──────┴───────┐                 │
+│  │  Postgres    │              │  recursor    │ (local)         │
+│  │ node_metrics │              │  :8082       │                 │
+│  └──────────────┘              └──────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘
+                                        ▲
+                                        │ metrics push
+┌───────────────────────────────────────┼─────────────────────────┐
+│                       SECONDARY NODE  │                          │
+│                                       │                          │
+│  ┌──────────────┐              ┌──────┴───────┐                 │
+│  │  sync-agent  │─── scrapes ──│  recursor    │                 │
+│  │              │   localhost  │  :8082       │                 │
+│  │              │   :8082      └──────────────┘                 │
+│  │              │                                                │
+│  │  POSTs to primary:                                           │
+│  │  - /api/node-sync/heartbeat (existing)                       │
+│  │  - /api/node-sync/metrics   (new)                            │
+│  └──────────────┘                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why push-based (not Prometheus scrape)?
+
+| Concern | Pull (Prometheus scrapes secondaries) | Push (sync-agent posts to primary) |
+|---------|---------------------------------------|-------------------------------------|
+| NAT/firewall | ❌ Requires inbound port on secondary | ✅ Outbound only (existing connection) |
+| Discovery | ❌ Manual prometheus.yml edits | ✅ Auto from registered nodes |
+| Junior-friendly | ❌ Network config needed | ✅ Just run sync-agent |
+| Latency | Real-time (15s scrape) | Near-real-time (60s push) |
+
+For home deployments where secondaries may be behind NAT or firewalls, push-based is essential.
+
+### Key recursor metrics to collect
+
+| Metric | Purpose | Grafana Panel |
+|--------|---------|---------------|
+| `cache_hits`, `cache_misses` | Cache efficiency | Cache hit rate gauge |
+| `answers0_1` through `answers_slow` | Latency distribution | Latency histogram |
+| `concurrent_queries` | Current load | Load gauge |
+| `outgoing_timeouts` | Upstream health | Error rate |
+| `servfail_answers` | Resolution failures | Error trend |
+| `packetcache_hits` | Packet cache benefit | Cache breakdown |
+
+### Grafana configuration
+
+```ini
+# grafana.ini (or env vars)
+[auth.anonymous]
+enabled = true
+org_name = PowerBlockade
+org_role = Viewer
+
+[security]
+allow_embedding = true
+
+[server]
+root_url = %(protocol)s://%(domain)s:%(http_port)s/grafana/
+serve_from_sub_path = true
+```
+
+### Dashboard template variables
+
+```json
+{
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "type": "query",
+        "query": "label_values(powerblockade_recursor_cache_hits, node)",
+        "multi": true,
+        "includeAll": true
+      }
+    ]
+  }
+}
+```
+
+### Admin-ui integration
+
+The System Health page embeds Grafana in kiosk mode:
+
+```html
+<iframe 
+  src="/grafana/d/powerblockade/system-health?kiosk=tv&var-node=All"
+  class="w-full h-[600px] border-0"
+></iframe>
+```
+
+Grafana is proxied through admin-ui (or accessed directly internally) to avoid CORS issues.

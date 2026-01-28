@@ -132,6 +132,29 @@ cd dnstap-processor && go build ./cmd/dnstap-processor
 7. ~~Local event buffering for network partitions not implemented~~ **FIXED** - dnstap-processor uses bbolt store-and-forward
 8. ~~Config versioning for rollback not implemented~~ **FIXED** - audit trail via `/audit` page
 9. ~~No dashboard charts yet~~ **FIXED** - ApexCharts integrated on dashboard
+10. **Grafana/Prometheus ports exposed** - Should be internal-only with Grafana embedded in admin-ui (v0.2.x)
+11. **Multi-node metrics not collected** - sync-agent needs to push recursor metrics to primary (v0.2.x)
+
+## Planned (v0.2.x): Observability Stack
+
+### Architecture
+- **Push-based metrics**: sync-agent scrapes local recursor, POSTs to primary `/api/node-sync/metrics`
+- **Grafana embedded**: Anonymous auth + kiosk mode, iframe in admin-ui `/system/health`
+- **Prometheus internal**: Scrapes only admin-ui `/metrics` (which aggregates all nodes)
+
+### New Components
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `node_metrics` table | `admin-ui/app/models/` | Store pushed metrics per node |
+| `/api/node-sync/metrics` | `admin-ui/app/routers/node_sync.py` | Receive metrics from sync-agent |
+| metrics push | `sync-agent/agent.py` | Scrape local recursor, POST to primary |
+| System Health page | `admin-ui/app/templates/system.html` | Embed Grafana dashboard |
+
+### Key Metrics Collected
+- `cache_hits`, `cache_misses` (cache efficiency)
+- `answers0_1` through `answers_slow` (latency distribution)  
+- `concurrent_queries` (current load)
+- `outgoing_timeouts`, `servfail_answers` (health indicators)
 
 ## Hierarchy
 

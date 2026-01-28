@@ -25,15 +25,68 @@ PowerBlockade is a Pi-hole alternative for medium→advanced home users, built o
 - **Postgres-only for now** for both config and query logs.
 - OpenSearch is **not in scope** for MVP; may be optional later.
 
-### Metrics
-- Prometheus scrapes:
-  - PowerDNS Recursor `/metrics`
-  - our services (ingest health, precache stats, node health)
+### Observability (v0.2.x)
+
+#### Two Types of Metrics
+1. **DNS Query Stats** (user-facing analytics)
+   - Source: `dns_query_events` + `query_rollups` in Postgres
+   - Displayed: Dashboard charts via ApexCharts
+   - Data: Queries, blocks, clients, domains, response codes
+
+2. **System Performance Metrics** (operational health)
+   - Source: PowerDNS Recursor `/metrics` endpoint
+   - Displayed: Grafana dashboards embedded in admin-ui
+   - Data: Cache hit rates, latency distribution, upstream health, memory
+
+#### Multi-Node Metrics Architecture (Push-Based)
+```
+Secondary Node                          Primary Node
+┌─────────────────┐                    ┌─────────────────┐
+│ sync-agent      │───metrics─────────▶│ admin-ui        │
+│ (scrapes local  │   (POST)           │ /api/node-sync/ │
+│  recursor:8082) │                    │   metrics       │ → Postgres
+└─────────────────┘                    └─────────────────┘
+                                              │
+                                              ▼
+                                       ┌─────────────────┐
+                                       │ Prometheus      │
+                                       │ (scrapes        │
+                                       │  admin-ui only) │
+                                       └────────┬────────┘
+                                                │
+                                                ▼
+                                       ┌─────────────────┐
+                                       │ Grafana         │
+                                       │ (embedded in    │
+                                       │  admin-ui)      │
+                                       └─────────────────┘
+```
+
+**Why push-based (not Prometheus scrape)?**
+- Works through NAT/firewalls (secondary→primary direction)
+- Uses existing sync-agent connection
+- No firewall rules needed on secondary
+- Auto-discovered from registered nodes (no prometheus.yml edits)
+
+**Junior-friendly deployment:**
+```bash
+# On secondary - that's it!
+docker compose --profile sync-agent up -d
+# sync-agent automatically pushes: events + config sync + metrics
+```
+
+#### Grafana Integration
+- Grafana runs internal (no exposed port)
+- Anonymous access enabled for embedding
+- Kiosk mode for clean iframe embed
+- Template variable `$node` for multi-node filtering/comparison
+- Embedded in admin-ui `/system/health` page
 
 ### UI approach
 - Admin UI is the primary interface.
 - UI must be **modern, elegant, dark**.
 - Near-real-time updates are sufficient (polling/htmx).
+- Grafana dashboards embedded (not separate UI).
 
 ### Multi-node / HA
 - Secondaries communicate with **Primary Admin UI API**.
@@ -83,7 +136,7 @@ Must-have:
   - contextual “what is this” help on key pages
 
 ### 0.1.0 (polish)
-Focus: “fast, friendly, resilient, batteries included”.
+Focus: "fast, friendly, resilient, batteries included".
 
 Must-have:
 - Better UX polish and information architecture
@@ -94,6 +147,23 @@ Must-have:
 - Better filtering/search UX (without heavy indexing)
 - Diagnostics/health UI (clear warnings; actionable remediation)
 - Robust node config sync (config versioning + pull/apply + reload)
+
+### 0.2.x (observability)
+Focus: "unified system health view; multi-node comparison".
+
+Must-have:
+- Push-based metrics collection from secondary nodes
+- `node_metrics` table for storing pushed metrics
+- `/api/node-sync/metrics` endpoint for sync-agent
+- admin-ui `/metrics` aggregates all nodes with labels
+- Grafana embedded in admin-ui (anonymous + kiosk mode)
+- System Health page with node selector/comparison
+- Prometheus + Grafana internal-only (no exposed ports)
+
+Nice-to-have:
+- Alerting thresholds (Prometheus alertmanager)
+- Container metrics (cAdvisor)
+- Historical trends export
 
 ### 1.0.0 (stabilize via feedback)
 Focus: “feature requests converge; defaults solid; stable upgrades”.
@@ -135,3 +205,13 @@ Likely scope:
 - sync-agent config pull/apply
 - node health reporting
 - config version roll-forward
+
+### Work Order G: Observability stack (v0.2.x)
+- `node_metrics` Postgres table + migration
+- `/api/node-sync/metrics` ingest endpoint
+- sync-agent metrics push (scrape local recursor, POST to primary)
+- admin-ui `/metrics` with multi-node labels
+- Grafana anonymous + embedding config
+- PowerBlockade Grafana dashboard (node variable, key panels)
+- System Health page in admin-ui (iframe embed)
+- Remove Prometheus/Grafana external ports
