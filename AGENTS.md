@@ -123,18 +123,45 @@ cd dnstap-processor && go build ./cmd/dnstap-processor
 
 ## Known Issues / Tech Debt
 
-1. ~~`sync-agent` has Dockerfile but missing from docker-compose.yml~~ **FIXED** - now available via `--profile sync-agent`
-2. Test suite exists but some tests have LSP errors (passlib/bcrypt compatibility with Python 3.14)
-3. ~~In-container migrations can race in scaled deployments~~ **N/A** - single admin-ui per stack by design
-4. ~~Containers run as root (USER 0:0)~~ **FIXED** - non-root users added to Dockerfiles
-5. ~~Forward zones config writes to `/shared/forward-zones.conf` but recursor-reloader doesn't reload it yet~~ **FIXED** - added `reload-fzones`
-6. Precache uses 5ms threshold for cache hit - may need tuning based on real data
-7. ~~Local event buffering for network partitions not implemented~~ **FIXED** - dnstap-processor uses bbolt store-and-forward
-8. ~~Config versioning for rollback not implemented~~ **FIXED** - audit trail via `/audit` page
-9. ~~No dashboard charts yet~~ **FIXED** - ApexCharts integrated on dashboard
-10. ~~Grafana/Prometheus ports exposed~~ **FIXED** - Grafana accessible via `/grafana` proxy in admin-ui
-11. ~~Multi-node metrics not collected~~ **FIXED** - sync-agent pushes metrics to primary
-12. ~~Metrics retention default too short (90 days)~~ **FIXED** - now defaults to 365 days
+### Active Issues
+None currently tracked.
+
+### Fixed Issues
+- ~~`sync-agent` missing from docker-compose.yml~~ → Available via `--profile sync-agent`
+- ~~Containers run as root~~ → Non-root users in Dockerfiles
+- ~~Forward zones not reloaded~~ → `reload-fzones` added to recursor-reloader
+- ~~No event buffering~~ → dnstap-processor uses bbolt store-and-forward
+- ~~No config rollback~~ → Audit trail + rollback UI at `/audit`
+- ~~No dashboard charts~~ → ApexCharts integrated
+- ~~Grafana ports exposed~~ → Proxied via `/grafana` in admin-ui
+- ~~Multi-node metrics missing~~ → sync-agent pushes to primary
+- ~~Metrics retention 90 days~~ → Now 365 days default
+- ~~Python 3.14 passlib issues~~ → Migrated to direct bcrypt (removed passlib dependency)
+- ~~Cache hit threshold hardcoded~~ → Now configurable via `CACHE_HIT_THRESHOLD_MS`
+- ~~No latency for protobuf events~~ → Implemented latency calculation from query/response times
+- ~~No alerting~~ → Prometheus alertmanager with rules (optional via `--profile alerting`)
+
+## v0.3.x Upgrade System
+
+### Key Features
+- **`pb` CLI**: Pi-hole-style upgrade tool (`pb update`, `pb rollback`, `pb status`)
+- **Compose split**: `compose.yaml` (vendor) + `compose.user.yaml` (user customizations preserved on upgrade)
+- **Version tracking**: `/api/version` endpoint, version in UI footer and System Health page
+- **Pre-upgrade backups**: Automatic database backup before upgrades
+
+### Commands
+```bash
+./scripts/pb status         # Show current version and services
+./scripts/pb check-update   # Check for available updates
+./scripts/pb update         # Update to latest (backs up DB first)
+./scripts/pb rollback       # Revert to previous version
+./scripts/pb backup         # Manual backup
+```
+
+### Docker Images
+- All images use Alpine base (smaller footprint)
+- OCI labels for version tracking
+- Build args inject version info: `PB_VERSION`, `PB_GIT_SHA`, `PB_BUILD_DATE`
 
 ## v0.2.x Observability Stack
 
@@ -177,27 +204,6 @@ docker compose up -d --build
 DOMAIN=dns.example.com ACME_EMAIL=admin@example.com docker compose --profile traefik up -d
 # Access: https://dns.example.com
 ```
-
-## Planned (v0.2.x): Observability Stack
-
-### Architecture
-- **Push-based metrics**: sync-agent scrapes local recursor, POSTs to primary `/api/node-sync/metrics`
-- **Grafana embedded**: Anonymous auth + kiosk mode, iframe in admin-ui `/system/health`
-- **Prometheus internal**: Scrapes only admin-ui `/metrics` (which aggregates all nodes)
-
-### New Components
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| `node_metrics` table | `admin-ui/app/models/` | Store pushed metrics per node |
-| `/api/node-sync/metrics` | `admin-ui/app/routers/node_sync.py` | Receive metrics from sync-agent |
-| metrics push | `sync-agent/agent.py` | Scrape local recursor, POST to primary |
-| System Health page | `admin-ui/app/templates/system.html` | Embed Grafana dashboard |
-
-### Key Metrics Collected
-- `cache_hits`, `cache_misses` (cache efficiency)
-- `answers0_1` through `answers_slow` (latency distribution)  
-- `concurrent_queries` (current load)
-- `outgoing_timeouts`, `servfail_answers` (health indicators)
 
 ## Hierarchy
 

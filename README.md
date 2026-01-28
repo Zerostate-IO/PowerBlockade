@@ -42,21 +42,11 @@ docker compose -f docker-compose.ghcr.yml up -d
 docker compose up -d --build
 ```
 
-3. Access:
-
-- Admin UI: http://localhost:${ADMIN_PORT:-8080}
-- Grafana: http://localhost:3000
-- OpenSearch Dashboards: http://localhost:5601
-- DNS (dnsdist frontend): UDP/TCP 53 on the host (see compose)
-- Recursor API + metrics: http://localhost:8082 (Recursor listens internally for DNS on 5300)
-
 ## Access
 
-- Admin UI: http://localhost:${ADMIN_PORT:-8080}
-- Grafana: http://localhost:3000
-- Prometheus: http://localhost:9091
-- Recursor API + metrics: http://localhost:8082
-- DNS (dnsdist frontend): UDP/TCP 53 on the host
+- **Admin UI**: http://localhost:8080 (single entry point)
+- **Grafana**: http://localhost:8080/grafana (proxied through admin-ui)
+- **DNS**: UDP/TCP 53 on the host (via dnsdist)
 
 ### First Login
 
@@ -66,35 +56,67 @@ Default credentials (set in `.env`):
 
 ## Repo layout
 
-- `admin-ui/` FastAPI + Jinja2 UI + PostgreSQL config store
-- `dnstap-processor/` Go service that ingests dnstap and ships to OpenSearch (and optional GELF)
-- `recursor/` Recursor config mounted into the PowerDNS container
-- `opensearch/` Index template + ILM policy
-- `prometheus/` Prometheus config
-- `grafana/` Provisioning and dashboards
+```
+powerblockade/
+├── admin-ui/           # FastAPI + Jinja2 + SQLAlchemy (main UI)
+├── dnstap-processor/   # Go service: dnstap → Admin API → Postgres
+├── recursor/           # PowerDNS Recursor config + RPZ zones
+├── dnsdist/            # Edge DNS proxy (client IP attribution)
+├── sync-agent/         # Secondary node sync (via --profile sync-agent)
+├── grafana/            # Dashboard provisioning
+├── prometheus/         # Metrics scraping
+└── scripts/            # init-env.sh
+```
+
+## Features
+
+- **Blocklist management** - Import from URL (hosts, domains, adblock formats)
+- **Query logging** - Real-time DNS query logs with filtering
+- **Analytics dashboard** - Charts for queries, blocks, cache hits
+- **Multi-node support** - Secondary nodes sync config from primary
+- **Health monitoring** - Warnings with actionable remediation
+- **Config rollback** - Audit trail with one-click rollback
+- **Easy updates** - Pi-hole-like `pb update` CLI for upgrades
+
+## Updating
+
+Use the `pb` CLI for updates:
+
+```bash
+./scripts/pb check-update   # Check for available updates
+./scripts/pb update         # Update to latest version
+./scripts/pb rollback       # Rollback if needed
+./scripts/pb status         # Show current status
+```
+
+The update system automatically backs up your database before upgrading.
+
+## Customizing
+
+To customize ports, networks, or other settings without losing changes on update:
+
+1. Copy `compose.user.yaml.example` to `compose.user.yaml`
+2. Add your customizations to `compose.user.yaml`
+3. Run with: `docker compose -f compose.yaml -f compose.user.yaml up -d`
+
+Your customizations in `compose.user.yaml` are never overwritten by updates.
 
 ## Security notes (prod)
 
-- Set strong values in `.env` (do not commit it).
-- Admin password is bootstrapped from `ADMIN_PASSWORD` on first run.
+- Set strong values in `.env` (do not commit it)
+- Admin password is bootstrapped from `ADMIN_PASSWORD` on first run
+
+## Optional profiles
+
+```bash
+# Enable secondary node sync agent
+docker compose --profile sync-agent up -d
+
+# Enable Traefik for TLS
+DOMAIN=dns.example.com ACME_EMAIL=admin@example.com docker compose --profile traefik up -d
+```
 
 ## Optional networking (prod)
 
-- **macvlan “appliance mode” (Linux wired):** run `dnsdist` on a real LAN IP (no port publishing)
+- **macvlan "appliance mode" (Linux wired):** run `dnsdist` on a real LAN IP (no port publishing)
   - See: `docs/networking-macvlan.md`
-
-## Optional services
-
-OpenSearch is **internal-only** by default.
-
-- Enable OpenSearch Dashboards:
-
-```bash
-docker compose --profile dashboards up -d
-```
-
-- Expose OpenSearch on the host (e.g. for remote shipping / HA later):
-
-```bash
-docker compose --profile opensearch-public up -d
-```

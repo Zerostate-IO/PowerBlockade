@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">Client Management</h1>
+  <p class="mt-1 text-sm text-slate-400">Understanding and managing DNS clients in your network.</p>
+
+  <div class="mt-6 space-y-6">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">What are clients?</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Every device that makes DNS queries through PowerBlockade is a "client." The Clients page shows all devices that have made queries, along with their:
+      </p>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li><strong>IP address</strong> – The network address of the device</li>
+        <li><strong>Hostname</strong> – Resolved via PTR lookup (if available)</li>
+        <li><strong>Display name</strong> – Custom name you can set</li>
+        <li><strong>Query count</strong> – Total DNS queries from this client</li>
+      </ul>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Client name resolution</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        PowerBlockade resolves client hostnames using PTR (reverse DNS) lookups. This works automatically if your network has:
+      </p>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li>A router/DHCP server that registers hostnames in DNS</li>
+        <li>Local DNS server (like your router) that answers PTR queries</li>
+        <li>Static DNS entries for your devices</li>
+      </ul>
+      <div class="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+        <p class="text-sm text-amber-200">
+          ⚠️ PowerBlockade does NOT run DHCP. Client names come from PTR lookups against your existing DNS infrastructure.
+        </p>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Client resolver rules</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        By default, PTR lookups go to your network's DNS servers. If you have multiple subnets with different DNS servers, you can configure subnet-specific resolvers:
+      </p>
+      <div class="mt-3 bg-bg-900 rounded-lg p-4 text-sm">
+        <table class="w-full text-slate-300">
+          <thead class="text-slate-400 text-xs">
+            <tr><th class="text-left pb-2">Subnet</th><th class="text-left pb-2">DNS Server</th><th class="text-left pb-2">Use case</th></tr>
+          </thead>
+          <tbody class="font-mono">
+            <tr><td>192.168.1.0/24</td><td>192.168.1.1</td><td class="font-sans text-slate-400">Main LAN</td></tr>
+            <tr><td>10.10.0.0/16</td><td>10.10.0.1</td><td class="font-sans text-slate-400">IoT VLAN</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Custom display names</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        If PTR resolution doesn't work for some clients, or you prefer friendlier names, you can set custom display names:
+      </p>
+      <ol class="mt-3 list-decimal pl-5 text-sm text-slate-300 space-y-2">
+        <li>Go to the Clients page</li>
+        <li>Click on a client's IP address</li>
+        <li>Enter a display name (e.g., "Living Room TV", "John's Laptop")</li>
+        <li>The custom name will appear in logs and analytics</li>
+      </ol>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Per-client analytics</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Click on any client to see detailed analytics:
+      </p>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li><strong>Top domains</strong> – Most frequently queried domains</li>
+        <li><strong>Blocked queries</strong> – Domains that were blocked</li>
+        <li><strong>Query timeline</strong> – Activity over time</li>
+        <li><strong>Query types</strong> – Distribution of A, AAAA, CNAME, etc.</li>
+      </ul>
+    </div>
+
+    <a class="inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" href="/clients">→ Go to Clients</a>
+  </div>
+{% endblock %}

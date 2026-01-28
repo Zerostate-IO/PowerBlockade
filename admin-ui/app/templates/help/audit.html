@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">Audit & Config Rollback</h1>
+  <p class="mt-1 text-sm text-slate-400">Tracking configuration changes and reverting when needed.</p>
+
+  <div class="mt-6 space-y-6">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">What is the Audit Log?</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        The Audit page tracks all configuration changes made in PowerBlockade. Every time you:
+      </p>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li>Add, edit, or remove a blocklist</li>
+        <li>Apply blocklist changes</li>
+        <li>Add, edit, or remove a forward zone</li>
+        <li>Change system settings</li>
+      </ul>
+      <p class="mt-3 text-sm text-slate-300">
+        ...a record is created with the timestamp, what changed, and the previous value.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Why audit logging matters</h2>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-2">
+        <li><strong>Troubleshooting</strong> – "When did we add that blocklist that broke streaming?"</li>
+        <li><strong>Accountability</strong> – See who changed what and when</li>
+        <li><strong>Recovery</strong> – Quickly revert problematic changes</li>
+        <li><strong>Compliance</strong> – Maintain records of DNS policy changes</li>
+      </ul>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Config Rollback</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        For blocklist and forward zone changes, you can rollback to a previous state with one click:
+      </p>
+      <ol class="mt-3 list-decimal pl-5 text-sm text-slate-300 space-y-2">
+        <li>Go to the Audit page</li>
+        <li>Find the change you want to revert</li>
+        <li>Click the <strong>Rollback</strong> button</li>
+        <li>The configuration is restored to its previous state</li>
+      </ol>
+      <div class="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
+        <p class="text-sm text-blue-200">
+          ℹ️ Rollback creates a new audit entry, so you can always "rollback the rollback" if needed.
+        </p>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">What can be rolled back?</h2>
+      <table class="mt-3 w-full text-sm">
+        <thead class="text-slate-400 text-xs">
+          <tr>
+            <th class="text-left pb-2">Change Type</th>
+            <th class="text-left pb-2">Rollback Support</th>
+          </tr>
+        </thead>
+        <tbody class="text-slate-300">
+          <tr class="border-t border-slate-800">
+            <td class="py-2">Blocklist add/edit/remove</td>
+            <td class="py-2"><span class="text-green-400">✓ Yes</span></td>
+          </tr>
+          <tr class="border-t border-slate-800">
+            <td class="py-2">Forward zone add/edit/remove</td>
+            <td class="py-2"><span class="text-green-400">✓ Yes</span></td>
+          </tr>
+          <tr class="border-t border-slate-800">
+            <td class="py-2">Manual whitelist/blacklist entries</td>
+            <td class="py-2"><span class="text-green-400">✓ Yes</span></td>
+          </tr>
+          <tr class="border-t border-slate-800">
+            <td class="py-2">System settings</td>
+            <td class="py-2"><span class="text-slate-400">— View only</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Retention</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        Audit logs are retained indefinitely by default. They consume minimal storage since they only record configuration metadata, not query data.
+      </p>
+    </div>
+
+    <a class="inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" href="/audit">→ Go to Audit Log</a>
+  </div>
+{% endblock %}

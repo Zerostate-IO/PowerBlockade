@@ -54,14 +54,9 @@ class TestVerifyPassword:
         except Exception:
             pass
 
-    def test_verify_with_empty_hash_raises(self):
-        from passlib.exc import UnknownHashError
-
-        try:
-            verify_password("anything", "")
-            assert False, "Expected exception for empty hash"
-        except UnknownHashError:
-            pass
+    def test_verify_with_empty_hash_returns_false(self):
+        result = verify_password("anything", "")
+        assert result is False
 
 
 class TestPasswordPreHashing:

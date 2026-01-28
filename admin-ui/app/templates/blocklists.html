@@ -20,24 +20,37 @@
       <form class="mt-3 space-y-3" method="post" action="/blocklists/add">
         <div>
           <label class="text-sm text-slate-300">Name</label>
-          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="name" placeholder="StevenBlack" />
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="name" placeholder="StevenBlack" required />
         </div>
         <div>
           <label class="text-sm text-slate-300">URL</label>
-          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="url" placeholder="https://..." />
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="url" placeholder="https://..." required />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-sm text-slate-300">Format</label>
+            <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="format">
+              <option value="domains">domains</option>
+              <option value="hosts">hosts</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-sm text-slate-300">Type</label>
+            <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="list_type">
+              <option value="block">block</option>
+              <option value="allow">allow (whitelist)</option>
+            </select>
+          </div>
         </div>
         <div>
-          <label class="text-sm text-slate-300">Format</label>
-          <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="format">
-            <option value="domains">domains</option>
-            <option value="hosts">hosts</option>
-          </select>
-        </div>
-        <div>
-          <label class="text-sm text-slate-300">Type</label>
-          <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="list_type">
-            <option value="block">block</option>
-            <option value="allow">allow (whitelist)</option>
+          <label class="text-sm text-slate-300">Update frequency</label>
+          <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="update_frequency_hours">
+            <option value="6">Every 6 hours</option>
+            <option value="12">Every 12 hours</option>
+            <option value="24" selected>Daily (recommended)</option>
+            <option value="72">Every 3 days</option>
+            <option value="168">Weekly</option>
+            <option value="0">Manual only</option>
           </select>
         </div>
         <button class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" type="submit">Add</button>
@@ -50,7 +63,7 @@
       <form class="mt-3 grid grid-cols-1 gap-3" method="post" action="/entries/add">
         <div>
           <label class="text-sm text-slate-300">Domain</label>
-          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="domain" placeholder="example.com" />
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="domain" placeholder="example.com" required />
         </div>
         <div>
           <label class="text-sm text-slate-300">Type</label>
@@ -68,7 +81,7 @@
     <div class="flex items-end justify-between">
       <div>
         <h2 class="text-sm font-semibold text-slate-200">Suggested lists</h2>
-        <p class="mt-1 text-xs text-slate-400">Quick-add common lists. We’ll expand this catalog based on research and feedback.</p>
+        <p class="mt-1 text-xs text-slate-400">Quick-add common lists. We'll expand this catalog based on research and feedback.</p>
       </div>
     </div>
     <div class="mt-3 grid gap-3 md:grid-cols-2">
@@ -100,9 +113,12 @@
         <tr>
           <th class="px-4 py-3 text-left font-medium">Enabled</th>
           <th class="px-4 py-3 text-left font-medium">Name</th>
-          <th class="px-4 py-3 text-left font-medium">URL</th>
-          <th class="px-4 py-3 text-left font-medium">Format</th>
           <th class="px-4 py-3 text-left font-medium">Type</th>
+          <th class="px-4 py-3 text-left font-medium">Entries</th>
+          <th class="px-4 py-3 text-left font-medium">Update Schedule</th>
+          <th class="px-4 py-3 text-left font-medium">Last Updated</th>
+          <th class="px-4 py-3 text-left font-medium">Status</th>
+          <th class="px-4 py-3 text-left font-medium">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-800">
@@ -111,16 +127,73 @@
             <td class="px-4 py-3">
               <form method="post" action="/blocklists/toggle" class="inline">
                 <input type="hidden" name="id" value="{{ b.id }}" />
-                <button class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700" type="submit">{% if b.enabled %}on{% else %}off{% endif %}</button>
+                <button class="rounded-md border px-2 py-1 text-xs {% if b.enabled %}border-emerald-600 bg-emerald-900/50 text-emerald-400{% else %}border-slate-700 bg-bg-900 text-slate-500{% endif %} hover:bg-bg-700" type="submit">
+                  {% if b.enabled %}ON{% else %}OFF{% endif %}
+                </button>
               </form>
             </td>
-            <td class="px-4 py-3 text-slate-200">{{ b.name }}</td>
-            <td class="px-4 py-3 text-slate-400 truncate max-w-lg">{{ b.url }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ b.format }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ b.list_type }}</td>
+            <td class="px-4 py-3">
+              <div class="text-slate-200 font-medium">{{ b.name }}</div>
+              <div class="text-xs text-slate-500 truncate max-w-xs" title="{{ b.url }}">{{ b.url }}</div>
+            </td>
+            <td class="px-4 py-3">
+              <span class="rounded px-2 py-0.5 text-xs {% if b.list_type == 'allow' %}bg-emerald-900/50 text-emerald-400{% else %}bg-red-900/50 text-red-400{% endif %}">
+                {{ b.list_type }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-300">{{ b.entry_count or 0 }}</td>
+            <td class="px-4 py-3">
+              <form method="post" action="/blocklists/update-frequency" class="inline">
+                <input type="hidden" name="id" value="{{ b.id }}" />
+                <select name="update_frequency_hours" onchange="this.form.submit()" class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs text-slate-300">
+                  <option value="6" {% if b.update_frequency_hours == 6 %}selected{% endif %}>6h</option>
+                  <option value="12" {% if b.update_frequency_hours == 12 %}selected{% endif %}>12h</option>
+                  <option value="24" {% if b.update_frequency_hours == 24 %}selected{% endif %}>Daily</option>
+                  <option value="72" {% if b.update_frequency_hours == 72 %}selected{% endif %}>3 days</option>
+                  <option value="168" {% if b.update_frequency_hours == 168 %}selected{% endif %}>Weekly</option>
+                  <option value="0" {% if b.update_frequency_hours == 0 %}selected{% endif %}>Manual</option>
+                </select>
+              </form>
+            </td>
+            <td class="px-4 py-3 text-xs text-slate-400">
+              {% if b.last_updated %}
+                {{ b.last_updated.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                <span class="text-slate-500">Never</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              {% if b.last_update_status == 'success' %}
+                <span class="text-xs text-emerald-400">✓ OK</span>
+              {% elif b.last_update_status == 'failed' %}
+                <span class="text-xs text-red-400" title="{{ b.last_error or 'Unknown error' }}">✗ Failed</span>
+              {% else %}
+                <span class="text-xs text-slate-500">—</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <form method="post" action="/blocklists/delete" class="inline">
+                <input type="hidden" name="id" value="{{ b.id }}" />
+                <button class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs text-red-400 hover:bg-red-900/30" type="submit" onclick="return confirm('Delete this blocklist?')">Delete</button>
+              </form>
+            </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+    {% if not blocklists %}
+      <div class="p-8 text-center text-slate-500">No blocklists configured. Add one above or use a suggested list.</div>
+    {% endif %}
+  </div>
+
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">Auto-update</h2>
+    <p class="mt-1 text-xs text-slate-400">
+      Blocklists with a schedule will be automatically updated in the background. 
+      After updates, RPZ zones are regenerated and the recursor reloads within 5 seconds.
+    </p>
+    <p class="mt-2 text-xs text-slate-500">
+      Tip: Set "Manual" for lists you want to control manually, or for lists that rarely change.
+    </p>
   </div>
 {% endblock %}

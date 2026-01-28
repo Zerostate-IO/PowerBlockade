@@ -59,6 +59,17 @@
       <main class="mx-auto max-w-6xl px-4 py-6">
         {% block content %}{% endblock %}
       </main>
+
+      <footer class="border-t border-slate-800 mt-8">
+        <div class="mx-auto max-w-6xl px-4 py-3 flex justify-between items-center">
+          <div class="text-xs text-slate-500">
+            <a href="/system" class="hover:text-slate-400">System Health</a>
+          </div>
+          <div class="text-xs text-slate-500">
+            PowerBlockade v{{ version or "dev" }}
+          </div>
+        </div>
+      </footer>
     </div>
   </body>
 </html>

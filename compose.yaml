@@ -73,8 +73,7 @@ services:
       TZ: ${TIMEZONE:-America/Los_Angeles}
       RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
     ports:
-      - "8082:8082"  # recursor API
-      # Metrics are available at http://localhost:8082/metrics
+      - "8082:8082"
     volumes:
       - ./recursor/recursor.conf.template:/etc/pdns-recursor/recursor.conf.template:ro
       - ./recursor/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
@@ -184,9 +183,25 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     expose:
       - "9090"
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: powerblockade-alertmanager
+    restart: unless-stopped
+    profiles:
+      - alerting
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    expose:
+      - "9093"
+    depends_on:
+      prometheus:
+        condition: service_started
 
   grafana:
     image: grafana/grafana:latest
@@ -252,6 +267,7 @@ volumes:
   recursor-control-socket:
   dnstap-buffer:
   traefik-letsencrypt:
+  alertmanager-data:
 
 networks:
   default:

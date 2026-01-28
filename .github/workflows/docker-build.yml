@@ -3,10 +3,13 @@ name: Build and Push Docker Images
 on:
   push:
     branches: [main, develop]
+    tags:
+      - 'v*'
     paths:
       - 'admin-ui/**'
       - 'recursor/**'
       - 'dnstap-processor/**'
+      - 'sync-agent/**'
       - 'docker-compose.yml'
   workflow_dispatch:
 
@@ -34,6 +37,18 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Set version info
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
       - name: Extract metadata for admin-ui
         id: meta-admin
@@ -72,6 +87,10 @@ jobs:
           push: true
           tags: ${{ steps.meta-admin.outputs.tags }}
           labels: ${{ steps.meta-admin.outputs.labels }}
+          build-args: |
+            PB_VERSION=${{ steps.version.outputs.version }}
+            PB_GIT_SHA=${{ steps.version.outputs.sha }}
+            PB_BUILD_DATE=${{ steps.version.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -92,5 +111,33 @@ jobs:
           push: true
           tags: ${{ steps.meta-dnstap.outputs.tags }}
           labels: ${{ steps.meta-dnstap.outputs.labels }}
+          build-args: |
+            PB_VERSION=${{ steps.version.outputs.version }}
+            PB_GIT_SHA=${{ steps.version.outputs.sha }}
+            PB_BUILD_DATE=${{ steps.version.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for sync-agent
+        id: meta-sync
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-sync-agent
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push sync-agent
+        uses: docker/build-push-action@v5
+        with:
+          context: ./sync-agent
+          push: true
+          tags: ${{ steps.meta-sync.outputs.tags }}
+          labels: ${{ steps.meta-sync.outputs.labels }}
+          build-args: |
+            PB_VERSION=${{ steps.version.outputs.version }}
+            PB_GIT_SHA=${{ steps.version.outputs.sha }}
+            PB_BUILD_DATE=${{ steps.version.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

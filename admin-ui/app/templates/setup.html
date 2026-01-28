@@ -1,52 +1,132 @@
 {% extends "base.html" %}
 {% block content %}
-  <h1 class="text-xl font-semibold">Setup checklist</h1>
+  <h1 class="text-xl font-semibold">Setup Checklist</h1>
   <p class="mt-1 text-sm text-slate-400">Get to a working, fast DNS + blocking + visibility.</p>
 
-  <div class="mt-4 grid gap-4 md:grid-cols-2">
-    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
-      <h2 class="text-sm font-semibold text-slate-200">1) Set DNS on your network</h2>
-      <p class="mt-2 text-sm text-slate-300">Point your DHCP server/router to use this host as DNS (UDP/TCP 53).</p>
-      <ul class="mt-3 list-disc pl-5 text-sm text-slate-400 space-y-1">
-        <li>Recommended: set it at the router so all clients use it automatically.</li>
-        <li>Keep NTP enabled on the host for accurate charts and logs.</li>
-      </ul>
-    </div>
-
-    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
-      <h2 class="text-sm font-semibold text-slate-200">2) Enable blocklists</h2>
-      <p class="mt-2 text-sm text-slate-300">Use Suggested Lists as a starting point. Apply to generate RPZ.</p>
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    
+    <div class="rounded-2xl border {% if checklist.blocklists_enabled %}border-emerald-700 bg-emerald-950/30{% else %}border-amber-700 bg-amber-950/30{% endif %} p-5">
+      <div class="flex items-center gap-3">
+        {% if checklist.blocklists_enabled %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
+        {% else %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-amber-600 text-white font-bold">1</span>
+        {% endif %}
+        <h2 class="text-sm font-semibold text-slate-200">Enable Blocklists</h2>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">Use Suggested Lists as a starting point, then click Apply to generate RPZ zones.</p>
+      {% if checklist.blocklists_enabled %}
+        <p class="mt-2 text-xs text-emerald-400">{{ checklist.blocklist_count }} blocklist(s) enabled</p>
+      {% else %}
+        <p class="mt-2 text-xs text-amber-400">No blocklists enabled yet</p>
+      {% endif %}
       <div class="mt-3">
-        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/blocklists">Go to Blocklists</a>
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/blocklists">Go to Blocklists →</a>
       </div>
-      <p class="mt-3 text-xs text-slate-500">Tip: start conservative (ads+malware). Add telemetry/adult lists later.</p>
     </div>
 
-    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
-      <h2 class="text-sm font-semibold text-slate-200">3) Verify traffic + visibility</h2>
-      <p class="mt-2 text-sm text-slate-300">Once clients use this DNS, you should see logs appear.</p>
+    <div class="rounded-2xl border {% if checklist.traffic_flowing %}border-emerald-700 bg-emerald-950/30{% else %}border-slate-800 bg-bg-800{% endif %} p-5">
+      <div class="flex items-center gap-3">
+        {% if checklist.traffic_flowing %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
+        {% else %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-600 text-white font-bold">2</span>
+        {% endif %}
+        <h2 class="text-sm font-semibold text-slate-200">Point DNS to PowerBlockade</h2>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">Configure your router/DHCP to use this host's IP as the DNS server (UDP/TCP 53).</p>
+      {% if checklist.traffic_flowing %}
+        <p class="mt-2 text-xs text-emerald-400">{{ checklist.recent_queries }} queries in last hour</p>
+      {% else %}
+        <p class="mt-2 text-xs text-slate-500">No queries received yet. Point your network DNS here.</p>
+      {% endif %}
+      <ul class="mt-3 list-disc pl-5 text-xs text-slate-500 space-y-1">
+        <li>Set at the router so all clients use it automatically</li>
+        <li>Keep NTP enabled for accurate timestamps</li>
+      </ul>
+    </div>
+
+    <div class="rounded-2xl border {% if checklist.clients_seen %}border-emerald-700 bg-emerald-950/30{% else %}border-slate-800 bg-bg-800{% endif %} p-5">
+      <div class="flex items-center gap-3">
+        {% if checklist.clients_seen %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
+        {% else %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-600 text-white font-bold">3</span>
+        {% endif %}
+        <h2 class="text-sm font-semibold text-slate-200">Verify Clients Appear</h2>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">Once traffic flows, clients should appear automatically with their IPs.</p>
+      {% if checklist.clients_seen %}
+        <p class="mt-2 text-xs text-emerald-400">{{ checklist.client_count }} client(s) discovered</p>
+      {% else %}
+        <p class="mt-2 text-xs text-slate-500">No clients discovered yet</p>
+      {% endif %}
       <div class="mt-3 flex gap-2">
-        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/logs">View Logs</a>
-        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/clients">View Clients</a>
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/clients">View Clients →</a>
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/logs">View Logs →</a>
       </div>
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
-      <h2 class="text-sm font-semibold text-slate-200">Client naming (no DHCP)</h2>
-      <p class="mt-2 text-sm text-slate-300">PowerBlockade does not run DHCP. Client names come from your existing gateway/firewall DNS using PTR lookups.</p>
-      <ul class="mt-3 list-disc pl-5 text-sm text-slate-400 space-y-1">
-        <li>Plan: configure name-resolvers by subnet (e.g. 192.168.1.0/24 → router DNS).</li>
-        <li>MVP: PTR-only + manual overrides.</li>
-      </ul>
+      <div class="flex items-center gap-3">
+        {% if checklist.resolver_rules_configured %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
+        {% else %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-slate-400 text-xs">OPT</span>
+        {% endif %}
+        <h2 class="text-sm font-semibold text-slate-200">Client Name Resolution (Optional)</h2>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">PowerBlockade doesn't run DHCP. Configure PTR lookups to resolve client names from your router.</p>
+      {% if checklist.resolver_rules_configured %}
+        <p class="mt-2 text-xs text-emerald-400">{{ checklist.resolver_rule_count }} resolver rule(s) configured</p>
+      {% else %}
+        <p class="mt-2 text-xs text-slate-500">No resolver rules configured</p>
+      {% endif %}
+      <div class="mt-3">
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/client-resolver">Configure PTR →</a>
+      </div>
     </div>
 
-    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5 md:col-span-2">
-      <h2 class="text-sm font-semibold text-slate-200">HA logging expectation</h2>
-      <p class="mt-2 text-sm text-slate-300">All nodes send query events to the primary API so the UI stays a single pane of glass.</p>
-      <ul class="mt-3 list-disc pl-5 text-sm text-slate-400 space-y-1">
-        <li>Planned: local buffering on secondaries for network partitions.</li>
-        <li>Planned: idempotent ingest (event_id) to safely retry.</li>
-      </ul>
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <div class="flex items-center gap-3">
+        {% if checklist.forward_zones_configured %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
+        {% else %}
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-slate-400 text-xs">OPT</span>
+        {% endif %}
+        <h2 class="text-sm font-semibold text-slate-200">Forward Zones (Optional)</h2>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">Route specific domains to internal DNS servers (e.g., <code class="text-xs bg-slate-700 px-1 rounded">corp.local</code> → internal AD).</p>
+      {% if checklist.forward_zones_configured %}
+        <p class="mt-2 text-xs text-emerald-400">{{ checklist.forward_zone_count }} forward zone(s) configured</p>
+      {% else %}
+        <p class="mt-2 text-xs text-slate-500">No forward zones configured</p>
+      {% endif %}
+      <div class="mt-3">
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/forward-zones">Configure Zones →</a>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-indigo-800 bg-indigo-950/30 p-5">
+      <div class="flex items-center gap-3">
+        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white">?</span>
+        <h2 class="text-sm font-semibold text-slate-200">Need Help?</h2>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">Check out the contextual help pages for detailed explanations.</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/help/dns-blocking">DNS Blocking</a>
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/help/forward-zones">Forward Zones</a>
+        <a class="inline-flex rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" href="/help/multi-node">Multi-Node</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mt-8 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">What's Next?</h2>
+    <p class="mt-2 text-sm text-slate-300">Once setup is complete, the Dashboard will show query statistics, blocked domains, and cache performance.</p>
+    <div class="mt-3">
+      <a class="inline-flex rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" href="/">Go to Dashboard →</a>
     </div>
   </div>
 {% endblock %}

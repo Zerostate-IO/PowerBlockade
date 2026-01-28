@@ -41,10 +41,49 @@ def blocklists_page(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/setup", response_class=HTMLResponse)
 def setup_page(request: Request, db: Session = Depends(get_db)):
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.client import Client
+    from app.models.client_resolver_rule import ClientResolverRule
+    from app.models.dns_query_event import DNSQueryEvent
+    from app.models.forward_zone import ForwardZone
+
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
-    return templates.TemplateResponse("setup.html", {"request": request, "user": user})
+
+    enabled_blocklists = db.query(Blocklist).filter(Blocklist.enabled.is_(True)).count()
+    has_blocklists = enabled_blocklists > 0
+
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent_queries = db.query(DNSQueryEvent).filter(DNSQueryEvent.ts >= recent_cutoff).count()
+    has_traffic = recent_queries > 0
+
+    client_count = db.query(Client).count()
+    has_clients = client_count > 0
+
+    resolver_rules = db.query(ClientResolverRule).count()
+    has_resolver_rules = resolver_rules > 0
+
+    forward_zones = db.query(ForwardZone).filter(ForwardZone.enabled.is_(True)).count()
+    has_forward_zones = forward_zones > 0
+
+    checklist = {
+        "blocklists_enabled": has_blocklists,
+        "blocklist_count": enabled_blocklists,
+        "traffic_flowing": has_traffic,
+        "recent_queries": recent_queries,
+        "clients_seen": has_clients,
+        "client_count": client_count,
+        "resolver_rules_configured": has_resolver_rules,
+        "resolver_rule_count": resolver_rules,
+        "forward_zones_configured": has_forward_zones,
+        "forward_zone_count": forward_zones,
+    }
+
+    return templates.TemplateResponse(
+        "setup.html", {"request": request, "user": user, "checklist": checklist}
+    )
 
 
 @router.post("/blocklists/add")
@@ -54,6 +93,7 @@ def blocklists_add(
     url: str = Form(...),
     format: str = Form(...),
     list_type: str = Form("block"),
+    update_frequency_hours: int = Form(24),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -61,7 +101,11 @@ def blocklists_add(
         return RedirectResponse(url="/login", status_code=302)
 
     b = Blocklist(
-        name=name.strip(), url=url.strip(), format=format.strip(), list_type=list_type.strip()
+        name=name.strip(),
+        url=url.strip(),
+        format=format.strip(),
+        list_type=list_type.strip(),
+        update_frequency_hours=update_frequency_hours,
     )
     db.add(b)
     db.flush()
@@ -74,6 +118,61 @@ def blocklists_add(
         after_data=model_to_dict(b, exclude={"manual_entries"}),
     )
     db.commit()
+    return RedirectResponse(url="/blocklists", status_code=302)
+
+
+@router.post("/blocklists/update-frequency")
+def blocklists_update_frequency(
+    request: Request,
+    id: int = Form(...),
+    update_frequency_hours: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    b = db.get(Blocklist, id)
+    if b:
+        before = model_to_dict(b, exclude={"manual_entries"})
+        b.update_frequency_hours = update_frequency_hours
+        db.add(b)
+        record_change(
+            db,
+            entity_type="blocklist",
+            entity_id=b.id,
+            action="update_frequency",
+            actor_user_id=user.id,
+            before_data=before,
+            after_data=model_to_dict(b, exclude={"manual_entries"}),
+        )
+        db.commit()
+    return RedirectResponse(url="/blocklists", status_code=302)
+
+
+@router.post("/blocklists/delete")
+def blocklists_delete(
+    request: Request,
+    id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    b = db.get(Blocklist, id)
+    if b:
+        before = model_to_dict(b, exclude={"manual_entries"})
+        record_change(
+            db,
+            entity_type="blocklist",
+            entity_id=b.id,
+            action="delete",
+            actor_user_id=user.id,
+            before_data=before,
+        )
+        db.delete(b)
+        db.commit()
     return RedirectResponse(url="/blocklists", status_code=302)
 
 
@@ -156,6 +255,8 @@ def entries_add(
 
 @router.post("/blocklists/apply")
 def blocklists_apply(request: Request, db: Session = Depends(get_db)):
+    from datetime import datetime, timezone
+
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
@@ -166,6 +267,7 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
 
     blocked_domains: set[str] = {ent.domain for ent in block}
     allow_domains: set[str] = {a.domain for a in allow}
+    now = datetime.now(timezone.utc)
 
     for bl in enabled:
         try:
@@ -179,9 +281,11 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
             bl.last_update_status = "success"
             bl.last_error = None
             bl.entry_count = len(domains)
+            bl.last_updated = now
         except Exception as ex:
             bl.last_update_status = "failed"
             bl.last_error = str(ex)
+            bl.last_updated = now
 
     out_dir = "/shared/rpz"
     os.makedirs(out_dir, exist_ok=True)

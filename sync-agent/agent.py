@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import subprocess
 import time
+from pathlib import Path
 
 import requests
 
@@ -12,6 +15,22 @@ def getenv_required(key: str) -> str:
     if not v:
         raise RuntimeError(f"{key} is required")
     return v
+
+
+def compute_file_checksum(content: str) -> str:
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def write_if_changed(filepath: Path, content: str) -> bool:
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    if filepath.exists():
+        existing = filepath.read_text(encoding="utf-8")
+        if compute_file_checksum(existing) == compute_file_checksum(content):
+            return False
+
+    filepath.write_text(content, encoding="utf-8")
+    return True
 
 
 def scrape_recursor_metrics(recursor_url: str) -> dict:
@@ -54,12 +73,55 @@ def scrape_recursor_metrics(recursor_url: str) -> dict:
         return {}
 
 
+def sync_config(
+    primary_url: str, headers: dict, rpz_dir: Path, fzones_path: Path
+) -> bool:
+    try:
+        r = requests.get(
+            f"{primary_url}/api/node-sync/config", headers=headers, timeout=30
+        )
+        if r.status_code != 200:
+            print(f"config fetch failed: {r.status_code}")
+            return False
+
+        data = r.json()
+        changed = False
+
+        for rpz_file in data.get("rpz_files", []):
+            filename = rpz_file.get("filename")
+            content = rpz_file.get("content")
+            if filename and content:
+                if write_if_changed(rpz_dir / filename, content):
+                    print(f"updated RPZ: {filename}")
+                    changed = True
+
+        forward_zones = data.get("forward_zones", [])
+        if forward_zones:
+            lines = ["# Forward zones synced from primary", ""]
+            for z in forward_zones:
+                lines.append(f"{z['domain']}={z['servers']}")
+            fz_content = "\n".join(lines) + "\n"
+            if write_if_changed(fzones_path, fz_content):
+                print("updated forward-zones.conf")
+                changed = True
+
+        return changed
+    except Exception as e:
+        print(f"config sync error: {e}")
+        return False
+
+
 def main() -> None:
     node_name = getenv_required("NODE_NAME")
     primary_url = getenv_required("PRIMARY_URL").rstrip("/")
     api_key = getenv_required("PRIMARY_API_KEY")
     interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "60"))
+    config_sync_interval = int(os.getenv("CONFIG_SYNC_INTERVAL_SECONDS", "300"))
     recursor_url = os.getenv("RECURSOR_API_URL", "http://recursor:8082")
+    rpz_dir = Path(os.getenv("RPZ_DIR", "/etc/pdns-recursor/rpz"))
+    fzones_path = Path(
+        os.getenv("FORWARD_ZONES_PATH", "/etc/pdns-recursor/forward-zones.conf")
+    )
 
     headers = {"X-PowerBlockade-Node-Key": api_key}
 
@@ -77,6 +139,8 @@ def main() -> None:
         except Exception as e:
             print(f"register error: {e}")
             time.sleep(5)
+
+    last_config_sync = 0.0
 
     while True:
         try:
@@ -98,6 +162,12 @@ def main() -> None:
                     print("metrics push ok")
             except Exception as e:
                 print(f"metrics push error: {e}")
+
+        now = time.time()
+        if now - last_config_sync >= config_sync_interval:
+            if sync_config(primary_url, headers, rpz_dir, fzones_path):
+                print("config changed, recursor will reload via polling")
+            last_config_sync = now
 
         time.sleep(interval)
 

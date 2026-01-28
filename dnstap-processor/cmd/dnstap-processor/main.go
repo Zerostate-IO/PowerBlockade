@@ -24,6 +24,11 @@ import (
 	"github.com/powerblockade/dnstap-processor/internal/config"
 )
 
+var (
+	Version = "0.1.0-dev"
+	GitSHA  = "unknown"
+)
+
 func main() {
   cfg, err := config.Load()
   if err != nil {
@@ -35,8 +40,8 @@ func main() {
   }
 
 	log.Printf(
-		"starting dnstap-processor node=%s dnstap_socket=%s protobuf_listen=%s primary=%s buffer=%s",
-		cfg.NodeName, cfg.DnstapSocket, cfg.ProtobufListen, cfg.Primary.URL, cfg.Buffer.Path,
+		"starting dnstap-processor version=%s sha=%s node=%s dnstap_socket=%s protobuf_listen=%s primary=%s buffer=%s",
+		Version, GitSHA, cfg.NodeName, cfg.DnstapSocket, cfg.ProtobufListen, cfg.Primary.URL, cfg.Buffer.Path,
 	)
 
 	buf, err := buffer.Open(cfg.Buffer.Path, cfg.Buffer.MaxBytes, cfg.Buffer.MaxAge)
@@ -199,18 +204,19 @@ func main() {
             if to != nil {
               toStr = to.String()
             }
-            rcode := 0
+            rcodeDebug := 0
             if resp := pbdm.GetResponse(); resp != nil {
-              rcode = int(resp.GetRcode())
+              rcodeDebug = int(resp.GetRcode())
             }
             log.Printf(
               "protobuf sample type=%s from=%s:%d to=%s:%d qname=%s qtype=%d rcode=%d",
-              t.String(), fromStr, pbdm.GetFromPort(), toStr, pbdm.GetToPort(), qname, qtype, rcode,
+              t.String(), fromStr, pbdm.GetFromPort(), toStr, pbdm.GetToPort(), qname, qtype, rcodeDebug,
             )
           }
 
-          // Ingest client queries only.
-          if t != powerdns_protobuf.PBDNSMessage_DNSQueryType {
+          // Process both queries and responses
+          // Responses have latency info and rcode; queries don't
+          if t != powerdns_protobuf.PBDNSMessage_DNSQueryType && t != powerdns_protobuf.PBDNSMessage_DNSResponseType {
             return
           }
 
@@ -223,16 +229,36 @@ func main() {
 
           clientIP := from.String()
 
-          // Query events don't have an rcode yet.
           rcode := 0
-
-          // Prefer message timestamp (response time).
-          ts := time.Now().UTC()
-          if pbdm.GetTimeSec() != 0 {
-            ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
-          }
-
           latencyMS := 0
+          ts := time.Now().UTC()
+
+          if t == powerdns_protobuf.PBDNSMessage_DNSResponseType {
+            // Response events have rcode and latency info
+            resp := pbdm.GetResponse()
+            if resp != nil {
+              rcode = int(resp.GetRcode())
+
+              // Calculate latency from query time in response
+              queryTimeSec := resp.GetQueryTimeSec()
+              queryTimeUsec := resp.GetQueryTimeUsec()
+              if queryTimeSec != 0 && pbdm.GetTimeSec() != 0 {
+                qts := time.Unix(int64(queryTimeSec), int64(queryTimeUsec)*1e3)
+                rts := time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3)
+                if d := rts.Sub(qts); d > 0 {
+                  latencyMS = int(d / time.Millisecond)
+                }
+              }
+            }
+            if pbdm.GetTimeSec() != 0 {
+              ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
+            }
+          } else {
+            // Query events: use message timestamp, no rcode/latency
+            if pbdm.GetTimeSec() != 0 {
+              ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
+            }
+          }
 
           ev := makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS)
           select {

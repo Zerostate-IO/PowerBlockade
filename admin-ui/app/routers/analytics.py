@@ -122,19 +122,36 @@ def _get_client_labels(db: Session, client_ips: set[str]) -> dict[str, str]:
 def logs_page(
     request: Request,
     page: int = Query(1, ge=1),
+    q: str | None = Query(None),
+    client: str | None = Query(None),
+    window: TimeWindow = Query("24h"),
+    rcode: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
+    hours = WINDOW_HOURS[window]
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    query = db.query(DNSQueryEvent).filter(DNSQueryEvent.ts >= since)
+
+    if q:
+        query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
+    if client:
+        query = query.filter(DNSQueryEvent.client_ip == client)
+    if rcode:
+        rcode_val = next((k for k, v in RCODE_NAMES.items() if v == rcode), None)
+        if rcode_val is not None:
+            query = query.filter(DNSQueryEvent.rcode == rcode_val)
+
+    total = query.count()
+    total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
+
     offset = (page - 1) * DEFAULT_PAGE_SIZE
     events_raw = (
-        db.query(DNSQueryEvent)
-        .order_by(DNSQueryEvent.ts.desc())
-        .offset(offset)
-        .limit(DEFAULT_PAGE_SIZE)
-        .all()
+        query.order_by(DNSQueryEvent.ts.desc()).offset(offset).limit(DEFAULT_PAGE_SIZE).all()
     )
 
     client_ips = {e.client_ip for e in events_raw}
@@ -145,6 +162,7 @@ def logs_page(
         events.append(
             {
                 "ts": e.ts.strftime("%Y-%m-%d %H:%M:%S") if e.ts else "-",
+                "client_ip": e.client_ip,
                 "client_label": labels.get(e.client_ip, e.client_ip),
                 "qname": e.qname,
                 "qtype": QTYPE_NAMES.get(e.qtype, str(e.qtype)),
@@ -153,8 +171,14 @@ def logs_page(
             }
         )
 
-    total = db.scalar(func.count(DNSQueryEvent.id)) or 0
-    total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
+    all_clients = (
+        db.query(Client.ip, Client.display_name, Client.rdns_name)
+        .order_by(Client.display_name, Client.rdns_name, Client.ip)
+        .all()
+    )
+    client_options = [
+        {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
+    ]
 
     return templates.TemplateResponse(
         "logs.html",
@@ -165,6 +189,13 @@ def logs_page(
             "page": page,
             "total_pages": total_pages,
             "total": total,
+            "q": q or "",
+            "client": client or "",
+            "window": window,
+            "rcode": rcode or "",
+            "client_options": client_options,
+            "rcode_options": list(RCODE_NAMES.values()),
+            "window_options": list(WINDOW_HOURS.keys()),
         },
     )
 
@@ -206,23 +237,32 @@ def domains_page(
 def blocked_page(
     request: Request,
     page: int = Query(1, ge=1),
+    q: str | None = Query(None),
+    client: str | None = Query(None),
+    window: TimeWindow = Query("24h"),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
-    offset = (page - 1) * DEFAULT_PAGE_SIZE
+    hours = WINDOW_HOURS[window]
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    blocked = (
-        db.query(DNSQueryEvent)
-        .filter(DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True))
-        .order_by(DNSQueryEvent.ts.desc())
-        .offset(offset)
-        .limit(DEFAULT_PAGE_SIZE)
-        .all()
+    query = db.query(DNSQueryEvent).filter(
+        DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True)
     )
+
+    if q:
+        query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
+    if client:
+        query = query.filter(DNSQueryEvent.client_ip == client)
+
+    total = query.count()
+    total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
+
+    offset = (page - 1) * DEFAULT_PAGE_SIZE
+    blocked = query.order_by(DNSQueryEvent.ts.desc()).offset(offset).limit(DEFAULT_PAGE_SIZE).all()
 
     client_ips = {e.client_ip for e in blocked}
     labels = _get_client_labels(db, client_ips)
@@ -232,15 +272,37 @@ def blocked_page(
         events.append(
             {
                 "ts": e.ts.strftime("%Y-%m-%d %H:%M:%S") if e.ts else "-",
+                "client_ip": e.client_ip,
                 "client_label": labels.get(e.client_ip, e.client_ip),
                 "qname": e.qname,
                 "blocklist": e.blocklist_name or "manual",
             }
         )
 
+    all_clients = (
+        db.query(Client.ip, Client.display_name, Client.rdns_name)
+        .order_by(Client.display_name, Client.rdns_name, Client.ip)
+        .all()
+    )
+    client_options = [
+        {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
+    ]
+
     return templates.TemplateResponse(
         "blocked.html",
-        {"request": request, "user": user, "events": events, "page": page},
+        {
+            "request": request,
+            "user": user,
+            "events": events,
+            "page": page,
+            "total_pages": total_pages,
+            "total": total,
+            "q": q or "",
+            "client": client or "",
+            "window": window,
+            "client_options": client_options,
+            "window_options": list(WINDOW_HOURS.keys()),
+        },
     )
 
 
@@ -248,23 +310,39 @@ def blocked_page(
 def failures_page(
     request: Request,
     page: int = Query(1, ge=1),
+    q: str | None = Query(None),
+    client: str | None = Query(None),
+    window: TimeWindow = Query("24h"),
+    rcode: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
-    offset = (page - 1) * DEFAULT_PAGE_SIZE
+    hours = WINDOW_HOURS[window]
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    failures = (
-        db.query(DNSQueryEvent)
-        .filter(DNSQueryEvent.ts >= since, DNSQueryEvent.rcode.in_([2, 3]))
-        .order_by(DNSQueryEvent.ts.desc())
-        .offset(offset)
-        .limit(DEFAULT_PAGE_SIZE)
-        .all()
+    failure_rcodes = [2, 3]
+    if rcode == "SERVFAIL":
+        failure_rcodes = [2]
+    elif rcode == "NXDOMAIN":
+        failure_rcodes = [3]
+
+    query = db.query(DNSQueryEvent).filter(
+        DNSQueryEvent.ts >= since, DNSQueryEvent.rcode.in_(failure_rcodes)
     )
+
+    if q:
+        query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
+    if client:
+        query = query.filter(DNSQueryEvent.client_ip == client)
+
+    total = query.count()
+    total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
+
+    offset = (page - 1) * DEFAULT_PAGE_SIZE
+    failures = query.order_by(DNSQueryEvent.ts.desc()).offset(offset).limit(DEFAULT_PAGE_SIZE).all()
 
     client_ips = {e.client_ip for e in failures}
     labels = _get_client_labels(db, client_ips)
@@ -274,15 +352,38 @@ def failures_page(
         events.append(
             {
                 "ts": e.ts.strftime("%Y-%m-%d %H:%M:%S") if e.ts else "-",
+                "client_ip": e.client_ip,
                 "client_label": labels.get(e.client_ip, e.client_ip),
                 "qname": e.qname,
                 "rcode": RCODE_NAMES.get(e.rcode, str(e.rcode)),
             }
         )
 
+    all_clients = (
+        db.query(Client.ip, Client.display_name, Client.rdns_name)
+        .order_by(Client.display_name, Client.rdns_name, Client.ip)
+        .all()
+    )
+    client_options = [
+        {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
+    ]
+
     return templates.TemplateResponse(
         "failures.html",
-        {"request": request, "user": user, "events": events, "page": page},
+        {
+            "request": request,
+            "user": user,
+            "events": events,
+            "page": page,
+            "total_pages": total_pages,
+            "total": total,
+            "q": q or "",
+            "client": client or "",
+            "window": window,
+            "rcode": rcode or "",
+            "client_options": client_options,
+            "window_options": list(WINDOW_HOURS.keys()),
+        },
     )
 
 

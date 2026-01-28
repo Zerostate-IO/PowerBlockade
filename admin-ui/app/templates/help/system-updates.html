@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="text-xl font-semibold">System Health & Updates</h1>
+  <p class="mt-1 text-sm text-slate-400">Monitoring your DNS infrastructure and keeping it up to date.</p>
+
+  <div class="mt-6 space-y-6">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">System Health Page</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        The System Health page (<a href="/system" class="text-indigo-400 hover:text-indigo-300">/system</a>) provides a real-time overview of all your DNS nodes, including:
+      </p>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-1">
+        <li><strong>Cache hit rate</strong> – Higher is better; indicates how often queries are served from cache</li>
+        <li><strong>Cache entries</strong> – Number of domains cached in memory</li>
+        <li><strong>Questions</strong> – Total DNS queries processed</li>
+        <li><strong>Uptime</strong> – How long the resolver has been running</li>
+      </ul>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Health Warnings</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        PowerBlockade automatically detects potential issues and displays warnings with actionable remediation:
+      </p>
+      <ul class="mt-3 list-disc pl-5 text-sm text-slate-300 space-y-2">
+        <li><strong class="text-red-400">Critical</strong> – Requires immediate attention (e.g., very low cache hit rate &lt; 20%)</li>
+        <li><strong class="text-amber-400">Warning</strong> – Should be investigated (e.g., stale metrics, high SERVFAIL rate)</li>
+        <li><strong class="text-blue-400">Info</strong> – Informational notices (e.g., many slow queries during cache warmup)</li>
+      </ul>
+      <p class="mt-3 text-sm text-slate-400">
+        Each warning includes a "How to fix" section with specific steps to resolve the issue.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Updating PowerBlockade</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        PowerBlockade uses a simple CLI tool for updates, similar to Pi-hole's <code class="bg-bg-900 px-1 rounded">pihole -up</code>:
+      </p>
+      <div class="mt-3 bg-bg-900 rounded-lg p-4 font-mono text-sm text-slate-300 space-y-2">
+        <div><span class="text-slate-500"># Check for updates</span></div>
+        <div>./scripts/pb check-update</div>
+        <div class="mt-2"><span class="text-slate-500"># Update to latest version</span></div>
+        <div>./scripts/pb update</div>
+        <div class="mt-2"><span class="text-slate-500"># Rollback if something goes wrong</span></div>
+        <div>./scripts/pb rollback</div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">What happens during an update?</h2>
+      <ol class="mt-3 list-decimal pl-5 text-sm text-slate-300 space-y-2">
+        <li><strong>Backup</strong> – Database is backed up to <code class="bg-bg-900 px-1 rounded">./backups/</code></li>
+        <li><strong>Pull images</strong> – New Docker images are downloaded</li>
+        <li><strong>Run migrations</strong> – Database schema is updated if needed</li>
+        <li><strong>Restart services</strong> – Services are restarted with new images</li>
+        <li><strong>Verify health</strong> – Health checks confirm everything is working</li>
+      </ol>
+      <div class="mt-3 rounded-lg border border-green-500/30 bg-green-500/10 p-3">
+        <p class="text-sm text-green-200">
+          ✓ Your data (blocklists, settings, query logs) is preserved during updates.
+        </p>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Customizations</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        If you've customized ports, networks, or other Docker settings:
+      </p>
+      <ol class="mt-3 list-decimal pl-5 text-sm text-slate-300 space-y-2">
+        <li>Copy <code class="bg-bg-900 px-1 rounded">compose.user.yaml.example</code> to <code class="bg-bg-900 px-1 rounded">compose.user.yaml</code></li>
+        <li>Add your customizations to that file</li>
+        <li>Run with: <code class="bg-bg-900 px-1 rounded">docker compose -f compose.yaml -f compose.user.yaml up -d</code></li>
+      </ol>
+      <p class="mt-3 text-sm text-slate-400">
+        The <code class="bg-bg-900 px-1 rounded">compose.user.yaml</code> file is never overwritten by updates.
+      </p>
+    </div>
+
+    <a class="inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" href="/system">→ Go to System Health</a>
+  </div>
+{% endblock %}

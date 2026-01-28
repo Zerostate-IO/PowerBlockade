@@ -13,9 +13,24 @@ class Settings(BaseSettings):
 
     primary_api_key: str | None = None
     grafana_url: str = "http://grafana:3000"
+    recursor_api_url: str = "http://recursor:8082"
 
     metrics_retention_days: int = 365
     events_retention_days: int = 15
+
+    # Cache hit detection threshold (milliseconds)
+    # Queries faster than this are considered cache hits for precache analytics
+    # Default 5ms based on typical local cache latency; adjust based on your hardware
+    cache_hit_threshold_ms: int = 5
+
+    # Version info (injected at build time)
+    pb_version: str = "0.1.0-dev"
+    pb_git_sha: str = "unknown"
+    pb_build_date: str = "unknown"
+
+    # Node sync protocol version
+    node_protocol_version: int = 1
+    node_protocol_min_supported: int = 1
 
 
 def get_settings() -> Settings:

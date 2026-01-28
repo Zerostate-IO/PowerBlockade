@@ -1,18 +1,31 @@
 {% extends "base.html" %}
 {% block content %}
-  <div>
-    <h1 class="text-xl font-semibold">Precache Status</h1>
-    <p class="mt-1 text-sm text-slate-400">Cache performance and time saved over the last 24 hours</p>
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Cache Warming</h1>
+      <p class="mt-1 text-sm text-slate-400">Aggressive cache pre-warming for lightning-fast DNS responses</p>
+    </div>
+    <form method="post" action="/precache/warm">
+      <button class="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-slate-950" type="submit">
+        Warm Now ({{ warmable_count }} domains)
+      </button>
+    </form>
   </div>
+
+  {% if warming_message %}
+    <div class="mt-4 rounded-lg border border-emerald-700 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
+      {{ warming_message }}
+    </div>
+  {% endif %}
 
   <div class="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
       <div class="text-xs text-slate-400">Total queries (24h)</div>
-      <div class="mt-2 text-2xl font-semibold text-slate-100">{{ total }}</div>
+      <div class="mt-2 text-2xl font-semibold text-slate-100">{{ "{:,}".format(total) }}</div>
     </div>
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
       <div class="text-xs text-slate-400">Cache hits</div>
-      <div class="mt-2 text-2xl font-semibold text-emerald-400">{{ cache_hits }}</div>
+      <div class="mt-2 text-2xl font-semibold text-emerald-400">{{ "{:,}".format(cache_hits) }}</div>
     </div>
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
       <div class="text-xs text-slate-400">Cache hit rate</div>
@@ -24,8 +37,102 @@
     </div>
   </div>
 
+  <div class="mt-4 grid gap-4 md:grid-cols-2">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Warming Settings</h2>
+      <p class="mt-1 text-xs text-slate-500">Configure aggressive cache pre-warming</p>
+
+      <form method="post" action="/precache/settings" class="mt-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <label class="text-sm text-slate-300">Enable auto-warming</label>
+          <label class="relative inline-flex cursor-pointer items-center">
+            <input type="hidden" name="enabled" value="false">
+            <input type="checkbox" name="enabled" value="true" class="peer sr-only" {% if precache_enabled %}checked{% endif %}>
+            <div class="peer h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-indigo-500 peer-checked:after:translate-x-full"></div>
+          </label>
+        </div>
+
+        <div>
+          <label class="text-sm text-slate-300">Domains to warm</label>
+          <select name="domain_count" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-200">
+            <option value="100" {% if domain_count == 100 %}selected{% endif %}>100 (minimal)</option>
+            <option value="500" {% if domain_count == 500 %}selected{% endif %}>500</option>
+            <option value="1000" {% if domain_count == 1000 %}selected{% endif %}>1,000 (recommended)</option>
+            <option value="5000" {% if domain_count == 5000 %}selected{% endif %}>5,000</option>
+            <option value="10000" {% if domain_count == 10000 %}selected{% endif %}>10,000</option>
+            <option value="25000" {% if domain_count == 25000 %}selected{% endif %}>25,000</option>
+            <option value="50000" {% if domain_count == 50000 %}selected{% endif %}>50,000</option>
+            <option value="100000" {% if domain_count == 100000 %}selected{% endif %}>100,000 (maximum)</option>
+          </select>
+          <p class="mt-1 text-xs text-slate-500">Top domains from last 24h by query count</p>
+        </div>
+
+        <div class="rounded-lg border border-amber-800/50 bg-amber-950/20 p-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="text-sm text-slate-300">Ignore TTL</label>
+              <p class="text-xs text-amber-400">Force refresh regardless of DNS TTL values</p>
+            </div>
+            <label class="relative inline-flex cursor-pointer items-center">
+              <input type="hidden" name="ignore_ttl" value="false">
+              <input type="checkbox" name="ignore_ttl" value="true" class="peer sr-only" id="ignore_ttl_checkbox" {% if ignore_ttl %}checked{% endif %} onchange="toggleCustomRefresh()">
+              <div class="peer h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+
+          <div id="custom_refresh_container" class="mt-3 {% if not ignore_ttl %}hidden{% endif %}">
+            <label class="text-sm text-slate-300">Custom refresh interval</label>
+            <div class="mt-1 flex items-center gap-2">
+              <input type="number" name="custom_refresh" value="{{ custom_refresh }}" min="5" max="1440"
+                     class="w-24 rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-200">
+              <span class="text-sm text-slate-400">minutes</span>
+            </div>
+            <p class="mt-1 text-xs text-amber-400">
+              Warning: Ignoring TTL increases upstream queries. Use cautiously.
+            </p>
+          </div>
+        </div>
+
+        <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+          Save Settings
+        </button>
+      </form>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Warming Status</h2>
+      <p class="mt-1 text-xs text-slate-500">Current cache warming statistics</p>
+
+      <div class="mt-4 space-y-3">
+        <div class="flex justify-between rounded-lg bg-bg-900 p-3">
+          <span class="text-sm text-slate-400">Tracked domains</span>
+          <span class="text-sm font-medium text-slate-200">{{ "{:,}".format(precache_stats.cached_domains) }}</span>
+        </div>
+        <div class="flex justify-between rounded-lg bg-bg-900 p-3">
+          <span class="text-sm text-slate-400">Fresh (within TTL)</span>
+          <span class="text-sm font-medium text-emerald-400">{{ "{:,}".format(precache_stats.fresh) }}</span>
+        </div>
+        <div class="flex justify-between rounded-lg bg-bg-900 p-3">
+          <span class="text-sm text-slate-400">Expired (needs refresh)</span>
+          <span class="text-sm font-medium text-amber-400">{{ "{:,}".format(precache_stats.expired) }}</span>
+        </div>
+      </div>
+
+      <div class="mt-4 rounded-lg border border-slate-700 bg-bg-900 p-3 text-xs text-slate-400">
+        <strong class="text-slate-300">How it works:</strong>
+        <ul class="mt-2 list-inside list-disc space-y-1">
+          <li>Analyzes your top domains from the last 24 hours</li>
+          <li>Pre-resolves them before clients request them</li>
+          <li>Respects DNS TTL to refresh before expiry</li>
+          <li>Runs every 5 minutes, only warming expired entries</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5 overflow-hidden">
     <h2 class="text-sm font-semibold text-slate-200">Most cached domains</h2>
+    <p class="mt-1 text-xs text-slate-500">Domains that benefit most from caching</p>
     <table class="mt-3 min-w-full text-sm">
       <thead class="bg-bg-900 text-slate-400">
         <tr>
@@ -36,11 +143,28 @@
       <tbody class="divide-y divide-slate-800">
         {% for qname, count in top_cached %}
         <tr class="hover:bg-bg-700">
-          <td class="px-4 py-2 text-slate-300 font-mono">{{ qname }}</td>
-          <td class="px-4 py-2 text-right text-slate-400">{{ count }}</td>
+          <td class="px-4 py-2 text-slate-300 font-mono text-xs">{{ qname }}</td>
+          <td class="px-4 py-2 text-right text-slate-400">{{ "{:,}".format(count) }}</td>
         </tr>
         {% endfor %}
+        {% if not top_cached %}
+        <tr>
+          <td colspan="2" class="px-4 py-8 text-center text-slate-500">No cached queries yet</td>
+        </tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
+
+  <script>
+    function toggleCustomRefresh() {
+      const checkbox = document.getElementById('ignore_ttl_checkbox');
+      const container = document.getElementById('custom_refresh_container');
+      if (checkbox.checked) {
+        container.classList.remove('hidden');
+      } else {
+        container.classList.add('hidden');
+      }
+    }
+  </script>
 {% endblock %}

@@ -1,16 +1,27 @@
-FROM python:3.12-slim
+FROM python:3.12-alpine
 
 WORKDIR /app
 
+ARG PB_VERSION=0.1.0-dev
+ARG PB_GIT_SHA=unknown
+ARG PB_BUILD_DATE=unknown
+
 ENV PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PB_VERSION=${PB_VERSION} \
+    PB_GIT_SHA=${PB_GIT_SHA} \
+    PB_BUILD_DATE=${PB_BUILD_DATE}
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential libffi-dev ca-certificates wget \
-  && rm -rf /var/lib/apt/lists/* \
-  && groupadd -g 1000 appuser \
-  && useradd -u 1000 -g appuser -m appuser \
+LABEL org.opencontainers.image.version="${PB_VERSION}" \
+      org.opencontainers.image.revision="${PB_GIT_SHA}" \
+      org.opencontainers.image.created="${PB_BUILD_DATE}" \
+      org.opencontainers.image.title="PowerBlockade Admin UI" \
+      org.opencontainers.image.description="DNS filtering admin interface"
+
+RUN apk add --no-cache build-base libffi-dev ca-certificates wget \
+  && addgroup -g 1000 -S appuser \
+  && adduser -u 1000 -S -G appuser -h /home/appuser appuser \
   && mkdir -p /shared/rpz /shared/forward-zones \
   && chown -R appuser:appuser /app /shared
 

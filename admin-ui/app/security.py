@@ -2,22 +2,28 @@ from __future__ import annotations
 
 import hashlib
 
-from passlib.context import CryptContext
+import bcrypt
 
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _prehash_if_needed(password: str) -> bytes:
+    """Pre-hash passwords > 72 bytes to avoid bcrypt truncation."""
+    b = password.encode("utf-8")
+    if len(b) > 72:
+        return hashlib.sha256(b).hexdigest().encode("utf-8")
+    return b
 
 
 def hash_password(password: str) -> str:
-    # bcrypt has a 72-byte input limit; to avoid surprises with long passwords,
-    # hash the password first if needed.
-    b = password.encode("utf-8")
-    if len(b) > 72:
-        password = hashlib.sha256(b).hexdigest()
-    return _pwd.hash(password)
+    """Hash a password using bcrypt with automatic pre-hashing for long passwords."""
+    pw_bytes = _prehash_if_needed(password)
+    hashed = bcrypt.hashpw(pw_bytes, bcrypt.gensalt())
+    return hashed.decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    b = password.encode("utf-8")
-    if len(b) > 72:
-        password = hashlib.sha256(b).hexdigest()
-    return _pwd.verify(password, password_hash)
+    """Verify a password against a bcrypt hash."""
+    pw_bytes = _prehash_if_needed(password)
+    try:
+        return bcrypt.checkpw(pw_bytes, password_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False

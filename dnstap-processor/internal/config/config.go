@@ -34,11 +34,6 @@ func parseInt(s string) (int, error) {
 	return n, err
 }
 
-type OpenSearchConfig struct {
-  URL         string `yaml:"url"`
-  IndexPrefix string `yaml:"index_prefix"`
-}
-
 type PrimaryConfig struct {
   URL    string `yaml:"url"`
   APIKey string `yaml:"api_key"`

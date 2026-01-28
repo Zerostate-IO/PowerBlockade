@@ -1,0 +1,41 @@
+# PowerBlockade User Customizations
+# Copy this file to compose.user.yaml to add your customizations.
+# This file is NEVER overwritten by upgrades.
+#
+# Usage: docker compose -f compose.yaml -f compose.user.yaml up -d
+
+services:
+  # Example: Change admin-ui port from 8080 to 9090
+  # admin-ui:
+  #   ports:
+  #     - "9090:8080"
+
+  # Example: Expose Prometheus for external access
+  # prometheus:
+  #   ports:
+  #     - "9090:9090"
+
+  # Example: Add custom DNS upstream for dnsdist
+  # dnsdist:
+  #   environment:
+  #     CUSTOM_UPSTREAM: "1.1.1.1"
+
+  # Example: Mount additional config files
+  # recursor:
+  #   volumes:
+  #     - ./my-custom-rpz:/etc/pdns-recursor/custom-rpz:ro
+
+# Example: Define custom networks
+# networks:
+#   my-lan:
+#     external: true
+#     name: my-existing-network
+
+# Example: Use external database
+# services:
+#   admin-ui:
+#     environment:
+#       DATABASE_URL: postgresql+psycopg://user:pass@external-db:5432/powerblockade
+#   postgres:
+#     profiles:
+#       - disabled  # Effectively disables the service

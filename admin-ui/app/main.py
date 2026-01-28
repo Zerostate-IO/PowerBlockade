@@ -78,9 +78,13 @@ def bootstrap_primary_node() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.services.scheduler import start_scheduler, stop_scheduler
+
     bootstrap_admin()
     bootstrap_primary_node()
+    start_scheduler()
     yield
+    stop_scheduler()
 
 
 app = FastAPI(title="PowerBlockade Admin UI", lifespan=lifespan)
@@ -105,3 +109,14 @@ app.include_router(grafana_proxy_router)
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/version")
+def version():
+    return {
+        "version": settings.pb_version,
+        "git_sha": settings.pb_git_sha,
+        "build_date": settings.pb_build_date,
+        "api_protocol_version": settings.node_protocol_version,
+        "api_protocol_min_supported": settings.node_protocol_min_supported,
+    }

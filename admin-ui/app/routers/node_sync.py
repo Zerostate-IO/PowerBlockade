@@ -12,10 +12,13 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, get_db
+from app.models.blocklist import Blocklist
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
+from app.models.forward_zone import ForwardZone
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.models.settings import get_setting
 
 log = logging.getLogger(__name__)
 
@@ -90,14 +93,92 @@ def heartbeat(
 @router.get("/config")
 def config(
     node: Node = Depends(get_node_from_api_key),
+    db: Session = Depends(get_db),
 ):
-    # Placeholder until we implement real config versioning + downloads.
+    """Return configuration bundle for secondary nodes: RPZ files, forward zones, settings."""
+    import hashlib
+    import json
+    import os
+
+    rpz_files = []
+    rpz_dir = "/shared/rpz"
+
+    for filename in ["blocklist-combined.rpz", "whitelist.rpz"]:
+        filepath = os.path.join(rpz_dir, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                rpz_files.append(
+                    {
+                        "filename": filename,
+                        "content": content,
+                        "checksum": hashlib.sha256(content.encode()).hexdigest()[:16],
+                    }
+                )
+            except Exception as e:
+                log.warning(f"Failed to read RPZ file {filename}: {e}")
+
+    global_zones = (
+        db.query(ForwardZone)
+        .filter(ForwardZone.enabled.is_(True), ForwardZone.node_id.is_(None))
+        .all()
+    )
+    node_zones = (
+        db.query(ForwardZone)
+        .filter(ForwardZone.enabled.is_(True), ForwardZone.node_id == node.id)
+        .all()
+    )
+
+    zone_map = {z.domain: z for z in global_zones}
+    for z in node_zones:
+        zone_map[z.domain] = z
+
+    forward_zones = [
+        {
+            "domain": z.domain,
+            "servers": z.servers,
+            "description": z.description,
+            "is_override": z.node_id is not None,
+        }
+        for z in zone_map.values()
+    ]
+
+    settings = {
+        "retention_events_days": get_setting(db, "retention_events_days"),
+        "ptr_resolution_enabled": get_setting(db, "ptr_resolution_enabled"),
+    }
+
+    blocklists = db.query(Blocklist).filter(Blocklist.enabled.is_(True)).all()
+    blocklist_info = []
+    for b in blocklists:
+        last_upd_val = b.last_updated
+        last_upd_str = last_upd_val.isoformat() if isinstance(last_upd_val, datetime) else None
+        blocklist_info.append(
+            {
+                "name": b.name,
+                "list_type": b.list_type,
+                "entry_count": b.entry_count,
+                "last_updated": last_upd_str,
+            }
+        )
+
+    config_data = json.dumps(
+        {
+            "rpz_checksums": [r["checksum"] for r in rpz_files],
+            "forward_zones": sorted([f"{z['domain']}={z['servers']}" for z in forward_zones]),
+        },
+        sort_keys=True,
+    )
+    computed_version = hashlib.sha256(config_data.encode()).hexdigest()[:12]
+
     return {
         "ok": True,
-        "config_version": node.config_version,
-        "rpz_files": [],
-        "forward_zones": [],
-        "settings": {},
+        "config_version": computed_version,
+        "rpz_files": rpz_files,
+        "forward_zones": forward_zones,
+        "settings": settings,
+        "blocklists": blocklist_info,
     }
 
 

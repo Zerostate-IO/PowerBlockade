@@ -40,7 +40,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.23"
       - name: Go test
         working-directory: dnstap-processor
         run: go test ./...
+
+  sync-agent-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: sync-agent
+        run: pip install pytest requests
+      - name: Run tests
+        working-directory: sync-agent
+        run: pytest test_agent.py -v

@@ -1,0 +1,77 @@
+groups:
+  - name: powerblockade
+    rules:
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            sum by (node) (powerblockade_recursor_cache_hits)
+            / 
+            (sum by (node) (powerblockade_recursor_cache_hits) + sum by (node) (powerblockade_recursor_cache_misses))
+          ) * 100 < 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low DNS cache hit rate on {{ $labels.node }}"
+          description: "Cache hit rate is {{ $value | printf \"%.1f\" }}% (threshold: 50%)"
+
+      - alert: CriticalCacheHitRate
+        expr: |
+          (
+            sum by (node) (powerblockade_recursor_cache_hits)
+            / 
+            (sum by (node) (powerblockade_recursor_cache_hits) + sum by (node) (powerblockade_recursor_cache_misses))
+          ) * 100 < 20
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical DNS cache hit rate on {{ $labels.node }}"
+          description: "Cache hit rate is {{ $value | printf \"%.1f\" }}% (threshold: 20%)"
+
+      - alert: HighServfailRate
+        expr: |
+          (
+            sum by (node) (rate(powerblockade_recursor_servfail_answers[5m]))
+            / 
+            sum by (node) (rate(powerblockade_recursor_questions[5m]))
+          ) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High SERVFAIL rate on {{ $labels.node }}"
+          description: "SERVFAIL rate is {{ $value | printf \"%.1f\" }}% of queries"
+
+      - alert: HighTimeoutRate
+        expr: |
+          (
+            sum by (node) (rate(powerblockade_recursor_outgoing_timeouts[5m]))
+            / 
+            sum by (node) (rate(powerblockade_recursor_all_outqueries[5m]))
+          ) * 100 > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High upstream timeout rate on {{ $labels.node }}"
+          description: "Timeout rate is {{ $value | printf \"%.1f\" }}% of outgoing queries"
+
+      - alert: NodeMetricsStale
+        expr: |
+          time() - powerblockade_recursor_last_scrape_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stale metrics from {{ $labels.node }}"
+          description: "No metrics received from node for more than 5 minutes"
+
+      - alert: RecursorDown
+        expr: up{job="powerblockade"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PowerBlockade service down"
+          description: "Cannot scrape metrics from admin-ui"

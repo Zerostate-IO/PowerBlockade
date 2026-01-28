@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
+  {% if rollback_message %}
+  <div class="mb-4 rounded-lg border {% if 'Rolled back' in rollback_message or 'Restored' in rollback_message or 'Deleted' in rollback_message %}border-emerald-700 bg-emerald-900/30 text-emerald-300{% else %}border-amber-700 bg-amber-900/30 text-amber-300{% endif %} px-4 py-3 text-sm">
+    {{ rollback_message }}
+  </div>
+  {% endif %}
+
   <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold">Config Audit Log</h2>
@@ -44,7 +50,15 @@
             <td class="py-2 px-2">{{ c.entity_id or '-' }}</td>
             <td class="py-2 px-2">{{ users_map.get(c.actor_user_id, '-') }}</td>
             <td class="py-2 px-2">
-              <button onclick="showDetails({{ c.id }})" class="text-cyan-400 hover:underline text-xs">View</button>
+              <div class="flex items-center gap-2">
+                <button onclick="showDetails({{ c.id }})" class="text-cyan-400 hover:underline text-xs">View</button>
+                {% if c.entity_type in rollback_types and not c.action.startswith('rollback') %}
+                <form method="POST" action="/audit/rollback" class="inline" onsubmit="return confirm('Roll back this change?');">
+                  <input type="hidden" name="change_id" value="{{ c.id }}">
+                  <button type="submit" class="text-amber-400 hover:underline text-xs">Rollback</button>
+                </form>
+                {% endif %}
+              </div>
               <div id="details-{{ c.id }}" class="hidden mt-2 p-2 bg-bg-900 rounded text-xs max-w-md overflow-auto">
                 {% if c.before_data %}
                 <div class="mb-2">
@@ -57,6 +71,9 @@
                   <div class="text-slate-400 mb-1">After:</div>
                   <pre class="text-slate-300 whitespace-pre-wrap">{{ c.after_data | tojson(indent=2) }}</pre>
                 </div>
+                {% endif %}
+                {% if c.comment %}
+                <div class="mt-2 text-slate-400 italic">{{ c.comment }}</div>
                 {% endif %}
               </div>
             </td>
