@@ -13,6 +13,8 @@ services:
       - dnstap-socket:/var/run/dnstap
     cap_add:
       - NET_BIND_SERVICE
+    networks:
+      - default
     depends_on:
       recursor:
         condition: service_started
