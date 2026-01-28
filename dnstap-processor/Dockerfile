@@ -8,7 +8,18 @@ RUN go mod download
 COPY . ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/dnstap-processor ./cmd/dnstap-processor
 
-FROM gcr.io/distroless/static-debian12
+FROM alpine:3.20
+
+# Install ca-certificates for HTTPS calls
+RUN apk add --no-cache ca-certificates
+
+# Create non-root user
+RUN addgroup -g 65532 -S nonroot && \
+    adduser -u 65532 -S -G nonroot -h /home/nonroot nonroot
+
+# Create buffer directory with correct ownership
+RUN mkdir -p /var/lib/dnstap-processor && \
+    chown nonroot:nonroot /var/lib/dnstap-processor
 
 WORKDIR /
 COPY --from=build /out/dnstap-processor /dnstap-processor
