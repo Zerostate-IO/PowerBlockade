@@ -15,6 +15,7 @@ from app.db.session import SessionLocal, get_db
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.node import Node
+from app.models.node_metrics import NodeMetrics
 
 log = logging.getLogger(__name__)
 
@@ -215,3 +216,59 @@ def ingest(
         background_tasks.add_task(_background_resolve_clients, new_ips)
 
     return {"ok": True, "received": inserted, "node": node.name}
+
+
+class MetricsRequest(BaseModel):
+    cache_hits: int = 0
+    cache_misses: int = 0
+    cache_entries: int = 0
+    packetcache_hits: int = 0
+    packetcache_misses: int = 0
+    answers_0_1: int = 0
+    answers_1_10: int = 0
+    answers_10_100: int = 0
+    answers_100_1000: int = 0
+    answers_slow: int = 0
+    concurrent_queries: int = 0
+    outgoing_timeouts: int = 0
+    servfail_answers: int = 0
+    nxdomain_answers: int = 0
+    questions: int = 0
+    all_outqueries: int = 0
+    uptime_seconds: int = 0
+
+
+@router.post("/metrics")
+def metrics(
+    payload: MetricsRequest,
+    node: Node = Depends(get_node_from_api_key),
+    db: Session = Depends(get_db),
+):
+    node.last_seen = datetime.now(timezone.utc)
+    node.status = "active"
+    db.add(node)
+
+    metric = NodeMetrics(
+        node_id=node.id,
+        cache_hits=payload.cache_hits,
+        cache_misses=payload.cache_misses,
+        cache_entries=payload.cache_entries,
+        packetcache_hits=payload.packetcache_hits,
+        packetcache_misses=payload.packetcache_misses,
+        answers_0_1=payload.answers_0_1,
+        answers_1_10=payload.answers_1_10,
+        answers_10_100=payload.answers_10_100,
+        answers_100_1000=payload.answers_100_1000,
+        answers_slow=payload.answers_slow,
+        concurrent_queries=payload.concurrent_queries,
+        outgoing_timeouts=payload.outgoing_timeouts,
+        servfail_answers=payload.servfail_answers,
+        nxdomain_answers=payload.nxdomain_answers,
+        questions=payload.questions,
+        all_outqueries=payload.all_outqueries,
+        uptime_seconds=payload.uptime_seconds,
+    )
+    db.add(metric)
+    db.commit()
+
+    return {"ok": True, "node": node.name}

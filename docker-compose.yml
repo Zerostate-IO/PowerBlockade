@@ -1,4 +1,30 @@
 services:
+  traefik:
+    image: traefik:v3.2
+    container_name: powerblockade-traefik
+    restart: unless-stopped
+    profiles:
+      - traefik
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      - "80:80"
+      - "443:443"
+    expose:
+      - "8081"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - traefik-letsencrypt:/letsencrypt
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.tls=true"
+
   dnsdist:
     image: powerdns/dnsdist-19:latest
     container_name: powerblockade-dnsdist
@@ -110,8 +136,11 @@ services:
       RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
       RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
       TIMEZONE: ${TIMEZONE:-America/Los_Angeles}
+      GRAFANA_URL: ${GRAFANA_URL:-http://grafana:3000}
     ports:
       - "${ADMIN_PORT:-8080}:8080"
+    expose:
+      - "8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,6 +149,13 @@ services:
     volumes:
       - ./recursor/rpz:/shared/rpz
       - ./recursor/forward-zones.conf:/shared/forward-zones.conf
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.admin-ui.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.admin-ui.entrypoints=websecure"
+      - "traefik.http.routers.admin-ui.tls=true"
+      - "traefik.http.routers.admin-ui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.admin-ui.loadbalancer.server.port=8080"
 
   recursor-reloader:
     image: powerdns/pdns-recursor-51:latest
@@ -149,8 +185,8 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
-    ports:
-      - "9091:9090"
+    expose:
+      - "9090"
 
   grafana:
     image: grafana/grafana:latest
@@ -159,15 +195,28 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:8080/grafana/}"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       prometheus:
         condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`${DOMAIN:-localhost}`) && PathPrefix(`/grafana`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
 
   sync-agent:
     build:
@@ -193,6 +242,7 @@ volumes:
   dnstap-socket:
   recursor-control-socket:
   dnstap-buffer:
+  traefik-letsencrypt:
 
 networks:
   default:

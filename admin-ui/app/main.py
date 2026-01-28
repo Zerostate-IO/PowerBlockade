@@ -11,12 +11,14 @@ from app.routers.auth import router as auth_router
 from app.routers.blocklists import router as blocklists_router
 from app.routers.client_resolver import router as client_resolver_router
 from app.routers.forward_zones import router as forward_zones_router
+from app.routers.grafana_proxy import router as grafana_proxy_router
 from app.routers.help import router as help_router
 from app.routers.jobs import router as jobs_router
 from app.routers.metrics import router as metrics_router
 from app.routers.node_sync import router as node_sync_router
 from app.routers.nodes import router as nodes_router
 from app.routers.precache import router as precache_router
+from app.routers.system import router as system_router
 from app.security import hash_password
 from app.settings import get_settings
 
@@ -96,6 +98,8 @@ app.include_router(help_router)
 app.include_router(client_resolver_router)
 app.include_router(jobs_router)
 app.include_router(audit_router)
+app.include_router(system_router)
+app.include_router(grafana_proxy_router)
 
 
 @app.get("/health")

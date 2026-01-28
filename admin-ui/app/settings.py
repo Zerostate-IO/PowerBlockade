@@ -11,8 +11,11 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "change-me"
 
-    # Node auth: primary's local dnstap-processor uses this key.
     primary_api_key: str | None = None
+    grafana_url: str = "http://grafana:3000"
+
+    metrics_retention_days: int = 365
+    events_retention_days: int = 15
 
 
 def get_settings() -> Settings:

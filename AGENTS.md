@@ -132,8 +132,51 @@ cd dnstap-processor && go build ./cmd/dnstap-processor
 7. ~~Local event buffering for network partitions not implemented~~ **FIXED** - dnstap-processor uses bbolt store-and-forward
 8. ~~Config versioning for rollback not implemented~~ **FIXED** - audit trail via `/audit` page
 9. ~~No dashboard charts yet~~ **FIXED** - ApexCharts integrated on dashboard
-10. **Grafana/Prometheus ports exposed** - Should be internal-only with Grafana embedded in admin-ui (v0.2.x)
-11. **Multi-node metrics not collected** - sync-agent needs to push recursor metrics to primary (v0.2.x)
+10. ~~Grafana/Prometheus ports exposed~~ **FIXED** - Grafana accessible via `/grafana` proxy in admin-ui
+11. ~~Multi-node metrics not collected~~ **FIXED** - sync-agent pushes metrics to primary
+12. ~~Metrics retention default too short (90 days)~~ **FIXED** - now defaults to 365 days
+
+## v0.2.x Observability Stack
+
+### Architecture
+- **Push-based metrics**: sync-agent scrapes local recursor, POSTs to primary `/api/node-sync/metrics`
+- **Grafana embedded**: Accessed via `/grafana` proxy route in admin-ui
+- **Prometheus internal**: Internal network only (expose 9090:9090 if direct access needed)
+- **Optional Traefik**: `--profile traefik` for TLS/Let's Encrypt
+
+### New Components
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `node_metrics` table | `admin-ui/app/models/` | Store metrics from all nodes |
+| `/api/node-sync/metrics` | `admin-ui/app/routers/node_sync.py` | Metrics ingestion endpoint |
+| `/grafana` proxy | `admin-ui/app/routers/grafana_proxy.py` | Grafana routing via admin-ui |
+| System Health page | `admin-ui/app/templates/system.html` | Embedded Grafana dashboard |
+| Traefik (optional) | `traefik/traefik.yml` | Edge router with TLS support |
+
+### Key Metrics Collected
+- `cache_hits`, `cache_misses` (cache efficiency)
+- `answers0_1` through `answers_slow` (latency distribution)
+- `concurrent_queries` (current load)
+- `outgoing_timeouts`, `servfail_answers` (health indicators)
+
+### Environment Variables
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `GRAFANA_URL` | Grafana internal URL | `http://grafana:3000` |
+| `GRAFANA_ROOT_URL` | Grafana public URL | `http://localhost:8080/grafana/` |
+| `DOMAIN` | Domain for Traefik (TLS) | `localhost` |
+| `ACME_EMAIL` | Let's Encrypt email | (empty - TLS opt-in) |
+
+### Usage
+```bash
+# Default: Single entry point on port 8080
+docker compose up -d --build
+# Access: http://localhost:8080 (includes /grafana proxy)
+
+# Optional: Traefik with TLS
+DOMAIN=dns.example.com ACME_EMAIL=admin@example.com docker compose --profile traefik up -d
+# Access: https://dns.example.com
+```
 
 ## Planned (v0.2.x): Observability Stack
 

@@ -122,10 +122,17 @@ Show friendly client names without running DHCP.
 
 ### Two categories of data
 
-| Category | Source | Storage | Display |
-|----------|--------|---------|---------|
-| DNS Query Stats | dnstap → dnstap-processor | Postgres (`dns_query_events`, `query_rollups`) | ApexCharts in admin-ui dashboard |
-| System Performance | Recursor `/metrics` | Postgres (`node_metrics`) → Prometheus | Grafana embedded in admin-ui |
+| Category | Source | Storage | Retention | Display |
+|----------|--------|---------|-----------|---------|
+| DNS Query Logs | dnstap → dnstap-processor | Postgres (`dns_query_events`) | 15 days (configurable) | Query log pages |
+| DNS Aggregates | Computed from logs | Postgres (`query_rollups`) | 365 days | ApexCharts dashboard |
+| System Performance | Recursor `/metrics` | Postgres (`node_metrics`) → Prometheus | 90 days | Grafana embedded |
+
+### Retention strategy
+- **Query logs**: Short retention (15 days default) - high volume, for debugging
+- **Aggregates**: Long retention (365 days) - low volume, for trends
+- **Node metrics**: Medium retention (90 days) - Prometheus also stores for dashboards
+- All configurable via Settings page in admin-ui
 
 ### Multi-node metrics flow
 
@@ -198,14 +205,14 @@ For home deployments where secondaries may be behind NAT or firewalls, push-base
 # grafana.ini (or env vars)
 [auth.anonymous]
 enabled = true
-org_name = PowerBlockade
+org_name = Main Org.
 org_role = Viewer
 
 [security]
 allow_embedding = true
 
 [server]
-root_url = %(protocol)s://%(domain)s:%(http_port)s/grafana/
+root_url = ${GRAFANA_ROOT_URL:-http://localhost:8080/grafana/}
 serve_from_sub_path = true
 ```
 
@@ -233,9 +240,9 @@ The System Health page embeds Grafana in kiosk mode:
 
 ```html
 <iframe 
-  src="/grafana/d/powerblockade/system-health?kiosk=tv&var-node=All"
-  class="w-full h-[600px] border-0"
+  src="/grafana/d/powerblockade-health/system-health?orgId=1&kiosk=tv&theme=dark"
+  class="w-full h-full border-0"
 ></iframe>
 ```
 
-Grafana is proxied through admin-ui (or accessed directly internally) to avoid CORS issues.
+Grafana is proxied through admin-ui via `/grafana/*` route using httpx to avoid CORS issues and expose without additional ports. Grafana remains internal-only (expose: "3000").

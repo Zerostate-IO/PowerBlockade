@@ -49,5 +49,13 @@ set_kv_if_missing "RECURSOR_API_KEY" "$(rand_b64 24)"
 # Node auth for the primary's local dnstap-processor -> admin-ui ingest.
 set_kv_if_missing "PRIMARY_API_KEY" "$(rand_b64 24)"
 
+# Traefik / TLS settings
+set_kv_if_missing "DOMAIN" "localhost"
+set_kv_if_missing "ACME_EMAIL" ""
+
+# Grafana admin password
+set_kv_if_missing "GRAFANA_ADMIN_PASSWORD" "$(rand_b64 18)"
+
 echo "Wrote/updated: $ENV_FILE"
 echo "- ADMIN_PASSWORD was generated if missing"
+echo "- Set DOMAIN and ACME_EMAIL for TLS (Let's Encrypt)"

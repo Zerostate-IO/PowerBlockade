@@ -20,8 +20,9 @@ class Settings(Base):
 
 
 DEFAULTS = {
-    "retention_events_days": "30",
+    "retention_events_days": "15",
     "retention_rollups_days": "365",
+    "retention_node_metrics_days": "365",
     "rollup_enabled": "true",
     "ptr_resolution_enabled": "true",
 }
@@ -45,8 +46,12 @@ def set_setting(db, key: str, value: str) -> None:
 
 
 def get_retention_events_days(db) -> int:
-    return int(get_setting(db, "retention_events_days") or "30")
+    return int(get_setting(db, "retention_events_days") or "15")
 
 
 def get_retention_rollups_days(db) -> int:
     return int(get_setting(db, "retention_rollups_days") or "365")
+
+
+def get_retention_node_metrics_days(db) -> int:
+    return int(get_setting(db, "retention_node_metrics_days") or "90")
