@@ -1,6 +1,5 @@
 """Integration tests for node sync API endpoints."""
 
-import pytest
 from datetime import datetime, timezone
 
 from app.models.node import Node
@@ -100,7 +99,5 @@ class TestNodeSyncRoutes:
         sync_db_session.add(node)
         sync_db_session.commit()
 
-        response = authenticated_client.post(
-            f"/nodes/{node.id}/delete", follow_redirects=False
-        )
+        response = authenticated_client.post(f"/nodes/{node.id}/delete", follow_redirects=False)
         assert response.status_code == 303

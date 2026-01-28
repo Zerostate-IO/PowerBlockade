@@ -8,11 +8,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.user import User
 from app.models.node import Node
-from app.services.node_generator import generate_secondary_package_zip
 from app.routers.auth import get_current_user
-
+from app.services.node_generator import generate_secondary_package_zip
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")

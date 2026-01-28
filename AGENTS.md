@@ -15,7 +15,7 @@ powerblockade/
 ├── dnstap-processor/   # Go service: dnstap → Admin API → Postgres (540 LOC)
 ├── recursor/           # PowerDNS Recursor config + RPZ zones
 ├── dnsdist/            # Edge DNS proxy (client IP attribution)
-├── sync-agent/         # Secondary node heartbeat (NOT in compose yet)
+├── sync-agent/         # Secondary node heartbeat (via --profile sync-agent)
 ├── opensearch/         # Index templates (DEFERRED - not MVP)
 ├── grafana/            # Dashboard provisioning
 ├── prometheus/         # Metrics scraping
@@ -27,7 +27,7 @@ powerblockade/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add UI page | `admin-ui/app/main.py` | Modular routers (auth, analytics, blocklists, nodes, forward_zones, precache, metrics, help) |
+| Add UI page | `admin-ui/app/main.py` | Modular routers (auth, analytics, blocklists, nodes, forward_zones, precache, metrics, help, client_resolver, jobs) |
 | Add template | `admin-ui/app/templates/` | Jinja2, extends `base.html` |
 | Add DB model | `admin-ui/app/models/` | SQLAlchemy 2.0 mapped_column style |
 | Add migration | `admin-ui/alembic/versions/` | `alembic revision --autogenerate` |
@@ -58,8 +58,9 @@ Client → dnsdist:53 → Recursor:5300 → Response
 
 ### Go (dnstap-processor)
 - **Version**: go 1.23
-- **Structure**: `cmd/` entry, `internal/config/`
-- **Deps**: miekg/dns, dnstap, powerdns-protobuf
+- **Structure**: `cmd/` entry, `internal/config/`, `internal/buffer/`
+- **Deps**: miekg/dns, dnstap, powerdns-protobuf, bbolt
+- **Event buffering**: Uses bbolt for store-and-forward pattern (survives primary outages)
 
 ### Databases
 - **Postgres** runs via postgres:16 image
@@ -122,12 +123,15 @@ cd dnstap-processor && go build ./cmd/dnstap-processor
 
 ## Known Issues / Tech Debt
 
-1. `sync-agent` has Dockerfile but missing from docker-compose.yml
-2. No test suite yet (pytest configured but no tests)
-3. In-container migrations can race in scaled deployments
-4. Containers run as root (USER 0:0)
-5. Forward zones config writes to `/shared/forward-zones.conf` but recursor-reloader doesn't reload it yet
+1. ~~`sync-agent` has Dockerfile but missing from docker-compose.yml~~ **FIXED** - now available via `--profile sync-agent`
+2. Test suite exists but some tests have LSP errors (passlib/bcrypt compatibility with Python 3.14)
+3. ~~In-container migrations can race in scaled deployments~~ **N/A** - single admin-ui per stack by design
+4. ~~Containers run as root (USER 0:0)~~ **FIXED** - non-root users added to Dockerfiles
+5. ~~Forward zones config writes to `/shared/forward-zones.conf` but recursor-reloader doesn't reload it yet~~ **FIXED** - added `reload-fzones`
 6. Precache uses 5ms threshold for cache hit - may need tuning based on real data
+7. ~~Local event buffering for network partitions not implemented~~ **FIXED** - dnstap-processor uses bbolt store-and-forward
+8. ~~Config versioning for rollback not implemented~~ **FIXED** - audit trail via `/audit` page
+9. ~~No dashboard charts yet~~ **FIXED** - ApexCharts integrated on dashboard
 
 ## Hierarchy
 

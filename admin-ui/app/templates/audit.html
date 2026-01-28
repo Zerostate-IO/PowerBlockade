@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">Config Audit Log</h2>
+      <div class="flex gap-2">
+        <select onchange="filterByType(this.value)" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-1.5 text-sm">
+          <option value="">All types</option>
+          {% for t in entity_types %}
+          <option value="{{ t }}" {% if current_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-700 text-left text-slate-400">
+            <th class="py-2 px-2">Time</th>
+            <th class="py-2 px-2">Type</th>
+            <th class="py-2 px-2">Action</th>
+            <th class="py-2 px-2">Entity ID</th>
+            <th class="py-2 px-2">User</th>
+            <th class="py-2 px-2">Details</th>
+          </tr>
+        </thead>
+        <tbody class="text-slate-300">
+          {% for c in changes %}
+          <tr class="border-b border-slate-800 hover:bg-bg-700">
+            <td class="py-2 px-2 whitespace-nowrap">{{ c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '-' }}</td>
+            <td class="py-2 px-2">
+              <span class="rounded bg-indigo-900/50 px-2 py-0.5 text-xs text-indigo-300">{{ c.entity_type }}</span>
+            </td>
+            <td class="py-2 px-2">
+              {% if c.action == 'create' %}
+              <span class="text-emerald-400">{{ c.action }}</span>
+              {% elif c.action == 'delete' %}
+              <span class="text-red-400">{{ c.action }}</span>
+              {% else %}
+              <span class="text-amber-400">{{ c.action }}</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-2">{{ c.entity_id or '-' }}</td>
+            <td class="py-2 px-2">{{ users_map.get(c.actor_user_id, '-') }}</td>
+            <td class="py-2 px-2">
+              <button onclick="showDetails({{ c.id }})" class="text-cyan-400 hover:underline text-xs">View</button>
+              <div id="details-{{ c.id }}" class="hidden mt-2 p-2 bg-bg-900 rounded text-xs max-w-md overflow-auto">
+                {% if c.before_data %}
+                <div class="mb-2">
+                  <div class="text-slate-400 mb-1">Before:</div>
+                  <pre class="text-slate-300 whitespace-pre-wrap">{{ c.before_data | tojson(indent=2) }}</pre>
+                </div>
+                {% endif %}
+                {% if c.after_data %}
+                <div>
+                  <div class="text-slate-400 mb-1">After:</div>
+                  <pre class="text-slate-300 whitespace-pre-wrap">{{ c.after_data | tojson(indent=2) }}</pre>
+                </div>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not changes %}
+          <tr>
+            <td colspan="6" class="py-8 text-center text-slate-500">No changes recorded yet.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="mt-4 flex items-center justify-between text-sm text-slate-400">
+      <div>Showing {{ ((page - 1) * 50) + 1 }} - {{ min(page * 50, total) }} of {{ total }}</div>
+      <div class="flex gap-1">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}{% if current_type %}&entity_type={{ current_type }}{% endif %}" class="px-3 py-1 rounded bg-bg-900 hover:bg-bg-700">Prev</a>
+        {% endif %}
+        {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}{% if current_type %}&entity_type={{ current_type }}{% endif %}" class="px-3 py-1 rounded bg-bg-900 hover:bg-bg-700">Next</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    function filterByType(type) {
+      if (type) {
+        window.location.href = '/audit?entity_type=' + encodeURIComponent(type);
+      } else {
+        window.location.href = '/audit';
+      }
+    }
+
+    function showDetails(id) {
+      var el = document.getElementById('details-' + id);
+      el.classList.toggle('hidden');
+    }
+  </script>
+{% endblock %}

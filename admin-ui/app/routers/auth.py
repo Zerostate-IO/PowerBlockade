@@ -9,7 +9,6 @@ from app.db.session import get_db
 from app.models.user import User
 from app.security import verify_password
 
-
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 

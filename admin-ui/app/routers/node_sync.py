@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
 
-from app.db.session import get_db
-from app.models.node import Node
+from app.db.session import SessionLocal, get_db
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
+from app.models.node import Node
+
+log = logging.getLogger(__name__)
 
 
 def get_node_from_api_key(
@@ -110,15 +115,33 @@ class IngestEvent(BaseModel):
     blocklist_name: str | None = None
     latency_ms: int | None = None
     event_id: str | None = None
+    event_seq: int | None = None
+
+
+def _background_resolve_clients(ips: list[str]) -> None:
+    try:
+        from app.services.ptr_resolver import resolve_client_hostname
+
+        db = SessionLocal()
+        try:
+            for ip in ips:
+                try:
+                    resolve_client_hostname(db, ip)
+                except Exception as e:
+                    log.debug(f"PTR resolution failed for {ip}: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        log.warning(f"Background PTR resolution error: {e}")
 
 
 @router.post("/ingest")
 def ingest(
     payload: IngestRequest,
+    background_tasks: BackgroundTasks,
     node: Node = Depends(get_node_from_api_key),
     db: Session = Depends(get_db),
 ):
-    # Accept a batch of events from a node and store into Postgres.
     parsed: list[IngestEvent] = []
     for e in payload.events:
         try:
@@ -129,7 +152,6 @@ def ingest(
     if not parsed:
         return {"ok": True, "received": 0, "node": node.name}
 
-    # Upsert clients (by IP)
     unique_ips = {ev.client_ip for ev in parsed}
     existing = {
         c.ip: c
@@ -142,11 +164,10 @@ def ingest(
             existing[ip] = c
     db.flush()
 
-    rows: list[DNSQueryEvent] = []
     from datetime import datetime, timezone
 
+    rows_data = []
     for ev in parsed:
-        # ts parsing: accept RFC3339-ish string; fallback to now.
         ts = None
         if ev.ts:
             try:
@@ -159,24 +180,38 @@ def ingest(
         client = existing[ev.client_ip]
         client.last_seen = ts
 
-        rows.append(
-            DNSQueryEvent(
-                event_id=ev.event_id,
-                ts=ts,
-                node_id=node.id,
-                client_ip=ev.client_ip,
-                client_id=client.id,
-                qname=ev.qname.strip().lower().rstrip("."),
-                qtype=ev.qtype,
-                rcode=ev.rcode,
-                blocked=ev.blocked,
-                block_reason=ev.block_reason,
-                blocklist_name=ev.blocklist_name,
-                latency_ms=ev.latency_ms,
-            )
+        rows_data.append(
+            {
+                "event_id": ev.event_id,
+                "event_seq": ev.event_seq,
+                "ts": ts,
+                "node_id": node.id,
+                "client_ip": ev.client_ip,
+                "client_id": client.id,
+                "qname": ev.qname.strip().lower().rstrip("."),
+                "qtype": ev.qtype,
+                "rcode": ev.rcode,
+                "blocked": ev.blocked,
+                "block_reason": ev.block_reason,
+                "blocklist_name": ev.blocklist_name,
+                "latency_ms": ev.latency_ms,
+            }
         )
 
-    db.add_all(rows)
+    if rows_data:
+        stmt = pg_insert(DNSQueryEvent).values(rows_data)
+        stmt = stmt.on_conflict_do_nothing(constraint="uq_node_event_seq")
+        result = cast(CursorResult, db.execute(stmt))
+        inserted = result.rowcount or 0
+    else:
+        inserted = 0
+
     db.commit()
 
-    return {"ok": True, "received": len(rows), "node": node.name}
+    new_ips = [
+        ip for ip in unique_ips if ip not in existing or not existing[ip].rdns_last_resolved_at
+    ]
+    if new_ips:
+        background_tasks.add_task(_background_resolve_clients, new_ips)
+
+    return {"ok": True, "received": inserted, "node": node.name}

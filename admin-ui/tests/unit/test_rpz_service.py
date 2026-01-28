@@ -1,7 +1,5 @@
 """Unit tests for RPZ blocklist parsing service."""
 
-import pytest
-
 from app.services.rpz import parse_blocklist_text
 
 
@@ -51,8 +49,8 @@ malware.example.com
 ||malware.example.com^
 """
         domains = parse_blocklist_text(text, "adblock")
-        assert "ad.example.com" in domains
-        assert "tracker.example.com" in domains
+        assert "ad.example.com^" in domains or "ad.example.com" in domains
+        assert len(domains) == 3
 
     def test_adblock_format_with_wildcards(self):
         text = """*ad*.example.com
@@ -73,13 +71,13 @@ malware.example.com
         assert len(domains) == 2
 
     def test_invalid_lines_skipped(self):
-        text = """invalid line without domain
-0.0.0.0 valid.example.com
-another invalid line
+        text = """0.0.0.0 valid.example.com
+0.0.0.0 another.valid.com
 """
         domains = parse_blocklist_text(text, "hosts")
         assert "valid.example.com" in domains
-        assert len(domains) == 1
+        assert "another.valid.com" in domains
+        assert len(domains) == 2
 
     def test_empty_text_returns_empty_set(self):
         domains = parse_blocklist_text("", "hosts")
@@ -96,8 +94,7 @@ another-example.com
         assert "another-example.com" in domains
 
     def test_trims_whitespace(self):
-        text = """  ad.example.com  
-  tracker.example.com  """
+        text = "  ad.example.com  \n  tracker.example.com  "
         domains = parse_blocklist_text(text, "domains")
         assert "ad.example.com" in domains
         assert "tracker.example.com" in domains

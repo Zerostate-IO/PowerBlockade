@@ -2,27 +2,28 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-ENV PYTHONPATH=/app
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
+ENV PYTHONPATH=/app \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# System deps (bcrypt) and curl/wget for basic debugging
 RUN apt-get update \
   && apt-get install -y --no-install-recommends build-essential libffi-dev ca-certificates wget \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd -g 1000 appuser \
+  && useradd -u 1000 -g appuser -m appuser \
+  && mkdir -p /shared/rpz /shared/forward-zones \
+  && chown -R appuser:appuser /app /shared
 
-# Install uv (single binary)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-COPY requirements.txt ./
-
-# Install dependencies (no lock yet)
+COPY --chown=appuser:appuser requirements.txt ./
 RUN uv pip install --system -r requirements.txt
 
-COPY app ./app
-COPY alembic ./alembic
-COPY alembic.ini ./alembic.ini
+COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser alembic ./alembic
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
+
+USER appuser
 
 EXPOSE 8080
 

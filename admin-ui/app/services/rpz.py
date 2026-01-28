@@ -4,7 +4,6 @@ import re
 import time
 from dataclasses import dataclass
 
-
 _comment_re = re.compile(r"\s*(#|;).*$")
 
 

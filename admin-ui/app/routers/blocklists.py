@@ -9,13 +9,12 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.user import User
 from app.models.blocklist import Blocklist
 from app.models.manual_entry import ManualEntry
-from app.services.rpz import parse_blocklist_text, render_rpz_zone, render_rpz_whitelist
 from app.presets import PRESET_LISTS
 from app.routers.auth import get_current_user
-
+from app.services.config_audit import model_to_dict, record_change
+from app.services.rpz import parse_blocklist_text, render_rpz_whitelist, render_rpz_zone
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -65,6 +64,15 @@ def blocklists_add(
         name=name.strip(), url=url.strip(), format=format.strip(), list_type=list_type.strip()
     )
     db.add(b)
+    db.flush()
+    record_change(
+        db,
+        entity_type="blocklist",
+        entity_id=b.id,
+        action="create",
+        actor_user_id=user.id,
+        after_data=model_to_dict(b, exclude={"manual_entries"}),
+    )
     db.commit()
     return RedirectResponse(url="/blocklists", status_code=302)
 
@@ -104,8 +112,18 @@ def blocklists_toggle(
 
     b = db.get(Blocklist, id)
     if b:
+        before = model_to_dict(b, exclude={"manual_entries"})
         b.enabled = not bool(b.enabled)
         db.add(b)
+        record_change(
+            db,
+            entity_type="blocklist",
+            entity_id=b.id,
+            action="toggle",
+            actor_user_id=user.id,
+            before_data=before,
+            after_data=model_to_dict(b, exclude={"manual_entries"}),
+        )
         db.commit()
     return RedirectResponse(url="/blocklists", status_code=302)
 
@@ -123,6 +141,15 @@ def entries_add(
 
     e = ManualEntry(domain=domain.strip().lower().rstrip("."), entry_type=entry_type)
     db.add(e)
+    db.flush()
+    record_change(
+        db,
+        entity_type="manual_entry",
+        entity_id=e.id,
+        action="create",
+        actor_user_id=user.id,
+        after_data=model_to_dict(e),
+    )
     db.commit()
     return RedirectResponse(url="/blocklists", status_code=302)
 

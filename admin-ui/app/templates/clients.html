@@ -1,26 +1,70 @@
 {% extends "base.html" %}
 {% block content %}
-  <h1 class="text-xl font-semibold">Clients</h1>
-  <p class="mt-1 text-sm text-slate-400">Observed client IPs and names.</p>
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Clients</h1>
+      <p class="mt-1 text-sm text-slate-400">View and manage DNS clients that have made queries</p>
+    </div>
+    <a href="/clients/resolver" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Configure Name Resolution</a>
+  </div>
 
+  {% if message %}
+  <div class="mt-4 rounded-lg border border-slate-700 bg-bg-800 px-3 py-2 text-sm text-slate-200">{{ message }}</div>
+  {% endif %}
+
+  {% if clients %}
   <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
     <table class="min-w-full text-sm">
       <thead class="bg-bg-900 text-slate-300">
         <tr>
-          <th class="px-4 py-3 text-left font-medium">Client</th>
-          <th class="px-4 py-3 text-left font-medium">Last seen</th>
-          <th class="px-4 py-3 text-left font-medium">Queries (24h)</th>
+          <th class="px-4 py-3 text-left">IP Address</th>
+          <th class="px-4 py-3 text-left">Display Name</th>
+          <th class="px-4 py-3 text-left">Resolved Name (rDNS)</th>
+          <th class="px-4 py-3 text-left">Last Seen</th>
+          <th class="px-4 py-3 text-right">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-800">
         {% for c in clients %}
-          <tr class="hover:bg-bg-700">
-            <td class="px-4 py-3 text-slate-200">{{ c.label }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ c.last_seen or '-' }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ c.count_24h }}</td>
-          </tr>
+        <tr class="hover:bg-bg-700">
+          <td class="px-4 py-3 text-slate-200 font-mono">{{ c.ip }}</td>
+          <td class="px-4 py-3">
+            <form method="post" action="/clients/set-name" class="flex items-center gap-2">
+              <input type="hidden" name="id" value="{{ c.id }}" />
+              <input class="w-40 rounded border border-slate-700 bg-bg-900 px-2 py-1 text-sm" name="display_name" value="{{ c.display_name or '' }}" placeholder="Custom name" />
+              <button type="submit" class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700">Set</button>
+            </form>
+          </td>
+          <td class="px-4 py-3 text-slate-400">
+            {% if c.rdns_name %}
+              <span class="font-mono">{{ c.rdns_name }}</span>
+            {% elif c.rdns_last_error %}
+              <span class="text-amber-400 text-xs">{{ c.rdns_last_error[:30] }}...</span>
+            {% else %}
+              <span class="text-slate-500">-</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-slate-400">
+            {% if c.last_seen %}
+              {{ c.last_seen.strftime('%Y-%m-%d %H:%M') }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            <form method="post" action="/clients/resolve" class="inline">
+              <input type="hidden" name="id" value="{{ c.id }}" />
+              <button type="submit" class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700">Resolve</button>
+            </form>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5 text-center text-sm text-slate-400">
+    No clients have made DNS queries yet. Clients will appear here once queries are logged.
+  </div>
+  {% endif %}
 {% endblock %}

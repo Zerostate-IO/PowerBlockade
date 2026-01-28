@@ -3,13 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.dns_query_event import DNSQueryEvent
-
 
 router = APIRouter()
 
@@ -69,9 +68,9 @@ def metrics(db: Session = Depends(get_db)):
     qps = total / 86400 if total > 0 else 0
 
     lines = [
-        f"# Prometheus metrics for PowerBlockade",
+        "# Prometheus metrics for PowerBlockade",
         f"# Generated: {datetime.now(timezone.utc).isoformat()}",
-        f"",
+        "",
         f"powerblockade_queries_total {total}",
         f"powerblockade_blocked_total {blocked}",
         f"powerblockade_block_rate {block_rate}",

@@ -12,7 +12,6 @@ from app.db.session import get_db
 from app.models.dns_query_event import DNSQueryEvent
 from app.routers.auth import get_current_user
 
-
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
@@ -43,15 +42,6 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
 
     cache_misses = total - cache_hits
     hit_rate = (cache_hits / total * 100) if total > 0 else 0
-
-    avg_latency_total = (
-        db.scalar(
-            sa.func.avg(DNSQueryEvent.latency_ms).where(
-                DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(False)
-            )
-        )
-        or 0
-    )
 
     avg_latency_hit = (
         db.scalar(

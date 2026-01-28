@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,10 +16,10 @@ class Client(Base):
 
     display_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     rdns_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
-    rdns_last_resolved_at: Mapped[object | None] = mapped_column(sa.DateTime(timezone=True))
+    rdns_last_resolved_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     rdns_last_error: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
 
-    created_at: Mapped[object] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=sa.text("NOW()")
     )
-    last_seen: Mapped[object | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    last_seen: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)

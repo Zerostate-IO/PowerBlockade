@@ -8,7 +8,7 @@
       </div>
       <p class="mt-2 text-sm text-slate-300">DNS performance and statistics.</p>
 
-      <div class="mt-4 grid gap-2">
+      <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div class="rounded-xl border border-slate-800 bg-bg-900 px-4 py-3">
           <div class="text-xs text-slate-400">Total queries (24h)</div>
           <div class="text-2xl font-semibold text-slate-100">{{ total }}</div>
@@ -26,6 +26,21 @@
           <div class="text-2xl font-semibold text-cyan-400">{{ "%.1f"|format(time_saved / 1000) }}s</div>
         </div>
       </div>
+
+      <div class="mt-6">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-slate-200">Query History</h3>
+          <div class="flex gap-1">
+            <button data-window="1h" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">1h</button>
+            <button data-window="6h" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">6h</button>
+            <button data-window="12h" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">12h</button>
+            <button data-window="24h" class="window-btn px-2 py-1 text-xs rounded bg-indigo-600 text-white">24h</button>
+            <button data-window="3d" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">3d</button>
+            <button data-window="7d" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">7d</button>
+          </div>
+        </div>
+        <div id="query-chart" class="h-64"></div>
+      </div>
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
@@ -36,6 +51,123 @@
         </div>
         <div class="text-xs text-slate-200"><span class="text-emerald-400">All systems operational</span></div>
       </div>
+
+      <div class="mt-4 space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-indigo-500"></span>
+          <span class="text-xs text-slate-400">Total queries</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-red-500"></span>
+          <span class="text-xs text-slate-400">Blocked</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
+          <span class="text-xs text-slate-400">Cached</span>
+        </div>
+      </div>
     </div>
   </div>
+
+  <script>
+    (function() {
+      let chart = null;
+      let currentWindow = '24h';
+
+      const chartOptions = {
+        chart: {
+          type: 'area',
+          height: 256,
+          background: 'transparent',
+          toolbar: { show: false },
+          zoom: { enabled: false },
+          animations: { enabled: true, easing: 'easeinout', speed: 300 }
+        },
+        theme: { mode: 'dark' },
+        colors: ['#6366f1', '#ef4444', '#10b981'],
+        stroke: { curve: 'smooth', width: 2 },
+        fill: {
+          type: 'gradient',
+          gradient: { opacityFrom: 0.4, opacityTo: 0.05 }
+        },
+        dataLabels: { enabled: false },
+        legend: { show: false },
+        grid: {
+          borderColor: '#1e293b',
+          strokeDashArray: 4
+        },
+        xaxis: {
+          categories: [],
+          labels: {
+            style: { colors: '#64748b', fontSize: '10px' },
+            rotate: 0,
+            hideOverlappingLabels: true
+          },
+          axisBorder: { show: false },
+          axisTicks: { show: false }
+        },
+        yaxis: {
+          labels: { style: { colors: '#64748b', fontSize: '10px' } }
+        },
+        tooltip: {
+          theme: 'dark',
+          x: { show: true },
+          y: { formatter: (val) => val.toLocaleString() }
+        },
+        series: [
+          { name: 'Total', data: [] },
+          { name: 'Blocked', data: [] },
+          { name: 'Cached', data: [] }
+        ]
+      };
+
+      async function loadChartData(window) {
+        try {
+          const resp = await fetch(`/api/analytics/history?window=${window}`);
+          if (!resp.ok) throw new Error('Failed to fetch');
+          const data = await resp.json();
+
+          const labelInterval = Math.ceil(data.labels.length / 12);
+          const sparseLabels = data.labels.map((l, i) => i % labelInterval === 0 ? l : '');
+
+          chart.updateOptions({
+            xaxis: { categories: sparseLabels }
+          });
+          chart.updateSeries([
+            { name: 'Total', data: data.series.total },
+            { name: 'Blocked', data: data.series.blocked },
+            { name: 'Cached', data: data.series.cached }
+          ]);
+        } catch (err) {
+          console.error('Chart load error:', err);
+        }
+      }
+
+      function updateActiveButton(window) {
+        document.querySelectorAll('.window-btn').forEach(btn => {
+          if (btn.dataset.window === window) {
+            btn.classList.remove('bg-bg-900', 'text-slate-400');
+            btn.classList.add('bg-indigo-600', 'text-white');
+          } else {
+            btn.classList.remove('bg-indigo-600', 'text-white');
+            btn.classList.add('bg-bg-900', 'text-slate-400');
+          }
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        chart = new ApexCharts(document.querySelector('#query-chart'), chartOptions);
+        chart.render();
+        loadChartData(currentWindow);
+
+        document.querySelectorAll('.window-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            currentWindow = this.dataset.window;
+            updateActiveButton(currentWindow);
+            loadChartData(currentWindow);
+          });
+        });
+      });
+    })();
+  </script>
 {% endblock %}

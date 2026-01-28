@@ -13,6 +13,6 @@ FROM gcr.io/distroless/static-debian12
 WORKDIR /
 COPY --from=build /out/dnstap-processor /dnstap-processor
 
-USER 0:0
+USER nonroot:nonroot
 
 ENTRYPOINT ["/dnstap-processor"]

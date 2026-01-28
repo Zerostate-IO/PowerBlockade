@@ -5,18 +5,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.routers.node_sync import router as node_sync_router
-from app.routers.auth import router as auth_router
 from app.routers.analytics import router as analytics_router
+from app.routers.audit import router as audit_router
+from app.routers.auth import router as auth_router
 from app.routers.blocklists import router as blocklists_router
-from app.routers.nodes import router as nodes_router
+from app.routers.client_resolver import router as client_resolver_router
 from app.routers.forward_zones import router as forward_zones_router
-from app.routers.precache import router as precache_router
-from app.routers.metrics import router as metrics_router
 from app.routers.help import router as help_router
+from app.routers.jobs import router as jobs_router
+from app.routers.metrics import router as metrics_router
+from app.routers.node_sync import router as node_sync_router
+from app.routers.nodes import router as nodes_router
+from app.routers.precache import router as precache_router
 from app.security import hash_password
 from app.settings import get_settings
-
 
 settings = get_settings()
 
@@ -25,6 +27,7 @@ def bootstrap_admin() -> None:
     # Best-effort bootstrap: ensure admin user exists.
     # Migrations should create the table; if not, skip.
     from sqlalchemy import text
+
     from app.db.session import engine
 
     with engine.begin() as conn:
@@ -49,6 +52,7 @@ def bootstrap_admin() -> None:
 def bootstrap_primary_node() -> None:
     # Ensure a Node row exists for the local primary's dnstap-processor.
     from sqlalchemy import text
+
     from app.db.session import engine
 
     if not settings.primary_api_key:
@@ -89,6 +93,9 @@ app.include_router(forward_zones_router)
 app.include_router(precache_router)
 app.include_router(metrics_router)
 app.include_router(help_router)
+app.include_router(client_resolver_router)
+app.include_router(jobs_router)
+app.include_router(audit_router)
 
 
 @app.get("/health")

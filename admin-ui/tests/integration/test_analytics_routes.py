@@ -1,9 +1,7 @@
 """Integration tests for analytics routes."""
 
-import pytest
 from datetime import datetime, timezone
 
-from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
 
 
@@ -13,9 +11,7 @@ class TestAnalyticsRoutes:
         assert response.status_code == 200
         assert "dashboard" in response.text.lower()
 
-    def test_dashboard_shows_stats_from_events(
-        self, authenticated_client, sync_db_session
-    ):
+    def test_dashboard_shows_stats_from_events(self, authenticated_client, sync_db_session):
         for i in range(10):
             event = DNSQueryEvent(
                 ts=datetime.now(timezone.utc),

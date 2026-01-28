@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-  <h1 class="text-xl font-semibold">Failures</h1>
-  <p class="mt-1 text-sm text-slate-400">Recent SERVFAIL/NXDOMAIN results.</p>
+  <h1 class="text-xl font-semibold">DNS Failures</h1>
+  <p class="mt-1 text-sm text-slate-400">SERVFAIL and NXDOMAIN responses (24h)</p>
 
   <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
     <table class="min-w-full text-sm">
@@ -18,11 +18,18 @@
           <tr class="hover:bg-bg-700">
             <td class="px-4 py-3 whitespace-nowrap text-slate-300">{{ e.ts }}</td>
             <td class="px-4 py-3 text-slate-200">{{ e.client_label }}</td>
-            <td class="px-4 py-3 font-mono text-slate-200">{{ e.qname }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ e.rcode }}</td>
+            <td class="px-4 py-3 font-mono text-slate-200 truncate max-w-xs">{{ e.qname }}</td>
+            <td class="px-4 py-3 {% if e.rcode == 'SERVFAIL' %}text-red-400{% else %}text-amber-400{% endif %}">{{ e.rcode }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <div class="mt-4 flex items-center justify-end gap-2">
+    {% if page > 1 %}
+    <a href="/failures?page={{ page - 1 }}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Previous</a>
+    {% endif %}
+    <a href="/failures?page={{ page + 1 }}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Next</a>
   </div>
 {% endblock %}

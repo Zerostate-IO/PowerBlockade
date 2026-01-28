@@ -75,6 +75,9 @@ services:
       DEBUG_DNSTAP: ${DEBUG_DNSTAP:-false}
       GELF_ENABLED: ${GELF_ENABLED:-false}
       GELF_ENDPOINT: ${GELF_ENDPOINT:-}
+      BUFFER_PATH: ${BUFFER_PATH:-/var/lib/dnstap-processor/buffer.db}
+      BUFFER_MAX_BYTES: ${BUFFER_MAX_BYTES:-100MB}
+      BUFFER_MAX_AGE: ${BUFFER_MAX_AGE:-86400}
     expose:
       - "50001"
     networks:
@@ -83,12 +86,12 @@ services:
     volumes:
       - dnstap-socket:/var/run/dnstap
       - ./recursor/rpz:/shared/rpz:ro
+      - dnstap-buffer:/var/lib/dnstap-processor
     depends_on:
       recursor:
         condition: service_started
       admin-ui:
         condition: service_started
-    user: "0:0"
 
   admin-ui:
     build:
@@ -127,10 +130,12 @@ services:
         while true; do
           rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
           rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
+          rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
           sleep ${RECURSOR_RELOAD_INTERVAL_SECONDS:-5};
         done
     volumes:
       - recursor-control-socket:/var/run/pdns-recursor
+      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
     depends_on:
       recursor:
         condition: service_started
@@ -162,12 +167,30 @@ services:
       prometheus:
         condition: service_started
 
+  sync-agent:
+    build:
+      context: ./sync-agent
+    image: powerblockade-sync-agent
+    container_name: powerblockade-sync-agent
+    restart: unless-stopped
+    profiles:
+      - sync-agent
+    environment:
+      NODE_NAME: ${NODE_NAME:-primary}
+      PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
+      PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
+    depends_on:
+      admin-ui:
+        condition: service_started
+
 volumes:
   postgres-data:
   prometheus-data:
   grafana-data:
   dnstap-socket:
   recursor-control-socket:
+  dnstap-buffer:
 
 networks:
   default:

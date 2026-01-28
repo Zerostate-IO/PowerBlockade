@@ -9,8 +9,8 @@ from app.db.session import get_db
 from app.models.forward_zone import ForwardZone
 from app.models.node import Node
 from app.routers.auth import get_current_user
+from app.services.config_audit import model_to_dict, record_change
 from app.services.forward_zones import write_forward_zones_config
-
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -77,6 +77,15 @@ def forward_zones_add(
         node_id=node_id_int,
     )
     db.add(zone)
+    db.flush()
+    record_change(
+        db,
+        entity_type="forward_zone",
+        entity_id=zone.id,
+        action="create",
+        actor_user_id=user.id,
+        after_data=model_to_dict(zone, exclude={"node"}),
+    )
     db.commit()
     return RedirectResponse(url="/forwardzones", status_code=302)
 
@@ -93,8 +102,18 @@ def forward_zones_toggle(
 
     zone = db.get(ForwardZone, id)
     if zone:
+        before = model_to_dict(zone, exclude={"node"})
         zone.enabled = not bool(zone.enabled)
         db.add(zone)
+        record_change(
+            db,
+            entity_type="forward_zone",
+            entity_id=zone.id,
+            action="toggle",
+            actor_user_id=user.id,
+            before_data=before,
+            after_data=model_to_dict(zone, exclude={"node"}),
+        )
         db.commit()
     return RedirectResponse(url="/forwardzones", status_code=302)
 
@@ -111,6 +130,15 @@ def forward_zones_delete(
 
     zone = db.get(ForwardZone, id)
     if zone:
+        before = model_to_dict(zone, exclude={"node"})
+        record_change(
+            db,
+            entity_type="forward_zone",
+            entity_id=zone.id,
+            action="delete",
+            actor_user_id=user.id,
+            before_data=before,
+        )
         db.delete(zone)
         db.commit()
     return RedirectResponse(url="/forwardzones", status_code=302)
@@ -136,7 +164,7 @@ def forward_zones_apply(request: Request, db: Session = Depends(get_db)):
     )
     nodes = db.query(Node).all()
 
-    content = write_forward_zones_config(db)
+    write_forward_zones_config(db)
     zone_count = len(global_zones) + len(per_node_zones)
 
     msg = f"Wrote forward-zones.conf: {zone_count} zones"

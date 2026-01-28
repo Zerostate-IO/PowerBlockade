@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-  <h1 class="text-xl font-semibold">Blocked</h1>
-  <p class="mt-1 text-sm text-slate-400">Blocked queries (placeholder until blocking pipeline wired).</p>
+  <h1 class="text-xl font-semibold">Blocked Queries</h1>
+  <p class="mt-1 text-sm text-slate-400">Queries blocked by RPZ lists (24h)</p>
 
   <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
     <table class="min-w-full text-sm">
@@ -10,7 +10,7 @@
           <th class="px-4 py-3 text-left font-medium">Time</th>
           <th class="px-4 py-3 text-left font-medium">Client</th>
           <th class="px-4 py-3 text-left font-medium">Domain</th>
-          <th class="px-4 py-3 text-left font-medium">Reason</th>
+          <th class="px-4 py-3 text-left font-medium">Blocklist</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-800">
@@ -18,11 +18,18 @@
           <tr class="hover:bg-bg-700">
             <td class="px-4 py-3 whitespace-nowrap text-slate-300">{{ e.ts }}</td>
             <td class="px-4 py-3 text-slate-200">{{ e.client_label }}</td>
-            <td class="px-4 py-3 font-mono text-slate-200">{{ e.qname }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ e.block_reason or '-' }}</td>
+            <td class="px-4 py-3 font-mono text-slate-200 truncate max-w-xs">{{ e.qname }}</td>
+            <td class="px-4 py-3 text-amber-400">{{ e.blocklist }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <div class="mt-4 flex items-center justify-end gap-2">
+    {% if page > 1 %}
+    <a href="/blocked?page={{ page - 1 }}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Previous</a>
+    {% endif %}
+    <a href="/blocked?page={{ page + 1 }}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Next</a>
   </div>
 {% endblock %}

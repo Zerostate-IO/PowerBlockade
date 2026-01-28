@@ -1,99 +1,67 @@
 """Unit tests for forward zones config generation service."""
 
-import pytest
-from pathlib import Path
+from unittest.mock import MagicMock
 
-from app.services.forward_zones import generate_config
+from app.services.forward_zones import generate_forward_zones_config
 
 
-class TestGenerateConfig:
+class TestGenerateForwardZonesConfig:
     def test_generate_empty_config(self):
-        config = generate_config([])
-        assert config == ""
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = []
 
-    def test_generate_single_global_zone(self):
-        zones = [
-            {
-                "name": "internal.corp.local",
-                "nameservers": "10.0.1.53",
-                "scope": "global",
-            }
-        ]
-        config = generate_config(zones)
-        assert "forward-zone:" in config
-        assert "name: internal.corp.local" in config
-        assert "forward-addr: 10.0.1.53" in config
+        config = generate_forward_zones_config(mock_db)
 
-    def test_generate_multiple_global_zones(self):
-        zones = [
-            {"name": "corp.local", "nameservers": "10.0.1.53", "scope": "global"},
-            {
-                "name": "dev.local",
-                "nameservers": "127.0.0.1:5353",
-                "scope": "global",
-            },
-        ]
-        config = generate_config(zones)
+        assert "Forward zones" in config
+        assert "Generated automatically" in config
 
-        assert "forward-zone:" in config
-        assert "name: corp.local" in config
-        assert "name: dev.local" in config
+    def test_generate_single_zone(self):
+        mock_zone = MagicMock()
+        mock_zone.domain = "internal.corp.local"
+        mock_zone.servers = "10.0.1.53"
 
-    def test_generate_with_multiple_nameservers(self):
-        zones = [
-            {
-                "name": "corp.local",
-                "nameservers": "10.0.1.53,10.0.1.54,10.0.1.55",
-                "scope": "global",
-            }
-        ]
-        config = generate_config(zones)
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [mock_zone]
 
-        assert "forward-addr: 10.0.1.53" in config
-        assert "forward-addr: 10.0.1.54" in config
-        assert "forward-addr: 10.0.1.55" in config
+        config = generate_forward_zones_config(mock_db)
 
-    def test_filters_per_node_zones_correctly(self, sync_db_session):
-        from app.models.node import Node
-        from app.models.forward_zone import ForwardZone
+        assert "internal.corp.local=10.0.1.53" in config
 
-        node1 = Node(name="node1", api_key="key1", status="active")
-        node2 = Node(name="node2", api_key="key2", status="active")
-        sync_db_session.add(node1)
-        sync_db_session.add(node2)
-        sync_db_session.commit()
+    def test_generate_multiple_zones(self):
+        mock_zone1 = MagicMock()
+        mock_zone1.domain = "corp.local"
+        mock_zone1.servers = "10.0.1.53"
 
-        zone1 = ForwardZone(name="global.local", nameservers="10.0.1.1", scope="global")
-        zone2 = ForwardZone(name="node1.local", nameservers="10.0.1.2", node=node1)
-        zone3 = ForwardZone(name="node2.local", nameservers="10.0.1.3", node=node2)
-        sync_db_session.add(zone1)
-        sync_db_session.add(zone2)
-        sync_db_session.add(zone3)
-        sync_db_session.commit()
+        mock_zone2 = MagicMock()
+        mock_zone2.domain = "dev.local"
+        mock_zone2.servers = "127.0.0.1:5353"
 
-        from app.services.forward_zones import generate_config_from_db
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [mock_zone1, mock_zone2]
 
-        config = generate_config_from_db(sync_db_session, node_id=node1.id)
+        config = generate_forward_zones_config(mock_db)
 
-        assert "name: global.local" in config
-        assert "name: node1.local" in config
-        assert "name: node2.local" not in config
+        assert "corp.local=10.0.1.53" in config
+        assert "dev.local=127.0.0.1:5353" in config
 
-    def test_global_zones_included_for_all_nodes(self, sync_db_session):
-        from app.models.node import Node
-        from app.models.forward_zone import ForwardZone
+    def test_generate_with_multiple_servers(self):
+        mock_zone = MagicMock()
+        mock_zone.domain = "corp.local"
+        mock_zone.servers = "10.0.1.53,10.0.1.54,10.0.1.55"
 
-        node = Node(name="node1", api_key="key1", status="active")
-        sync_db_session.add(node)
-        sync_db_session.commit()
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [mock_zone]
 
-        zone = ForwardZone(name="global.local", nameservers="10.0.1.1")
-        sync_db_session.add(zone)
-        sync_db_session.commit()
+        config = generate_forward_zones_config(mock_db)
 
-        from app.services.forward_zones import generate_config_from_db
+        assert "corp.local=10.0.1.53,10.0.1.54,10.0.1.55" in config
 
-        config = generate_config_from_db(sync_db_session, node_id=node.id)
+    def test_only_queries_enabled_global_zones(self):
+        mock_db = MagicMock()
+        mock_query = mock_db.query.return_value
+        mock_filter = mock_query.filter.return_value
+        mock_filter.all.return_value = []
 
-        assert "name: global.local" in config
-        assert "forward-addr: 10.0.1.1" in config
+        generate_forward_zones_config(mock_db)
+
+        mock_query.filter.assert_called_once()

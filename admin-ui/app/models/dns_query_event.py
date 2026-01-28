@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -8,11 +10,13 @@ from app.db.base import Base
 
 class DNSQueryEvent(Base):
     __tablename__ = "dns_query_events"
+    __table_args__ = (sa.UniqueConstraint("node_id", "event_seq", name="uq_node_event_seq"),)
 
     id: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True)
     event_id: Mapped[str | None] = mapped_column(sa.String(64), unique=True)
+    event_seq: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True)
 
-    ts: Mapped[object] = mapped_column(sa.DateTime(timezone=True), index=True)
+    ts: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), index=True)
     node_id: Mapped[int | None] = mapped_column(
         sa.Integer(), sa.ForeignKey("nodes.id", ondelete="SET NULL")
     )

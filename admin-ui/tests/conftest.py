@@ -1,89 +1,64 @@
 """
 Pytest fixtures for PowerBlockade admin-ui tests.
+
+This module provides fixtures for both unit tests (in-memory SQLite) and
+integration tests (PostgreSQL). Most tests should use the sync fixtures
+(sync_db_session, sync_client) for simplicity.
 """
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import AsyncIterator, Generator
+from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-# Import these after we have a proper test environment
-from app.db.session import Base, get_db
+from app.db.base import Base
+from app.db.session import get_db
 from app.main import app
-from app.models.blocklist import Blocklist
-from app.models.forward_zone import ForwardZone
 from app.models.user import User
 
 
+def _sqlite_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _setup_sqlite_now(dbapi_conn, connection_record):
+    dbapi_conn.create_function("NOW", 0, _sqlite_now)
+
+
 # Test database URL (PostgreSQL for integration tests)
-TEST_DATABASE_URL = (
-    "postgresql+psycopg://postgres:postgres@localhost:5432/test_powerblockade"
-)
+TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/test_powerblockade"
 
 
 @pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for async tests."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="session")
-def async_engine():
-    """Create async engine for test database."""
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        echo=False,
-        future=True,
-    )
+def pg_engine():
+    """Create PostgreSQL engine for integration tests."""
+    engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+    Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
 
 
 @pytest.fixture
-async def db_session(async_engine) -> AsyncIterator[AsyncSession]:
-    """Create a fresh database session for each test."""
-    # Create tables
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    # Create session
-    async_session = sessionmaker(
-        async_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-
-    async with async_session() as session:
-        yield session
-        await session.rollback()
+def pg_session(pg_engine) -> Generator[Session, None, None]:
+    """Create a PostgreSQL session for integration tests."""
+    TestSession = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False)
+    session = TestSession()
+    yield session
+    session.rollback()
+    session.close()
 
 
 @pytest.fixture
-def db(db_session):
-    """Sync wrapper around async db_session for compatibility."""
-    # For now, return None - tests will need to use async patterns
-    # or we use the synchronous version
-    return None
-
-
-@pytest.fixture
-def client(db_session):
-    """Create a test client with test database dependency override."""
+def pg_client(pg_session) -> Generator[TestClient, None, None]:
+    """Create test client with PostgreSQL dependency override."""
 
     def override_get_db():
-        yield db_session
+        yield pg_session
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
@@ -92,19 +67,13 @@ def client(db_session):
 
 
 @pytest.fixture
-def sync_db_session():
-    """Use in-memory SQLite for sync tests without PostgreSQL."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-
-    # Use in-memory SQLite for fast unit tests
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}
-    )
+def sync_db_session() -> Generator[Session, None, None]:
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    event.listen(engine, "connect", _setup_sqlite_now)
     Base.metadata.create_all(engine)
 
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    TestSession = sessionmaker(bind=engine)
+    session = TestSession()
 
     yield session
 
@@ -139,9 +108,8 @@ def test_user(sync_db_session):
 
 @pytest.fixture
 def authenticated_client(sync_client, test_user):
-    """Create a test client with authenticated session."""
-    # Login to establish session
-    response = sync_client.post(
+    _ = test_user
+    sync_client.post(
         "/login",
         data={"username": "testuser", "password": "testpassword"},
         follow_redirects=False,

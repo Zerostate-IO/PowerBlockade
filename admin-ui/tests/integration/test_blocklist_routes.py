@@ -1,7 +1,5 @@
 """Integration tests for blocklist routes."""
 
-import pytest
-
 from app.models.blocklist import Blocklist
 
 
@@ -69,7 +67,5 @@ class TestBlocklistRoutes:
         sync_db_session.add(blocklist)
         sync_db_session.commit()
 
-        response = authenticated_client.post(
-            "/blocklists/apply", follow_redirects=False
-        )
+        response = authenticated_client.post("/blocklists/apply", follow_redirects=False)
         assert response.status_code == 303

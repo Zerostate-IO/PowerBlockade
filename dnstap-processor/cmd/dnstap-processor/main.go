@@ -1,26 +1,27 @@
 package main
 
 import (
-  "bufio"
-  "bytes"
-  "crypto/sha256"
-  "encoding/hex"
-  "encoding/json"
-  "fmt"
-  "io"
-  "log"
-  "net"
-  "net/http"
-  "os"
-  "strings"
-  "time"
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
 
-  powerdns_protobuf "github.com/dmachard/go-powerdns-protobuf"
-  "github.com/dnstap/golang-dnstap"
-  "github.com/miekg/dns"
-  "google.golang.org/protobuf/proto"
+	powerdns_protobuf "github.com/dmachard/go-powerdns-protobuf"
+	"github.com/dnstap/golang-dnstap"
+	"github.com/miekg/dns"
+	"google.golang.org/protobuf/proto"
 
-  "github.com/powerblockade/dnstap-processor/internal/config"
+	"github.com/powerblockade/dnstap-processor/internal/buffer"
+	"github.com/powerblockade/dnstap-processor/internal/config"
 )
 
 func main() {
@@ -33,12 +34,22 @@ func main() {
     log.Fatalf("PRIMARY_API_KEY is required")
   }
 
-  log.Printf(
-    "starting dnstap-processor node=%s dnstap_socket=%s protobuf_listen=%s primary=%s",
-    cfg.NodeName, cfg.DnstapSocket, cfg.ProtobufListen, cfg.Primary.URL,
-  )
+	log.Printf(
+		"starting dnstap-processor node=%s dnstap_socket=%s protobuf_listen=%s primary=%s buffer=%s",
+		cfg.NodeName, cfg.DnstapSocket, cfg.ProtobufListen, cfg.Primary.URL, cfg.Buffer.Path,
+	)
 
-  input, err := dnstap.NewFrameStreamSockInputFromPath(cfg.DnstapSocket)
+	buf, err := buffer.Open(cfg.Buffer.Path, cfg.Buffer.MaxBytes, cfg.Buffer.MaxAge)
+	if err != nil {
+		log.Fatalf("buffer open: %v", err)
+	}
+	defer buf.Close()
+
+	if pending := buf.Count(); pending > 0 {
+		log.Printf("buffer: %d pending events from previous run", pending)
+	}
+
+	input, err := dnstap.NewFrameStreamSockInputFromPath(cfg.DnstapSocket)
   if err != nil {
     log.Fatalf("dnstap input: %v", err)
   }
@@ -54,19 +65,7 @@ func main() {
     input.ReadInto(dataChan)
   }()
 
-  client := &http.Client{Timeout: 5 * time.Second}
-
-  type event struct {
-    Ts          string `json:"ts"`
-    ClientIP    string `json:"client_ip"`
-    QName       string `json:"qname"`
-    QType       int    `json:"qtype"`
-    RCode       int    `json:"rcode"`
-    Blocked     bool   `json:"blocked"`
-    LatencyMS   int    `json:"latency_ms,omitempty"`
-    EventID     string `json:"event_id,omitempty"`
-    BlockReason string `json:"block_reason,omitempty"`
-  }
+	client := &http.Client{Timeout: 5 * time.Second}
 
   // Load RPZ sets for blocked detection (best-effort).
   blockedSet := map[string]struct{}{}
@@ -117,34 +116,33 @@ func main() {
     }
   }
 
-  makeEvent := func(ts time.Time, clientIP string, qname string, qtype int, rcode int, latencyMS int) event {
-    normQName := strings.TrimSuffix(strings.ToLower(qname), ".")
-    loadSets()
-    _, allow := allowSet[normQName]
-    _, blocked := blockedSet[normQName]
-    isBlocked := blocked && !allow
+	makeEvent := func(ts time.Time, clientIP string, qname string, qtype int, rcode int, latencyMS int) buffer.Event {
+		normQName := strings.TrimSuffix(strings.ToLower(qname), ".")
+		loadSets()
+		_, allow := allowSet[normQName]
+		_, blocked := blockedSet[normQName]
+		isBlocked := blocked && !allow
 
-    // event_id: stable hash (supports retry dedupe on primary)
-    h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%d", cfg.NodeName, ts.Format(time.RFC3339Nano), clientIP, normQName, qtype, rcode)))
-    eid := hex.EncodeToString(h[:])
+		h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%d", cfg.NodeName, ts.Format(time.RFC3339Nano), clientIP, normQName, qtype, rcode)))
+		eid := hex.EncodeToString(h[:])
 
-    ev := event{
-      Ts:        ts.Format(time.RFC3339Nano),
-      ClientIP:  clientIP,
-      QName:     qname,
-      QType:     qtype,
-      RCode:     rcode,
-      Blocked:   isBlocked,
-      LatencyMS: latencyMS,
-      EventID:   eid,
-    }
-    if isBlocked {
-      ev.BlockReason = "rpz"
-    }
-    return ev
-  }
+		ev := buffer.Event{
+			Ts:        ts.Format(time.RFC3339Nano),
+			ClientIP:  clientIP,
+			QName:     qname,
+			QType:     qtype,
+			RCode:     rcode,
+			Blocked:   isBlocked,
+			LatencyMS: latencyMS,
+			EventID:   eid,
+		}
+		if isBlocked {
+			ev.BlockReason = "rpz"
+		}
+		return ev
+	}
 
-  protobufEvents := make(chan event, 2048)
+	protobufEvents := make(chan buffer.Event, 2048)
 
   pbRecvTotal := 0
   pbUnmarshalErr := 0
@@ -278,170 +276,187 @@ func main() {
     }
   }()
 
-  flushEvery := 2 * time.Second
-  maxBatch := 250
-  ticker := time.NewTicker(flushEvery)
-  defer ticker.Stop()
+	flushEvery := 2 * time.Second
+	maxBatch := 500
+	ticker := time.NewTicker(flushEvery)
+	defer ticker.Stop()
 
-  debug := cfg.Debug
-  debugTicker := time.NewTicker(10 * time.Second)
-  defer debugTicker.Stop()
-  recvTotal := 0
-  recvByType := map[string]int{}
-  debugSampleLeft := 25
+	pruneEvery := 5 * time.Minute
+	pruneTicker := time.NewTicker(pruneEvery)
+	defer pruneTicker.Stop()
 
-  batch := make([]event, 0, maxBatch)
+	debug := cfg.Debug
+	debugTicker := time.NewTicker(10 * time.Second)
+	defer debugTicker.Stop()
+	recvTotal := 0
+	recvByType := map[string]int{}
+	debugSampleLeft := 25
 
-  flush := func() {
-    if len(batch) == 0 {
-      return
-    }
+	batch := make([]buffer.Event, 0, maxBatch)
 
-    payload := map[string]any{"events": batch}
-    b, _ := json.Marshal(payload)
+	flushToBuffer := func() {
+		if len(batch) == 0 {
+			return
+		}
 
-    req, err := http.NewRequest("POST", strings.TrimRight(cfg.Primary.URL, "/")+"/api/node-sync/ingest", bytes.NewReader(b))
-    if err != nil {
-      batch = batch[:0]
-      return
-    }
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("X-PowerBlockade-Node-Key", cfg.Primary.APIKey)
+		if err := buf.PutBatch(batch); err != nil {
+			log.Printf("buffer put failed: %v", err)
+		}
+		batch = batch[:0]
+	}
 
-    resp, err := client.Do(req)
-    if err != nil {
-      log.Printf("ingest post failed: %v", err)
-      return
-    }
-    _ = resp.Body.Close()
-    if resp.StatusCode >= 300 {
-      log.Printf("ingest post status=%d", resp.StatusCode)
-      return
-    }
+	forwardFromBuffer := func() {
+		events, err := buf.Peek(maxBatch)
+		if err != nil {
+			log.Printf("buffer peek failed: %v", err)
+			return
+		}
+		if len(events) == 0 {
+			return
+		}
 
-    if debug {
-      log.Printf("ingest ok batch=%d", len(batch))
-    }
+		payload := map[string]any{"events": events}
+		b, _ := json.Marshal(payload)
 
-    batch = batch[:0]
-  }
+		req, err := http.NewRequest("POST", strings.TrimRight(cfg.Primary.URL, "/")+"/api/node-sync/ingest", bytes.NewReader(b))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-PowerBlockade-Node-Key", cfg.Primary.APIKey)
 
-  for {
-    select {
-    case <-debugTicker.C:
-      if debug {
-        log.Printf(
-          "dnstap recv_total=%d types=%v protobuf_recv_total=%d protobuf_unmarshal_err=%d protobuf_list_unmarshal_err=%d",
-          recvTotal, recvByType, pbRecvTotal, pbUnmarshalErr, pbListUnmarshalErr,
-        )
-      }
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("ingest post failed (buffered %d): %v", buf.Count(), err)
+			return
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			log.Printf("ingest post status=%d (buffered %d)", resp.StatusCode, buf.Count())
+			return
+		}
 
-    case ev := <-protobufEvents:
-      batch = append(batch, ev)
-      if len(batch) >= maxBatch {
-        flush()
-      }
+		maxSeq := events[len(events)-1].EventSeq
+		if err := buf.Delete(maxSeq); err != nil {
+			log.Printf("buffer delete failed: %v", err)
+		}
 
-    case data, ok := <-dataChan:
-      if !ok {
-        log.Printf("dnstap channel closed")
-        return
-      }
+		if debug {
+			log.Printf("ingest ok batch=%d remaining=%d", len(events), buf.Count())
+		}
+	}
 
-      recvTotal++
-      dt := &dnstap.Dnstap{}
-      if err := proto.Unmarshal(data, dt); err != nil {
-        continue
-      }
-      msg := dt.GetMessage()
-      if msg == nil {
-        continue
-      }
+	for {
+		select {
+		case <-pruneTicker.C:
+			if err := buf.Prune(); err != nil {
+				log.Printf("buffer prune failed: %v", err)
+			}
 
-      t := msg.GetType()
-      recvByType[t.String()]++
-      if debug && debugSampleLeft > 0 {
-        debugSampleLeft--
+		case <-debugTicker.C:
+			if debug {
+				log.Printf(
+					"dnstap recv_total=%d types=%v protobuf_recv_total=%d protobuf_unmarshal_err=%d protobuf_list_unmarshal_err=%d buffered=%d",
+					recvTotal, recvByType, pbRecvTotal, pbUnmarshalErr, pbListUnmarshalErr, buf.Count(),
+				)
+			}
 
-        qaddr := ""
-        if qa := net.IP(msg.GetQueryAddress()); qa != nil {
-          qaddr = qa.String()
-        }
-        raddr := ""
-        if ra := net.IP(msg.GetResponseAddress()); ra != nil {
-          raddr = ra.String()
-        }
+		case ev := <-protobufEvents:
+			batch = append(batch, ev)
+			if len(batch) >= maxBatch {
+				flushToBuffer()
+			}
 
-        log.Printf(
-          "dnstap sample type=%s qaddr=%s:%d raddr=%s:%d qmsg=%d rmsg=%d",
-          t.String(), qaddr, msg.GetQueryPort(), raddr, msg.GetResponsePort(),
-          len(msg.GetQueryMessage()), len(msg.GetResponseMessage()),
-        )
-      }
+		case data, ok := <-dataChan:
+			if !ok {
+				log.Printf("dnstap channel closed")
+				return
+			}
 
-      // For PowerBlockade we log client-facing events only.
-      // When dnsdist is the edge logger, RESOLVER_* events are internal forwarding,
-      // and will show dnsdist/recursor addresses instead of the actual LAN client.
-      //
-      // To keep logs Pi-hole-like (one row per resolved qname/qtype), ingest responses only.
-      if t != dnstap.Message_CLIENT_RESPONSE {
-        continue
-      }
+			recvTotal++
+			dt := &dnstap.Dnstap{}
+			if err := proto.Unmarshal(data, dt); err != nil {
+				continue
+			}
+			msg := dt.GetMessage()
+			if msg == nil {
+				continue
+			}
 
-      // For dnsdist CLIENT_* events, QueryAddress/QueryPort are the downstream client.
-      // ResponseAddress/ResponsePort are the local bind address (dnsdist), not the client.
-      ipBytes := msg.GetQueryAddress()
-      ip := net.IP(ipBytes)
-      if ip == nil {
-        continue
-      }
-      clientIP := ip.String()
+			t := msg.GetType()
+			recvByType[t.String()]++
+			if debug && debugSampleLeft > 0 {
+				debugSampleLeft--
 
-      // DNS payload: CLIENT_RESPONSE should carry ResponseMessage.
-      wire := msg.GetResponseMessage()
-      if len(wire) == 0 {
-        continue
-      }
+				qaddr := ""
+				if qa := net.IP(msg.GetQueryAddress()); qa != nil {
+					qaddr = qa.String()
+				}
+				raddr := ""
+				if ra := net.IP(msg.GetResponseAddress()); ra != nil {
+					raddr = ra.String()
+				}
 
-      var dnsMsg dns.Msg
-      if err := dnsMsg.Unpack(wire); err != nil {
-        continue
-      }
-      if len(dnsMsg.Question) == 0 {
-        continue
-      }
-      qname := dnsMsg.Question[0].Name
-      qtype := int(dnsMsg.Question[0].Qtype)
+				log.Printf(
+					"dnstap sample type=%s qaddr=%s:%d raddr=%s:%d qmsg=%d rmsg=%d",
+					t.String(), qaddr, msg.GetQueryPort(), raddr, msg.GetResponsePort(),
+					len(msg.GetQueryMessage()), len(msg.GetResponseMessage()),
+				)
+			}
 
-      rcode := dnsMsg.Rcode
+			if t != dnstap.Message_CLIENT_RESPONSE {
+				continue
+			}
 
-      // Latency (if response + query timestamps exist)
-      latencyMS := 0
-      if msg.GetQueryTimeSec() != 0 && msg.GetResponseTimeSec() != 0 {
-        qts := time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec()))
-        rts := time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec()))
-        if d := rts.Sub(qts); d > 0 {
-          latencyMS = int(d / time.Millisecond)
-        }
-      }
+			ipBytes := msg.GetQueryAddress()
+			ip := net.IP(ipBytes)
+			if ip == nil {
+				continue
+			}
+			clientIP := ip.String()
 
-      // Prefer response timestamp; fall back to query timestamp; fall back to now.
-      ts := time.Now().UTC()
-      if msg.GetResponseTimeSec() != 0 {
-        ts = time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec())).UTC()
-      } else if msg.GetQueryTimeSec() != 0 {
-        ts = time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec())).UTC()
-      }
+			wire := msg.GetResponseMessage()
+			if len(wire) == 0 {
+				continue
+			}
 
-      // event_id: stable hash (supports retry dedupe on primary)
-      batch = append(batch, makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS))
+			var dnsMsg dns.Msg
+			if err := dnsMsg.Unpack(wire); err != nil {
+				continue
+			}
+			if len(dnsMsg.Question) == 0 {
+				continue
+			}
+			qname := dnsMsg.Question[0].Name
+			qtype := int(dnsMsg.Question[0].Qtype)
 
-      if len(batch) >= maxBatch {
-        flush()
-      }
+			rcode := dnsMsg.Rcode
 
-    case <-ticker.C:
-      flush()
-    }
-  }
+			latencyMS := 0
+			if msg.GetQueryTimeSec() != 0 && msg.GetResponseTimeSec() != 0 {
+				qts := time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec()))
+				rts := time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec()))
+				if d := rts.Sub(qts); d > 0 {
+					latencyMS = int(d / time.Millisecond)
+				}
+			}
+
+			ts := time.Now().UTC()
+			if msg.GetResponseTimeSec() != 0 {
+				ts = time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec())).UTC()
+			} else if msg.GetQueryTimeSec() != 0 {
+				ts = time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec())).UTC()
+			}
+
+			batch = append(batch, makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS))
+
+			if len(batch) >= maxBatch {
+				flushToBuffer()
+			}
+
+		case <-ticker.C:
+			flushToBuffer()
+			forwardFromBuffer()
+		}
+	}
 }

@@ -1,9 +1,5 @@
 """Integration tests for auth routes."""
 
-import pytest
-
-from fastapi.testclient import TestClient
-
 
 class TestAuthRoutes:
     def test_login_get_returns_login_page(self, sync_client):

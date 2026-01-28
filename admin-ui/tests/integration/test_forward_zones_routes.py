@@ -1,7 +1,5 @@
 """Integration tests for forward zones routes."""
 
-import pytest
-
 from app.models.forward_zone import ForwardZone
 from app.models.node import Node
 
@@ -59,7 +57,5 @@ class TestForwardZoneRoutes:
         sync_db_session.add(zone)
         sync_db_session.commit()
 
-        response = authenticated_client.post(
-            "/forwardzones/apply", follow_redirects=False
-        )
+        response = authenticated_client.post("/forwardzones/apply", follow_redirects=False)
         assert response.status_code == 303

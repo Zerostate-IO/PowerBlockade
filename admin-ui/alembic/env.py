@@ -3,20 +3,19 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from app.db.base import Base
+from app.models import blocklist as _blocklist  # noqa: F401
+from app.models import client as _client  # noqa: F401
+from app.models import dns_query_event as _dns_query_event  # noqa: F401
+from app.models import forward_zone as _forward_zone  # noqa: F401
+from app.models import manual_entry as _manual_entry  # noqa: F401
 
 # Ensure models are registered with metadata
 from app.models import node as _node  # noqa: F401
 from app.models import user as _user  # noqa: F401
-from app.models import client as _client  # noqa: F401
-from app.models import dns_query_event as _dns_query_event  # noqa: F401
-from app.models import blocklist as _blocklist  # noqa: F401
-from app.models import manual_entry as _manual_entry  # noqa: F401
-from app.models import forward_zone as _forward_zone  # noqa: F401
-
 
 config = context.config
 if config.config_file_name is not None:
