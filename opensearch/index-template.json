@@ -1,0 +1,26 @@
+{
+  "index_patterns": ["powerblockade-dns-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "client_ip": { "type": "ip" },
+        "client_name": { "type": "keyword" },
+        "query_name": { "type": "keyword" },
+        "query_type": { "type": "keyword" },
+        "response_code": { "type": "keyword" },
+        "blocked": { "type": "boolean" },
+        "block_reason": { "type": "keyword" },
+        "blocklist_name": { "type": "keyword" },
+        "response_time_ms": { "type": "float" },
+        "upstream": { "type": "keyword" },
+        "node": { "type": "keyword" },
+        "answer": { "type": "keyword" }
+      }
+    }
+  }
+}
