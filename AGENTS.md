@@ -72,10 +72,33 @@ Client → dnsdist:53 → Recursor:5300 → Response
 - **Shared volumes**: `dnstap-socket`, `recursor-control-socket`
 - **RPZ sharing**: bind-mount `./recursor/rpz` to admin-ui + dnstap-processor
 
+## Release Process
+
+### Pre-Release Verification (MANDATORY)
+
+Before any release, you MUST deploy and verify on internal test hosts:
+
+| Host | Role | LAN IP | Deploy Command |
+|------|------|--------|----------------|
+| **celsate** | Primary | `10.5.5.64` | `ssh root@celsate "cd /opt/PowerBlockade && git pull && docker compose up -d --build"` |
+| **bowlister** | Secondary | `10.5.5.65` | `ssh root@bowlister "cd /opt/PowerBlockade && git pull && docker compose --profile sync-agent up -d --build"` |
+
+**Verification checklist:**
+1. All containers healthy: `docker compose ps`
+2. Admin UI loads: `http://10.5.5.64:8080`
+3. DNS resolves: `dig @10.5.5.64 google.com`
+4. Logs flowing: Check Analytics page shows recent queries
+5. Secondary syncing: Check Nodes page shows bowlister heartbeat
+
+**Port 53 conflict note:** Both hosts run netbird which binds port 53 on its interface. dnsdist is configured to bind only to the LAN IP (`DNSDIST_LISTEN_ADDRESS` in `.env`), avoiding conflict.
+
+**DO NOT release if deployment fails on either host.**
+
 ## Anti-Patterns (DO NOT)
 
 | Pattern | Why |
 |---------|-----|
+| Release without deploying to celsate/bowlister | Internal hosts catch issues CI cannot |
 | Commit `.env` | Contains secrets |
 | Use macvlan on WiFi | Broken; use ipvlan L2 or wired |
 | Enable Recursor dnstap when using dnsdist | Causes duplicates |
