@@ -16,6 +16,7 @@ from app.routers.backup import router as backup_router
 from app.routers.blocklists import router as blocklists_router
 from app.routers.client_groups import router as client_groups_router
 from app.routers.client_resolver import router as client_resolver_router
+from app.routers.forward_zones import router as forward_zones_router
 from app.routers.grafana_proxy import router as grafana_proxy_router
 from app.routers.help import router as help_router
 from app.routers.jobs import router as jobs_router
@@ -153,6 +154,7 @@ app.include_router(node_sync_router)
 app.include_router(auth_router)
 app.include_router(analytics_router)
 app.include_router(blocklists_router)
+app.include_router(forward_zones_router)
 app.include_router(nodes_router)
 app.include_router(streaming_router)
 app.include_router(precache_router)

@@ -58,21 +58,64 @@
           </div>
 
           {% if user %}
-          <nav class="flex flex-wrap items-center gap-2 text-sm">
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-500 dark:text-slate-300" href="/help">Help</a>
+          <nav class="flex items-center gap-1 text-sm">
+            <!-- Dashboard (direct link) -->
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/">Dashboard</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/logs">Logs</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/clients">Clients</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/domains">Domains</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/blocked">Blocked</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/failures">Failures</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/blocklists">Blocklists</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/forwardzones">Forward Zones</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/precache">Precache</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/nodes">Nodes</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/audit">Audit</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/settings">Settings</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/setup">Setup</a>
+
+            <!-- Analytics dropdown -->
+            <div class="relative group">
+              <button class="px-3 py-2 rounded-md hover:bg-bg-800 flex items-center gap-1">
+                Analytics
+                <svg class="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-30">
+                <div class="bg-bg-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/logs">Query Logs</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/clients">Clients</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/domains">Top Domains</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/blocked">Blocked</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/failures">Failures</a>
+                </div>
+              </div>
+            </div>
+
+            <!-- Config dropdown -->
+            <div class="relative group">
+              <button class="px-3 py-2 rounded-md hover:bg-bg-800 flex items-center gap-1">
+                Config
+                <svg class="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-30">
+                <div class="bg-bg-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/blocklists">Blocklists</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/forwardzones">Forward Zones</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/precache">Precache</a>
+                </div>
+              </div>
+            </div>
+
+            <!-- System dropdown -->
+            <div class="relative group">
+              <button class="px-3 py-2 rounded-md hover:bg-bg-800 flex items-center gap-1">
+                System
+                <svg class="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-30">
+                <div class="bg-bg-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/nodes">Nodes</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/system">Health</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/audit">Audit Log</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/settings">Settings</a>
+                  <a class="block px-4 py-2 hover:bg-bg-700" href="/setup">Setup</a>
+                </div>
+              </div>
+            </div>
+
+            <!-- Spacer -->
+            <div class="flex-1"></div>
+
+            <!-- Right side: Help, Theme, Logout -->
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-500 dark:text-slate-300" href="/help">Help</a>
             <button id="theme-toggle" class="px-2 py-2 rounded-md hover:bg-bg-800 text-slate-500 dark:text-slate-300" title="Toggle theme">
               <svg id="theme-icon-dark" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
               <svg id="theme-icon-light" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
