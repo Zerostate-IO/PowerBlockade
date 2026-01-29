@@ -32,8 +32,8 @@ services:
     entrypoint: ["dnsdist"]
     command: ["--supervised", "-C", "/etc/dnsdist/dnsdist.conf"]
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
+      - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
     volumes:
       - ./dnsdist/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
       - dnstap-socket:/var/run/dnstap
