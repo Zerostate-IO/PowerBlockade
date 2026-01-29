@@ -13,14 +13,16 @@ from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import
 
 from app.db.session import SessionLocal
 from app.models.blocklist import Blocklist
+from app.models.blocklist_entry import BlocklistEntry
 from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.services.blocklist_manager import fetch_and_parse_blocklist
 from app.services.blocklist_scheduler import run_schedule_check
 from app.services.precache import precache_warming_job
 from app.services.retention import run_retention_job
 from app.services.rollups import run_rollup_job
-from app.services.rpz import parse_blocklist_text, render_rpz_whitelist, render_rpz_zone
+from app.services.rpz import render_rpz_whitelist, render_rpz_zone
 from app.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -50,9 +52,14 @@ def update_blocklists_job() -> None:
                     continue
 
             try:
-                with urllib.request.urlopen(bl.url, timeout=30) as resp:
-                    text = resp.read().decode("utf-8", errors="ignore")
-                domains = parse_blocklist_text(text, bl.format)
+                domains = fetch_and_parse_blocklist(bl.url, bl.format)
+
+                db.query(BlocklistEntry).filter(BlocklistEntry.blocklist_id == bl.id).delete()
+
+                entries = [BlocklistEntry(blocklist_id=bl.id, domain=d) for d in domains]
+                if entries:
+                    db.bulk_save_objects(entries)
+
                 bl.last_update_status = "success"
                 bl.last_error = None
                 bl.entry_count = len(domains)
@@ -86,18 +93,13 @@ def regenerate_rpz(db) -> None:
     allow_domains: set[str] = {a.domain for a in allow_entries}
 
     for bl in enabled:
-        if bl.last_update_status != "success":
-            continue
-        try:
-            with urllib.request.urlopen(bl.url, timeout=30) as resp:
-                text = resp.read().decode("utf-8", errors="ignore")
-            domains = parse_blocklist_text(text, bl.format)
-            if bl.list_type == "allow":
-                allow_domains |= domains
-            else:
-                blocked_domains |= domains
-        except Exception as e:
-            log.warning(f"Failed to fetch blocklist '{bl.name}' during RPZ regeneration: {e}")
+        entries = db.query(BlocklistEntry.domain).filter(BlocklistEntry.blocklist_id == bl.id).all()
+        current_domains = {e.domain for e in entries}
+
+        if bl.list_type == "allow":
+            allow_domains |= current_domains
+        else:
+            blocked_domains |= current_domains
 
     out_dir = "/shared/rpz"
     os.makedirs(out_dir, exist_ok=True)

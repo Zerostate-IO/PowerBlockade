@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import urllib.request
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Form, Request
@@ -15,8 +14,9 @@ from app.models.manual_entry import ManualEntry
 from app.models.settings import get_setting
 from app.presets import PRESET_LISTS
 from app.routers.auth import get_current_user
+from app.services.blocklist_manager import fetch_and_parse_blocklist
 from app.services.config_audit import model_to_dict, record_change
-from app.services.rpz import parse_blocklist_text, render_rpz_whitelist, render_rpz_zone
+from app.services.rpz import render_rpz_whitelist, render_rpz_zone
 from app.template_utils import get_templates
 
 router = APIRouter()
@@ -332,17 +332,18 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
 
     for bl in enabled:
         try:
-            with urllib.request.urlopen(bl.url, timeout=10) as resp:
-                text = resp.read().decode("utf-8", errors="ignore")
-            domains = parse_blocklist_text(text, bl.format)
+            domains = fetch_and_parse_blocklist(bl.url, bl.format)
+
+            db.query(BlocklistEntry).filter(BlocklistEntry.blocklist_id == bl.id).delete()
+
+            entries = [BlocklistEntry(blocklist_id=bl.id, domain=d) for d in domains]
+            if entries:
+                blocklist_entries_to_add.extend(entries)
+
             if bl.list_type == "allow":
                 allow_domains |= domains
             else:
                 blocked_domains |= domains
-
-            db.query(BlocklistEntry).filter(BlocklistEntry.blocklist_id == bl.id).delete()
-            for domain in domains:
-                blocklist_entries_to_add.append(BlocklistEntry(domain=domain, blocklist_id=bl.id))
 
             bl.last_update_status = "success"
             bl.last_error = None

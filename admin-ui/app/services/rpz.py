@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 _comment_re = re.compile(r"\s*(#|;).*$")
@@ -30,11 +31,11 @@ def _normalize_domain(s: str) -> str | None:
     return s
 
 
-def parse_blocklist_text(text: str, fmt: str) -> set[str]:
+def parse_blocklist_lines(lines: Iterable[str], fmt: str) -> set[str]:
     out: set[str] = set()
     fmt = fmt.strip().lower()
 
-    for raw in text.splitlines():
+    for raw in lines:
         line = raw.strip()
         if not line or line.startswith("!"):
             continue
@@ -54,6 +55,10 @@ def parse_blocklist_text(text: str, fmt: str) -> set[str]:
             out.add(d)
 
     return out
+
+
+def parse_blocklist_text(text: str, fmt: str) -> set[str]:
+    return parse_blocklist_lines(text.splitlines(), fmt)
 
 
 def render_rpz_zone(domains: set[str], *, policy_name: str) -> str:
