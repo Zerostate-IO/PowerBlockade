@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Domain Search</h1>
+      <p class="mt-1 text-sm text-slate-400">Find which blocklist(s) contain a specific domain</p>
+    </div>
+    <a href="/blocklists" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm text-slate-300 hover:bg-bg-700">Back to Blocklists</a>
+  </div>
+
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <form method="get" action="/blocklists/search" class="flex gap-3">
+      <input
+        type="text"
+        name="q"
+        value="{{ query }}"
+        placeholder="Enter domain to search (e.g., doubleclick.net)"
+        class="flex-1 rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm"
+        autofocus
+      />
+      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Search</button>
+    </form>
+  </div>
+
+  {% if query %}
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 overflow-hidden">
+    {% if results %}
+    <table class="min-w-full text-sm">
+      <thead class="bg-bg-900 text-slate-400">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium">Domain</th>
+          <th class="px-4 py-3 text-left font-medium">Source</th>
+          <th class="px-4 py-3 text-left font-medium">Type</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800">
+        {% for r in results %}
+        <tr class="hover:bg-bg-700">
+          <td class="px-4 py-3 font-mono text-slate-200">{{ r.domain }}</td>
+          <td class="px-4 py-3 text-slate-300">{{ r.blocklist_name }}</td>
+          <td class="px-4 py-3">
+            {% if r.list_type == "block" %}
+            <span class="rounded-full bg-red-900/50 px-2 py-0.5 text-xs text-red-400">block</span>
+            {% else %}
+            <span class="rounded-full bg-emerald-900/50 px-2 py-0.5 text-xs text-emerald-400">allow</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-8 text-center text-slate-500">
+      <p class="text-lg">No results found</p>
+      <p class="mt-1 text-sm">Domain "{{ query }}" is not in any blocklist</p>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-8 text-center text-slate-500">
+    <p>Enter a domain above to search across all blocklists</p>
+  </div>
+  {% endif %}
+
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">How it works</h2>
+    <ul class="mt-3 space-y-1 text-sm text-slate-400">
+      <li>Searches all enabled blocklists and manual entries</li>
+      <li>Matches exact domain names (case-insensitive)</li>
+      <li>Run "Apply" on the blocklists page to update the search index</li>
+    </ul>
+  </div>
+{% endblock %}

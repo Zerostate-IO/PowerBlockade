@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 import urllib.request
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.blocklist import Blocklist
+from app.models.blocklist_entry import BlocklistEntry
 from app.models.manual_entry import ManualEntry
 from app.models.settings import get_setting
 from app.presets import PRESET_LISTS
@@ -38,6 +40,60 @@ def blocklists_page(request: Request, db: Session = Depends(get_db)):
             "presets": PRESET_LISTS,
             "timezone": timezone,
             "message": None,
+        },
+    )
+
+
+@router.get("/blocklists/search", response_class=HTMLResponse)
+def blocklists_search(
+    request: Request,
+    q: str = "",
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    results: list[dict] = []
+    search_query = q.strip().lower()
+
+    if search_query:
+        entries = (
+            db.query(BlocklistEntry, Blocklist)
+            .join(Blocklist, BlocklistEntry.blocklist_id == Blocklist.id)
+            .filter(sa.func.lower(BlocklistEntry.domain) == search_query)
+            .all()
+        )
+        for entry, blocklist in entries:
+            results.append(
+                {
+                    "domain": entry.domain,
+                    "blocklist_name": blocklist.name,
+                    "blocklist_id": blocklist.id,
+                    "list_type": blocklist.list_type,
+                }
+            )
+
+        manual = (
+            db.query(ManualEntry).filter(sa.func.lower(ManualEntry.domain) == search_query).all()
+        )
+        for m in manual:
+            results.append(
+                {
+                    "domain": m.domain,
+                    "blocklist_name": "Manual Entry",
+                    "blocklist_id": None,
+                    "list_type": m.entry_type,
+                }
+            )
+
+    return templates.TemplateResponse(
+        "blocklist_search.html",
+        {
+            "request": request,
+            "user": user,
+            "query": q,
+            "results": results,
         },
     )
 
@@ -272,6 +328,8 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
     allow_domains: set[str] = {a.domain for a in allow}
     now = datetime.now(timezone.utc)
 
+    blocklist_entries_to_add: list[BlocklistEntry] = []
+
     for bl in enabled:
         try:
             with urllib.request.urlopen(bl.url, timeout=10) as resp:
@@ -281,6 +339,11 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
                 allow_domains |= domains
             else:
                 blocked_domains |= domains
+
+            db.query(BlocklistEntry).filter(BlocklistEntry.blocklist_id == bl.id).delete()
+            for domain in domains:
+                blocklist_entries_to_add.append(BlocklistEntry(domain=domain, blocklist_id=bl.id))
+
             bl.last_update_status = "success"
             bl.last_error = None
             bl.entry_count = len(domains)
@@ -301,6 +364,8 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
         f.write(render_rpz_whitelist(allow_domains))
 
     db.add_all(enabled)
+    if blocklist_entries_to_add:
+        db.bulk_save_objects(blocklist_entries_to_add)
     db.commit()
 
     blocklists = db.query(Blocklist).order_by(Blocklist.created_at.desc()).all()

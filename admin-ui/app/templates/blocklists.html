@@ -5,10 +5,13 @@
       <h1 class="text-xl font-semibold">Blocklists</h1>
       <p class="mt-1 text-sm text-slate-400">Enable lists, add your own, then Apply to generate RPZ.</p>
     </div>
-    <form method="post" action="/blocklists/apply">
-      {{ csrf_input(request) }}
-      <button class="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-slate-950" type="submit">Apply (generate RPZ)</button>
-    </form>
+    <div class="flex gap-2">
+      <a href="/blocklists/search" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm text-slate-300 hover:bg-bg-700">Search Domains</a>
+      <form method="post" action="/blocklists/apply">
+        {{ csrf_input(request) }}
+        <button class="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-slate-950" type="submit">Apply (generate RPZ)</button>
+      </form>
+    </div>
   </div>
 
   {% if message %}
