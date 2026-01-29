@@ -19,6 +19,10 @@ class Client(Base):
     rdns_last_resolved_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     rdns_last_error: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
 
+    group_id: Mapped[int | None] = mapped_column(
+        sa.Integer(), sa.ForeignKey("client_groups.id", ondelete="SET NULL"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=sa.text("NOW()")
     )

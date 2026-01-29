@@ -12,6 +12,7 @@
       {% endif %}
 
       <form class="mt-5 space-y-4" method="post" action="/login">
+        {{ csrf_input(request) }}
         <div>
           <label class="text-sm text-slate-300">Username</label>
           <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-400" name="username" autocomplete="username" />

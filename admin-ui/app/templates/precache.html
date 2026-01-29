@@ -6,6 +6,7 @@
       <p class="mt-1 text-sm text-slate-400">Aggressive cache pre-warming for lightning-fast DNS responses</p>
     </div>
     <form method="post" action="/precache/warm">
+      {{ csrf_input(request) }}
       <button class="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-slate-950" type="submit">
         Warm Now ({{ warmable_count }} domains)
       </button>
@@ -43,6 +44,7 @@
       <p class="mt-1 text-xs text-slate-500">Configure aggressive cache pre-warming</p>
 
       <form method="post" action="/precache/settings" class="mt-4 space-y-4">
+        {{ csrf_input(request) }}
         <div class="flex items-center justify-between">
           <label class="text-sm text-slate-300">Enable auto-warming</label>
           <label class="relative inline-flex cursor-pointer items-center">
@@ -65,6 +67,14 @@
             <option value="100000" {% if domain_count == 100000 %}selected{% endif %}>100,000 (maximum)</option>
           </select>
           <p class="mt-1 text-xs text-slate-500">Top domains from last 24h by query count</p>
+        </div>
+
+        <div>
+          <label class="text-sm text-slate-300">DNS Server</label>
+          <input type="text" name="dns_server" value="{{ dns_server }}"
+                 class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-200"
+                 placeholder="recursor">
+          <p class="mt-1 text-xs text-slate-500">Hostname or IP of the DNS resolver (default: recursor)</p>
         </div>
 
         <div class="rounded-lg border border-amber-800/50 bg-amber-950/20 p-3">

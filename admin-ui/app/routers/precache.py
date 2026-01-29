@@ -5,13 +5,13 @@ from datetime import datetime, timedelta, timezone
 import sqlalchemy as sa
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.settings import (
     get_precache_custom_refresh_minutes,
+    get_precache_dns_server,
     get_precache_domain_count,
     get_precache_enabled,
     get_precache_ignore_ttl,
@@ -25,9 +25,10 @@ from app.services.precache import (
     warm_cache,
 )
 from app.settings import get_settings
+from app.template_utils import get_templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 
 @router.get("/precache", response_class=HTMLResponse)
@@ -101,6 +102,7 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
     refresh_minutes = get_precache_refresh_minutes(db)
     ignore_ttl = get_precache_ignore_ttl(db)
     custom_refresh = get_precache_custom_refresh_minutes(db)
+    dns_server = get_precache_dns_server(db)
 
     warmable_domains = get_top_domains_to_warm(db, hours=24, limit=domain_count)
     precache_stats = get_precache_stats()
@@ -124,6 +126,7 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             "refresh_minutes": refresh_minutes,
             "ignore_ttl": ignore_ttl,
             "custom_refresh": custom_refresh,
+            "dns_server": dns_server,
             "precache_stats": precache_stats,
         },
     )
@@ -143,12 +146,7 @@ def trigger_warm_cache(
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    settings = get_settings()
-    recursor_url = settings.recursor_api_url or "http://recursor:8082"
-    dns_host = recursor_url.replace("http://", "").replace("https://", "").split(":")[0]
-    if dns_host in ("recursor", "localhost"):
-        dns_host = "127.0.0.1"
-
+    dns_host = get_precache_dns_server(db)
     domain_count = get_precache_domain_count(db)
     domains = get_top_domains_to_warm(db, hours=24, limit=domain_count)
 
@@ -170,6 +168,7 @@ def update_precache_settings(
     refresh_minutes: int = Form(30),
     ignore_ttl: str = Form("false"),
     custom_refresh: int = Form(60),
+    dns_server: str = Form("recursor"),
 ):
     user = get_current_user(request, db)
     if not user:
@@ -178,11 +177,13 @@ def update_precache_settings(
     domain_count = max(100, min(100000, domain_count))
     refresh_minutes = max(5, min(1440, refresh_minutes))
     custom_refresh = max(5, min(1440, custom_refresh))
+    dns_server = dns_server.strip() or "recursor"
 
     set_setting(db, "precache_enabled", "true" if enabled == "true" else "false")
     set_setting(db, "precache_domain_count", str(domain_count))
     set_setting(db, "precache_refresh_minutes", str(refresh_minutes))
     set_setting(db, "precache_ignore_ttl", "true" if ignore_ttl == "true" else "false")
     set_setting(db, "precache_custom_refresh_minutes", str(custom_refresh))
+    set_setting(db, "precache_dns_server", dns_server)
 
     return RedirectResponse(url="/precache?warmed=Settings+saved", status_code=302)

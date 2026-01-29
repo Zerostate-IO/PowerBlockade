@@ -25,6 +25,11 @@ class Blocklist(Base):
     etag: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     last_modified: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
 
+    schedule_enabled: Mapped[bool] = mapped_column(sa.Boolean(), server_default=sa.text("false"))
+    schedule_start: Mapped[str | None] = mapped_column(sa.String(5), nullable=True)
+    schedule_end: Mapped[str | None] = mapped_column(sa.String(5), nullable=True)
+    schedule_days: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
+
     created_at: Mapped[object] = mapped_column(
         sa.DateTime(timezone=True), server_default=sa.text("NOW()")
     )

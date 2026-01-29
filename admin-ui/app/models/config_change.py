@@ -16,7 +16,7 @@ JSONVariant = sa.JSON().with_variant(JSONB, "postgresql")
 class ConfigChange(Base):
     __tablename__ = "config_changes"
 
-    id: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True)
+    id: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True, autoincrement=True)
 
     entity_type: Mapped[str] = mapped_column(sa.String(50), index=True)
     entity_id: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True, index=True)

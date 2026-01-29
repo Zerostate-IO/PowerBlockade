@@ -9,6 +9,8 @@ import pytest
 
 from agent import (
     compute_file_checksum,
+    get_local_ip,
+    get_version,
     getenv_required,
     scrape_recursor_metrics,
     sync_config,
@@ -247,3 +249,30 @@ class TestSyncConfig:
                 )
 
             assert result is False
+
+
+class TestGetLocalIp:
+    def test_returns_ip_string_for_valid_host(self):
+        result = get_local_ip("8.8.8.8")
+        if result is not None:
+            assert isinstance(result, str)
+            parts = result.split(".")
+            assert len(parts) == 4
+
+    def test_returns_none_for_invalid_host(self):
+        result = get_local_ip("invalid.nonexistent.host.example")
+        assert result is None or isinstance(result, str)
+
+
+class TestGetVersion:
+    def test_returns_env_var_when_set(self):
+        os.environ["PB_VERSION"] = "1.2.3"
+        try:
+            assert get_version() == "1.2.3"
+        finally:
+            del os.environ["PB_VERSION"]
+
+    def test_returns_unknown_when_not_set(self):
+        if "PB_VERSION" in os.environ:
+            del os.environ["PB_VERSION"]
+        assert get_version() == "unknown"

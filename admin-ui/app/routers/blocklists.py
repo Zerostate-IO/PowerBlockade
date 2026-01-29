@@ -5,19 +5,20 @@ import urllib.request
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.blocklist import Blocklist
 from app.models.manual_entry import ManualEntry
+from app.models.settings import get_setting
 from app.presets import PRESET_LISTS
 from app.routers.auth import get_current_user
 from app.services.config_audit import model_to_dict, record_change
 from app.services.rpz import parse_blocklist_text, render_rpz_whitelist, render_rpz_zone
+from app.template_utils import get_templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 
 @router.get("/blocklists", response_class=HTMLResponse)
@@ -27,6 +28,7 @@ def blocklists_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=302)
 
     blocklists = db.query(Blocklist).order_by(Blocklist.created_at.desc()).all()
+    timezone = get_setting(db, "timezone") or "UTC"
     return templates.TemplateResponse(
         "blocklists.html",
         {
@@ -34,6 +36,7 @@ def blocklists_page(request: Request, db: Session = Depends(get_db)):
             "user": user,
             "blocklists": blocklists,
             "presets": PRESET_LISTS,
+            "timezone": timezone,
             "message": None,
         },
     )
@@ -298,6 +301,7 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
     db.commit()
 
     blocklists = db.query(Blocklist).order_by(Blocklist.created_at.desc()).all()
+    timezone = get_setting(db, "timezone") or "UTC"
     msg = f"Wrote RPZ: {len(blocked_domains)} blocked, {len(allow_domains)} allow"
     return templates.TemplateResponse(
         "blocklists.html",
@@ -306,6 +310,42 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
             "user": user,
             "blocklists": blocklists,
             "presets": PRESET_LISTS,
+            "timezone": timezone,
             "message": msg,
         },
     )
+
+
+@router.post("/blocklists/update-schedule")
+def blocklists_update_schedule(
+    request: Request,
+    id: int = Form(...),
+    schedule_enabled: bool = Form(False),
+    schedule_start: str = Form(""),
+    schedule_end: str = Form(""),
+    schedule_days: list[str] = Form([]),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    b = db.get(Blocklist, id)
+    if b:
+        before = model_to_dict(b, exclude={"manual_entries"})
+        b.schedule_enabled = schedule_enabled
+        b.schedule_start = schedule_start.strip() if schedule_start else None
+        b.schedule_end = schedule_end.strip() if schedule_end else None
+        b.schedule_days = ",".join(schedule_days) if schedule_days else None
+        db.add(b)
+        record_change(
+            db,
+            entity_type="blocklist",
+            entity_id=b.id,
+            action="update_schedule",
+            actor_user_id=user.id,
+            before_data=before,
+            after_data=model_to_dict(b, exclude={"manual_entries"}),
+        )
+        db.commit()
+    return RedirectResponse(url="/blocklists", status_code=302)

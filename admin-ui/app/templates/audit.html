@@ -54,6 +54,7 @@
                 <button onclick="showDetails({{ c.id }})" class="text-cyan-400 hover:underline text-xs">View</button>
                 {% if c.entity_type in rollback_types and not c.action.startswith('rollback') %}
                 <form method="POST" action="/audit/rollback" class="inline" onsubmit="return confirm('Roll back this change?');">
+                  {{ csrf_input(request) }}
                   <input type="hidden" name="change_id" value="{{ c.id }}">
                   <button type="submit" class="text-amber-400 hover:underline text-xs">Rollback</button>
                 </form>

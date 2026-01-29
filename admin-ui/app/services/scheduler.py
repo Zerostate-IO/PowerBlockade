@@ -16,6 +16,7 @@ from app.models.blocklist import Blocklist
 from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.services.blocklist_scheduler import run_schedule_check
 from app.services.precache import precache_warming_job
 from app.services.retention import run_retention_job
 from app.services.rollups import run_rollup_job
@@ -95,8 +96,8 @@ def regenerate_rpz(db) -> None:
                 allow_domains |= domains
             else:
                 blocked_domains |= domains
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"Failed to fetch blocklist '{bl.name}' during RPZ regeneration: {e}")
 
     out_dir = "/shared/rpz"
     os.makedirs(out_dir, exist_ok=True)
@@ -128,6 +129,16 @@ def retention_job() -> None:
         log.error(f"Retention job failed: {e}")
     finally:
         db.close()
+
+
+def blocklist_schedule_job() -> None:
+    """Check blocklist schedules and enable/disable based on time."""
+    try:
+        result = run_schedule_check()
+        if result.get("enabled", 0) or result.get("disabled", 0):
+            log.info(f"Blocklist schedule job: {result}")
+    except Exception as e:
+        log.error(f"Blocklist schedule job failed: {e}")
 
 
 def scrape_local_recursor_metrics() -> None:
@@ -235,6 +246,14 @@ def start_scheduler() -> None:
         IntervalTrigger(seconds=60),
         id="local_metrics",
         name="Collect local recursor metrics",
+        replace_existing=True,
+    )
+
+    _scheduler.add_job(
+        blocklist_schedule_job,
+        IntervalTrigger(minutes=5),
+        id="blocklist_schedule",
+        name="Check blocklist schedules",
         replace_existing=True,
     )
 

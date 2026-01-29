@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import sqlalchemy as sa
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.models.dns_query_event import DNSQueryEvent
@@ -24,10 +24,10 @@ def compute_hourly_rollup(db: Session, hour_start: datetime) -> int:
             DNSQueryEvent.node_id,
             func.count().label("total"),
             func.sum(func.cast(DNSQueryEvent.blocked, sa.Integer())).label("blocked"),
-            func.sum(func.case((DNSQueryEvent.rcode == 3, 1), else_=0)).label("nxdomain"),
-            func.sum(func.case((DNSQueryEvent.rcode == 2, 1), else_=0)).label("servfail"),
+            func.sum(case((DNSQueryEvent.rcode == 3, 1), else_=0)).label("nxdomain"),
+            func.sum(case((DNSQueryEvent.rcode == 2, 1), else_=0)).label("servfail"),
             func.sum(
-                func.case(
+                case(
                     (DNSQueryEvent.latency_ms < CACHE_HIT_LATENCY_THRESHOLD_MS, 1),
                     else_=0,
                 )

@@ -9,22 +9,31 @@
 
   <form method="get" action="/logs" class="mt-4 flex flex-wrap items-end gap-3">
     <div class="flex-1 min-w-[200px]">
-      <label class="block text-xs text-slate-400 mb-1">Search domain</label>
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Search domain</label>
       <input type="text" name="q" value="{{ q }}" placeholder="e.g. google.com" 
-             class="w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none">
+             class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none">
     </div>
     <div class="w-40">
-      <label class="block text-xs text-slate-400 mb-1">Client</label>
-      <select name="client" class="w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Client</label>
+      <select name="client" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
         <option value="">All clients</option>
         {% for c in client_options %}
         <option value="{{ c.ip }}" {% if client == c.ip %}selected{% endif %}>{{ c.label }}</option>
         {% endfor %}
       </select>
     </div>
+    <div class="w-24">
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Type</label>
+      <select name="qtype" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+        <option value="">All</option>
+        {% for qt in qtype_options %}
+        <option value="{{ qt }}" {% if qtype == qt %}selected{% endif %}>{{ qt }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <div class="w-32">
-      <label class="block text-xs text-slate-400 mb-1">Response</label>
-      <select name="rcode" class="w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Response</label>
+      <select name="rcode" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
         <option value="">All</option>
         {% for r in rcode_options %}
         <option value="{{ r }}" {% if rcode == r %}selected{% endif %}>{{ r }}</option>
@@ -32,8 +41,16 @@
       </select>
     </div>
     <div class="w-28">
-      <label class="block text-xs text-slate-400 mb-1">Time range</label>
-      <select name="window" class="w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Status</label>
+      <select name="blocked" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+        <option value="">All</option>
+        <option value="yes" {% if blocked == 'yes' %}selected{% endif %}>Blocked</option>
+        <option value="no" {% if blocked == 'no' %}selected{% endif %}>Allowed</option>
+      </select>
+    </div>
+    <div class="w-28">
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Time range</label>
+      <select name="window" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
         {% for w in window_options %}
         <option value="{{ w }}" {% if window == w %}selected{% endif %}>{{ w }}</option>
         {% endfor %}
@@ -41,35 +58,41 @@
     </div>
     <div class="flex gap-2">
       <button type="submit" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium hover:bg-cyan-500">Filter</button>
-      {% if q or client or rcode or window != '24h' %}
-      <a href="/logs" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Clear</a>
+      {% if q or client or rcode or qtype or blocked or window != '24h' %}
+      <a href="/logs" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Clear</a>
       {% endif %}
     </div>
   </form>
 
-  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
+  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800">
     <table class="min-w-full text-sm">
-      <thead class="bg-bg-900 text-slate-300">
+      <thead class="bg-bg-900 text-slate-500 dark:text-slate-300">
         <tr>
           <th class="px-4 py-3 text-left font-medium">Time</th>
           <th class="px-4 py-3 text-left font-medium">Client</th>
           <th class="px-4 py-3 text-left font-medium">Domain</th>
           <th class="px-4 py-3 text-left font-medium">Type</th>
-          <th class="px-4 py-3 text-left font-medium">Rcode</th>
+          <th class="px-4 py-3 text-left font-medium">Status</th>
           <th class="px-4 py-3 text-left font-medium">Latency</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-800">
+      <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
         {% for e in events %}
-          <tr class="hover:bg-bg-700">
-            <td class="px-4 py-3 whitespace-nowrap text-slate-300">{{ e.ts }}</td>
-            <td class="px-4 py-3 text-slate-200">
+          <tr class="hover:bg-bg-700 {% if e.blocked %}bg-red-50 dark:bg-red-950/30{% endif %}">
+            <td class="px-4 py-3 whitespace-nowrap text-slate-600 dark:text-slate-300">{{ e.ts }}</td>
+            <td class="px-4 py-3 text-slate-700 dark:text-slate-200">
               <a href="/logs?client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
             </td>
-            <td class="px-4 py-3 font-mono text-slate-200 truncate max-w-xs">{{ e.qname }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ e.qtype }}</td>
-            <td class="px-4 py-3 text-slate-300">{{ e.rcode }}</td>
-            <td class="px-4 py-3 text-slate-300">{% if e.latency_ms is not none %}{{ e.latency_ms }}ms{% else %}-{% endif %}</td>
+            <td class="px-4 py-3 font-mono text-slate-700 dark:text-slate-200 truncate max-w-xs" title="{{ e.qname }}">{{ e.qname }}</td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.qtype }}</td>
+            <td class="px-4 py-3">
+              {% if e.blocked %}
+              <span class="text-red-600 dark:text-red-400">Blocked</span>
+              {% else %}
+              <span class="text-slate-600 dark:text-slate-400">{{ e.rcode }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{% if e.latency_ms is not none %}{{ e.latency_ms }}ms{% else %}-{% endif %}</td>
           </tr>
         {% endfor %}
         {% if not events %}
@@ -82,7 +105,7 @@
   </div>
 
   {% if total_pages > 1 %}
-  {% set filter_params = "window=" ~ window ~ ("&q=" ~ q if q else "") ~ ("&client=" ~ client if client else "") ~ ("&rcode=" ~ rcode if rcode else "") %}
+  {% set filter_params = "window=" ~ window ~ ("&q=" ~ q if q else "") ~ ("&client=" ~ client if client else "") ~ ("&rcode=" ~ rcode if rcode else "") ~ ("&qtype=" ~ qtype if qtype else "") ~ ("&blocked=" ~ blocked if blocked else "") %}
   <div class="mt-4 flex items-center justify-between">
     <div class="text-sm text-slate-400">Page {{ page }} of {{ total_pages }}</div>
     <div class="flex gap-2">

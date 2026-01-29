@@ -12,11 +12,11 @@ from app.db.session import SessionLocal
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.settings import (
     get_precache_custom_refresh_minutes,
+    get_precache_dns_server,
     get_precache_domain_count,
     get_precache_enabled,
     get_precache_ignore_ttl,
 )
-from app.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -144,13 +144,7 @@ def precache_warming_job() -> None:
             log.debug("Precache warming disabled")
             return
 
-        settings = get_settings()
-        recursor_url = settings.recursor_api_url or "http://recursor:8082"
-        dns_host = recursor_url.replace("http://", "").replace("https://", "").split(":")[0]
-
-        if dns_host in ("recursor", "localhost", "127.0.0.1"):
-            dns_host = "127.0.0.1"
-
+        dns_host = get_precache_dns_server(db)
         domain_count = get_precache_domain_count(db)
         ignore_ttl = get_precache_ignore_ttl(db)
         custom_refresh = get_precache_custom_refresh_minutes(db)

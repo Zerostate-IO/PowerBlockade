@@ -6,7 +6,6 @@ from typing import Literal
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -14,9 +13,10 @@ from app.db.session import get_db
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
 from app.routers.auth import get_current_user
+from app.template_utils import get_templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 DEFAULT_PAGE_SIZE = 100
 QTYPE_NAMES = {
@@ -126,6 +126,8 @@ def logs_page(
     client: str | None = Query(None),
     window: TimeWindow = Query("24h"),
     rcode: str | None = Query(None),
+    qtype: str | None = Query(None),
+    blocked: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -145,6 +147,14 @@ def logs_page(
         rcode_val = next((k for k, v in RCODE_NAMES.items() if v == rcode), None)
         if rcode_val is not None:
             query = query.filter(DNSQueryEvent.rcode == rcode_val)
+    if qtype:
+        qtype_val = next((k for k, v in QTYPE_NAMES.items() if v == qtype), None)
+        if qtype_val is not None:
+            query = query.filter(DNSQueryEvent.qtype == qtype_val)
+    if blocked == "yes":
+        query = query.filter(DNSQueryEvent.blocked.is_(True))
+    elif blocked == "no":
+        query = query.filter(DNSQueryEvent.blocked.is_(False))
 
     total = query.count()
     total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
@@ -168,6 +178,7 @@ def logs_page(
                 "qtype": QTYPE_NAMES.get(e.qtype, str(e.qtype)),
                 "rcode": RCODE_NAMES.get(e.rcode, str(e.rcode)),
                 "latency_ms": e.latency_ms,
+                "blocked": e.blocked,
             }
         )
 
@@ -193,8 +204,11 @@ def logs_page(
             "client": client or "",
             "window": window,
             "rcode": rcode or "",
+            "qtype": qtype or "",
+            "blocked": blocked or "",
             "client_options": client_options,
             "rcode_options": list(RCODE_NAMES.values()),
+            "qtype_options": list(QTYPE_NAMES.values()),
             "window_options": list(WINDOW_HOURS.keys()),
         },
     )

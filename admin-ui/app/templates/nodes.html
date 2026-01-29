@@ -1,41 +1,173 @@
 {% extends "base.html" %}
 {% block content %}
-  <h3>Nodes</h3>
-
-  <div class="card" style="max-width: 720px;">
-    <h4 style="margin-top:0;">Add secondary node</h4>
-    {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    <form method="post" action="/nodes/generate">
-      <label>Node name</label>
-      <input name="name" placeholder="fred" />
-
-      <label>Primary URL (reachable from secondary)</label>
-      <input name="primary_url" value="{{ default_primary_url }}" />
-
-      <button type="submit">Generate package (.zip)</button>
-    </form>
-    <p style="margin-bottom:0; font-size: 0.9rem; color:#555;">
-      Generated package contains docker-compose.yml + .env for the secondary host.
-    </p>
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Nodes</h1>
+      <p class="mt-1 text-sm text-slate-400">Manage primary and secondary PowerBlockade nodes</p>
+    </div>
   </div>
 
-  <h4>Existing nodes</h4>
-  <table cellpadding="6" cellspacing="0" border="1" style="border-collapse: collapse;">
-    <tr>
-      <th>Name</th>
-      <th>Status</th>
-      <th>Last seen</th>
-      <th>IP</th>
-      <th>Version</th>
-    </tr>
-    {% for n in nodes %}
-      <tr>
-        <td>{{ n.name }}</td>
-        <td>{{ n.status }}</td>
-        <td>{{ n.last_seen or "-" }}</td>
-        <td>{{ n.ip_address or "-" }}</td>
-        <td>{{ n.version or "-" }}</td>
-      </tr>
-    {% endfor %}
-  </table>
+  {% if error %}
+  <div class="mt-4 rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-300">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <div class="mt-4 grid gap-4 md:grid-cols-2">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Add secondary node</h2>
+      <p class="mt-1 text-xs text-slate-500">Generate a deployment package for a new secondary node</p>
+      <form method="post" action="/nodes/generate" class="mt-4 space-y-3">
+        {{ csrf_input(request) }}
+        <div>
+          <label class="text-sm text-slate-300">Node name</label>
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" name="name" placeholder="backup-dns" required />
+        </div>
+        <div>
+          <label class="text-sm text-slate-300">Primary URL (reachable from secondary)</label>
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" name="primary_url" value="{{ default_primary_url }}" required />
+        </div>
+        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Generate package (.zip)</button>
+      </form>
+      <p class="mt-3 text-xs text-slate-500">
+        The generated package contains docker-compose.yml and .env for the secondary host.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">About Multi-Node</h2>
+      <div class="mt-3 space-y-2 text-sm text-slate-400">
+        <p>Secondary nodes sync configuration from the primary and provide DNS redundancy.</p>
+        <ul class="list-disc pl-5 space-y-1 text-xs text-slate-500">
+          <li>Blocklists and RPZ zones sync automatically</li>
+          <li>Forward zones can be global or per-node</li>
+          <li>Query logs are shipped to the primary</li>
+          <li>Nodes report heartbeat every 60 seconds</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
+    <table class="min-w-full text-sm">
+      <thead class="bg-bg-900 text-slate-400">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium">Node</th>
+          <th class="px-4 py-3 text-left font-medium">Status</th>
+          <th class="px-4 py-3 text-left font-medium">Last Seen</th>
+          <th class="px-4 py-3 text-left font-medium">IP Address</th>
+          <th class="px-4 py-3 text-left font-medium">Version</th>
+          <th class="px-4 py-3 text-right font-medium">Queries</th>
+          <th class="px-4 py-3 text-right font-medium">Blocked</th>
+          <th class="px-4 py-3 text-right font-medium">Cache Hit %</th>
+          <th class="px-4 py-3 text-right font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800">
+        {% for item in node_data %}
+        {% set n = item.node %}
+        <tr class="hover:bg-bg-700">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-slate-200">{{ n.name }}</span>
+              {% if item.is_primary %}
+              <span class="rounded-full bg-indigo-900/50 px-2 py-0.5 text-xs text-indigo-300">primary</span>
+              {% endif %}
+            </div>
+          </td>
+          <td class="px-4 py-3">
+            <span class="rounded-full {{ item.status_class }} px-2 py-0.5 text-xs">{{ item.status_text }}</span>
+          </td>
+          <td class="px-4 py-3 text-slate-400" title="{{ n.last_seen }}">
+            {{ n.last_seen|timeago }}
+          </td>
+          <td class="px-4 py-3 text-slate-400 font-mono text-xs">
+            {{ n.ip_address or "-" }}
+          </td>
+          <td class="px-4 py-3 text-slate-400 text-xs">
+            {{ n.version or "-" }}
+          </td>
+          <td class="px-4 py-3 text-right text-slate-300">
+            {{ n.queries_total|format_number }}
+          </td>
+          <td class="px-4 py-3 text-right">
+            {% if n.queries_blocked > 0 %}
+            <span class="text-red-400">{{ n.queries_blocked|format_number }}</span>
+            {% else %}
+            <span class="text-slate-500">0</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            {% if item.cache_hit_rate is not none %}
+            <span class="{% if item.cache_hit_rate >= 80 %}text-emerald-400{% elif item.cache_hit_rate >= 50 %}text-amber-400{% else %}text-red-400{% endif %}">
+              {{ "%.1f"|format(item.cache_hit_rate) }}%
+            </span>
+            {% else %}
+            <span class="text-slate-500">-</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            <div class="flex items-center justify-end gap-1">
+              <form method="post" action="/nodes/force-sync" class="inline">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="node_id" value="{{ n.id }}" />
+                <button type="submit" class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs text-slate-300 hover:bg-bg-700" title="Force config sync">Sync</button>
+              </form>
+              {% if not item.is_primary %}
+              <form method="post" action="/nodes/delete" class="inline" onsubmit="return confirm('Delete node {{ n.name }}? This cannot be undone.');">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="node_id" value="{{ n.id }}" />
+                <button type="submit" class="rounded border border-red-800 bg-red-900/30 px-2 py-1 text-xs text-red-400 hover:bg-red-900/50" title="Delete node">Delete</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% if n.last_error %}
+        <tr class="bg-red-950/20">
+          <td colspan="9" class="px-4 py-2 text-xs text-red-400">
+            <div class="flex items-center justify-between">
+              <div><strong>Error:</strong> {{ n.last_error[:200] }}{% if n.last_error|length > 200 %}...{% endif %}</div>
+              <form method="post" action="/nodes/clear-error" class="inline">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="node_id" value="{{ n.id }}" />
+                <button type="submit" class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs text-slate-300 hover:bg-bg-700">Clear</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        {% if not node_data %}
+        <tr>
+          <td colspan="9" class="px-4 py-8 text-center text-slate-500">
+            No nodes registered yet. The primary node will appear once it's configured.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">Status Legend</h2>
+    <div class="mt-3 flex flex-wrap gap-4 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="rounded-full bg-emerald-900/50 text-emerald-400 px-2 py-0.5">active</span>
+        <span class="text-slate-400">Last seen within 5 minutes</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="rounded-full bg-amber-900/50 text-amber-400 px-2 py-0.5">stale</span>
+        <span class="text-slate-400">No heartbeat in 5+ minutes</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="rounded-full bg-red-900/50 text-red-400 px-2 py-0.5">error</span>
+        <span class="text-slate-400">Node reported an error</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="rounded-full bg-slate-700/50 text-slate-400 px-2 py-0.5">pending</span>
+        <span class="text-slate-400">Registered but never connected</span>
+      </div>
+    </div>
+  </div>
 {% endblock %}

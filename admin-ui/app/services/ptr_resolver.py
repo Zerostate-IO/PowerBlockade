@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.models.client import Client
 from app.models.client_resolver_rule import ClientResolverRule
+
+log = logging.getLogger(__name__)
 
 PTR_CACHE_TTL_SECONDS = 3600
 PTR_CACHE_ERROR_TTL_SECONDS = 300
@@ -57,8 +60,8 @@ def ptr_lookup(ip: str, nameserver: str, timeout: float = PTR_TIMEOUT_SECONDS) -
         if answers:
             hostname = str(answers[0]).rstrip(".")
             return hostname
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"PTR lookup failed for {ip} via {nameserver}: {e}")
     return None
 
 

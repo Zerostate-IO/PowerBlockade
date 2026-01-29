@@ -408,6 +408,26 @@ cmd_backup() {
     [[ -n "$config_backup" ]] && echo "Config: $config_backup"
 }
 
+cmd_test() {
+    local primary="${1:-}"
+    local secondary="${2:-}"
+    
+    local test_script="$SCRIPT_DIR/test-e2e.sh"
+    
+    if [[ ! -x "$test_script" ]]; then
+        log_error "E2E test script not found: $test_script"
+        exit 1
+    fi
+    
+    if [[ -n "$primary" && -n "$secondary" ]]; then
+        exec "$test_script" "$primary" "$secondary"
+    elif [[ -n "$primary" ]]; then
+        exec "$test_script" "$primary"
+    else
+        exec "$test_script"
+    fi
+}
+
 cmd_help() {
     cat <<EOF
 pb - PowerBlockade management CLI
@@ -420,6 +440,7 @@ Commands:
     update          Update to latest version
     rollback        Rollback to previous version
     backup          Create database and config backup
+    test            Run E2E tests against deployment
     version         Show CLI version
     help            Show this help
 
@@ -430,6 +451,10 @@ Update Options:
 Rollback Options:
     --fast          Skip database restore (only safe if schema is N-1 compatible)
 
+Test Options:
+    pb test [primary_ip] [secondary_ip]
+    Default IPs: 10.5.5.64 (primary), 10.5.5.65 (secondary)
+
 Examples:
     pb status
     pb check-update
@@ -438,6 +463,8 @@ Examples:
     pb rollback
     pb rollback --fast
     pb backup
+    pb test
+    pb test 10.5.5.64 10.5.5.65
 
 EOF
 }
@@ -461,6 +488,9 @@ main() {
             ;;
         backup)
             cmd_backup
+            ;;
+        test)
+            cmd_test "$@"
             ;;
         version|-v|--version)
             cmd_version

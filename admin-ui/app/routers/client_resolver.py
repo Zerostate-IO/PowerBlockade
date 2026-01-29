@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -10,9 +9,10 @@ from app.models.client import Client
 from app.models.client_resolver_rule import ClientResolverRule
 from app.routers.auth import get_current_user
 from app.services.ptr_resolver import resolve_client_hostname
+from app.template_utils import get_templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 
 @router.get("/clients/resolver", response_class=HTMLResponse)
@@ -99,7 +99,10 @@ def clients_page(request: Request, db: Session = Depends(get_db)):
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
+    from app.models.client_group import ClientGroup
+
     clients = db.query(Client).order_by(Client.last_seen.desc().nullslast()).all()
+    groups = db.query(ClientGroup).order_by(ClientGroup.name).all()
 
     return templates.TemplateResponse(
         "clients.html",
@@ -107,6 +110,7 @@ def clients_page(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "user": user,
             "clients": clients,
+            "groups": groups,
             "message": None,
         },
     )

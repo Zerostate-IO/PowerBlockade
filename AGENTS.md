@@ -125,6 +125,11 @@ uvicorn app.main:app --reload  # Dev server
 
 # Go service
 cd dnstap-processor && go build ./cmd/dnstap-processor
+
+# E2E Testing (pre-release verification)
+./scripts/pb test              # Run against default IPs (10.5.5.64/65)
+./scripts/pb test 10.5.5.64 10.5.5.65  # Explicit IPs
+NUM_DOMAINS=500 ./scripts/test-e2e.sh  # Test more domains
 ```
 
 ## Environment Variables

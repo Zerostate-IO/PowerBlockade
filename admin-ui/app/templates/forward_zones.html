@@ -6,6 +6,7 @@
       <p class="mt-1 text-sm text-slate-400">Configure domain-specific DNS resolution (e.g., internal.company.com → 192.168.1.10)</p>
     </div>
     <form method="post" action="/forwardzones/apply">
+      {{ csrf_input(request) }}
       <button class="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-slate-950" type="submit">Apply (generate forward-zones.conf)</button>
     </form>
   </div>
@@ -17,6 +18,7 @@
   <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
     <h2 class="text-sm font-semibold text-slate-200">Add forward zone</h2>
     <form class="mt-3 space-y-3" method="post" action="/forwardzones/add">
+      {{ csrf_input(request) }}
       <div>
         <label class="text-sm text-slate-300">Domain</label>
         <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="domain" placeholder="internal.company.com" required />
@@ -62,10 +64,12 @@
           <td class="px-4 py-3 text-slate-300">{{ z.servers }}</td>
           <td class="px-4 py-3 text-right space-x-2">
             <form method="post" action="/forwardzones/toggle" class="inline">
+              {{ csrf_input(request) }}
               <input type="hidden" name="id" value="{{ z.id }}" />
               <button class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700" type="submit">{% if z.enabled %}off{% else %}on{% endif %}</button>
             </form>
             <form method="post" action="/forwardzones/delete" class="inline">
+              {{ csrf_input(request) }}
               <input type="hidden" name="id" value="{{ z.id }}" />
               <button type="submit" class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700">Delete</button>
             </form>
@@ -97,10 +101,12 @@
           <td class="px-4 py-3 text-slate-400">{{ z.node.name if z.node else '-' }}</td>
           <td class="px-4 py-3 text-right space-x-2">
             <form method="post" action="/forwardzones/toggle" class="inline">
+              {{ csrf_input(request) }}
               <input type="hidden" name="id" value="{{ z.id }}" />
               <button class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700" type="submit">{% if z.enabled %}off{% else %}on{% endif %}</button>
             </form>
             <form method="post" action="/forwardzones/delete" class="inline">
+              {{ csrf_input(request) }}
               <input type="hidden" name="id" value="{{ z.id }}" />
               <button type="submit" class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700">Delete</button>
             </form>

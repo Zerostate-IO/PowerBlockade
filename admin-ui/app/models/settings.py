@@ -25,12 +25,13 @@ DEFAULTS = {
     "retention_node_metrics_days": "365",
     "rollup_enabled": "true",
     "ptr_resolution_enabled": "true",
-    # Precache settings
     "precache_enabled": "true",
-    "precache_domain_count": "1000",  # Default to top 1000 domains
-    "precache_refresh_minutes": "30",  # Re-warm every 30 minutes
-    "precache_ignore_ttl": "false",  # Respect TTL by default
-    "precache_custom_refresh_minutes": "60",  # Custom refresh when ignoring TTL
+    "precache_domain_count": "1000",
+    "precache_refresh_minutes": "30",
+    "precache_ignore_ttl": "false",
+    "precache_custom_refresh_minutes": "60",
+    "precache_dns_server": "recursor",
+    "timezone": "UTC",
 }
 
 
@@ -81,3 +82,11 @@ def get_precache_ignore_ttl(db) -> bool:
 
 def get_precache_custom_refresh_minutes(db) -> int:
     return int(get_setting(db, "precache_custom_refresh_minutes") or "60")
+
+
+def get_precache_dns_server(db) -> str:
+    return get_setting(db, "precache_dns_server") or "recursor"
+
+
+def get_timezone(db) -> str:
+    return get_setting(db, "timezone") or "UTC"

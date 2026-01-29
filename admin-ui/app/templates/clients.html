@@ -5,7 +5,10 @@
       <h1 class="text-xl font-semibold">Clients</h1>
       <p class="mt-1 text-sm text-slate-400">View and manage DNS clients that have made queries</p>
     </div>
-    <a href="/clients/resolver" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Configure Name Resolution</a>
+    <div class="flex gap-2">
+      <a href="/clients/groups" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium hover:bg-cyan-500">Manage Groups</a>
+      <a href="/clients/resolver" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Configure Name Resolution</a>
+    </div>
   </div>
 
   {% if message %}
@@ -20,6 +23,7 @@
           <th class="px-4 py-3 text-left">IP Address</th>
           <th class="px-4 py-3 text-left">Display Name</th>
           <th class="px-4 py-3 text-left">Resolved Name (rDNS)</th>
+          <th class="px-4 py-3 text-left">Group</th>
           <th class="px-4 py-3 text-left">Last Seen</th>
           <th class="px-4 py-3 text-right">Actions</th>
         </tr>
@@ -30,6 +34,7 @@
           <td class="px-4 py-3 text-slate-200 font-mono">{{ c.ip }}</td>
           <td class="px-4 py-3">
             <form method="post" action="/clients/set-name" class="flex items-center gap-2">
+              {{ csrf_input(request) }}
               <input type="hidden" name="id" value="{{ c.id }}" />
               <input class="w-40 rounded border border-slate-700 bg-bg-900 px-2 py-1 text-sm" name="display_name" value="{{ c.display_name or '' }}" placeholder="Custom name" />
               <button type="submit" class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700">Set</button>
@@ -44,6 +49,18 @@
               <span class="text-slate-500">-</span>
             {% endif %}
           </td>
+          <td class="px-4 py-3">
+            <form method="post" action="/clients/set-group" class="flex items-center gap-2">
+              {{ csrf_input(request) }}
+              <input type="hidden" name="client_id" value="{{ c.id }}" />
+              <select name="group_id" onchange="this.form.submit()" class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs">
+                <option value="">No group</option>
+                {% for g in groups %}
+                <option value="{{ g.id }}" {% if c.group_id == g.id %}selected{% endif %}>{{ g.name }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
           <td class="px-4 py-3 text-slate-400">
             {% if c.last_seen %}
               {{ c.last_seen.strftime('%Y-%m-%d %H:%M') }}
@@ -53,6 +70,7 @@
           </td>
           <td class="px-4 py-3 text-right">
             <form method="post" action="/clients/resolve" class="inline">
+              {{ csrf_input(request) }}
               <input type="hidden" name="id" value="{{ c.id }}" />
               <button type="submit" class="rounded-md border border-slate-700 bg-bg-900 px-2 py-1 text-xs hover:bg-bg-700">Resolve</button>
             </form>

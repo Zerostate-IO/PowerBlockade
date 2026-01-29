@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+
+from app.template_utils import get_templates
 
 router = APIRouter(tags=["help"])
-
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 
 @router.get("/help", response_class=HTMLResponse)

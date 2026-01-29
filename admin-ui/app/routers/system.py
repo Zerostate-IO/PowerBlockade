@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -13,9 +12,10 @@ from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
 from app.routers.auth import get_current_user
 from app.settings import get_settings
+from app.template_utils import get_templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 
 @dataclass

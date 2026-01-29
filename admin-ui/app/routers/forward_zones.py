@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -11,9 +10,10 @@ from app.models.node import Node
 from app.routers.auth import get_current_user
 from app.services.config_audit import model_to_dict, record_change
 from app.services.forward_zones import write_forward_zones_config
+from app.template_utils import get_templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = get_templates()
 
 
 @router.get("/forwardzones", response_class=HTMLResponse)

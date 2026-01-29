@@ -13,31 +13,53 @@
           extend: {
             colors: {
               bg: {
-                900: '#0b1020',
-                800: '#0f172a',
-                700: '#111c33'
+                900: 'var(--bg-900)',
+                800: 'var(--bg-800)',
+                700: 'var(--bg-700)'
               }
             }
           }
         }
       }
     </script>
+    <style>
+      :root {
+        --bg-900: #f8fafc;
+        --bg-800: #f1f5f9;
+        --bg-700: #e2e8f0;
+      }
+      .dark {
+        --bg-900: #0b1020;
+        --bg-800: #0f172a;
+        --bg-700: #111c33;
+      }
+    </style>
+    <script>
+      (function() {
+        const theme = localStorage.getItem('pb-theme');
+        if (theme === 'light') {
+          document.documentElement.classList.remove('dark');
+        } else if (theme === 'dark' || !theme) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-bg-900 text-slate-100">
+  <body class="bg-bg-900 text-slate-900 dark:text-slate-100">
     <div class="min-h-screen">
-      <header class="sticky top-0 z-20 border-b border-slate-800 bg-bg-900/80 backdrop-blur">
+      <header class="sticky top-0 z-20 border-b border-slate-200 dark:border-slate-800 bg-bg-900/80 backdrop-blur">
         <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div class="flex items-center gap-3">
             <div class="h-9 w-9 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-400"></div>
             <div>
               <div class="text-lg font-semibold leading-tight">PowerBlockade</div>
-              <div class="text-xs text-slate-400">DNS control plane</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400">DNS control plane</div>
             </div>
           </div>
 
           {% if user %}
           <nav class="flex flex-wrap items-center gap-2 text-sm">
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-300" href="/help">Help</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-500 dark:text-slate-300" href="/help">Help</a>
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/">Dashboard</a>
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/logs">Logs</a>
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/clients">Clients</a>
@@ -49,8 +71,13 @@
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/precache">Precache</a>
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/nodes">Nodes</a>
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/audit">Audit</a>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/settings">Settings</a>
             <a class="px-3 py-2 rounded-md hover:bg-bg-800" href="/setup">Setup</a>
-            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-300" href="/logout">Logout</a>
+            <button id="theme-toggle" class="px-2 py-2 rounded-md hover:bg-bg-800 text-slate-500 dark:text-slate-300" title="Toggle theme">
+              <svg id="theme-icon-dark" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+              <svg id="theme-icon-light" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            </button>
+            <a class="px-3 py-2 rounded-md hover:bg-bg-800 text-slate-500 dark:text-slate-300" href="/logout">Logout</a>
           </nav>
           {% endif %}
         </div>
@@ -60,7 +87,7 @@
         {% block content %}{% endblock %}
       </main>
 
-      <footer class="border-t border-slate-800 mt-8">
+      <footer class="border-t border-slate-200 dark:border-slate-800 mt-8">
         <div class="mx-auto max-w-6xl px-4 py-3 flex justify-between items-center">
           <div class="text-xs text-slate-500">
             <a href="/system" class="hover:text-slate-400">System Health</a>
@@ -71,5 +98,18 @@
         </div>
       </footer>
     </div>
+    <script>
+      document.getElementById('theme-toggle')?.addEventListener('click', function() {
+        const html = document.documentElement;
+        const isDark = html.classList.contains('dark');
+        if (isDark) {
+          html.classList.remove('dark');
+          localStorage.setItem('pb-theme', 'light');
+        } else {
+          html.classList.add('dark');
+          localStorage.setItem('pb-theme', 'dark');
+        }
+      });
+    </script>
   </body>
 </html>

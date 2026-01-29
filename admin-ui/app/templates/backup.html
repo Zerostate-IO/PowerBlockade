@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Backup & Restore</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create and manage backups of your PowerBlockade data</p>
+    </div>
+  </div>
+
+  {% if message %}
+  <div class="mt-4 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+  <div class="mt-4 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/30 px-3 py-2 text-sm text-red-700 dark:text-red-300">{{ error }}</div>
+  {% endif %}
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-200 mb-4">Create Backup</h2>
+      
+      <div class="space-y-4">
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-bg-900 p-4">
+          <div class="flex items-start justify-between">
+            <div>
+              <h3 class="font-medium text-slate-900 dark:text-slate-200">Database Backup</h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Full PostgreSQL dump including all query logs, settings, and configuration</p>
+            </div>
+            <form method="post" action="/backup/database">
+              {{ csrf_input(request) }}
+              <button type="submit" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500">Create</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-bg-900 p-4">
+          <div class="flex items-start justify-between">
+            <div>
+              <h3 class="font-medium text-slate-900 dark:text-slate-200">Config Backup</h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">RPZ zone files and forward zone configurations</p>
+            </div>
+            <form method="post" action="/backup/config">
+              {{ csrf_input(request) }}
+              <button type="submit" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500">Create</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-200 mb-4">Restore Database</h2>
+      
+      <form method="post" action="/backup/restore/database" enctype="multipart/form-data" class="space-y-4">
+        {{ csrf_input(request) }}
+        <div>
+          <label class="block text-xs text-slate-500 dark:text-slate-400 mb-2">Upload .sql backup file</label>
+          <input type="file" name="file" accept=".sql" required class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-cyan-600 file:text-white">
+        </div>
+        <div class="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span>This will overwrite existing data. Create a backup first!</span>
+        </div>
+        <button type="submit" onclick="return confirm('This will overwrite all existing data. Are you sure?')" class="w-full rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500">Restore Database</button>
+      </form>
+    </div>
+  </div>
+
+  {% if backups %}
+  <div class="mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-200 mb-4">Existing Backups</h2>
+    
+    <div class="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-bg-900">
+      <table class="min-w-full text-sm">
+        <thead class="bg-bg-800 text-slate-500 dark:text-slate-400">
+          <tr>
+            <th class="px-4 py-3 text-left font-medium">Filename</th>
+            <th class="px-4 py-3 text-left font-medium">Type</th>
+            <th class="px-4 py-3 text-left font-medium">Size</th>
+            <th class="px-4 py-3 text-left font-medium">Created</th>
+            <th class="px-4 py-3 text-right font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+          {% for b in backups %}
+          <tr class="hover:bg-bg-700">
+            <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{{ b.name }}</td>
+            <td class="px-4 py-3">
+              {% if b.type == 'database' %}
+              <span class="rounded bg-indigo-100 dark:bg-indigo-900/50 px-2 py-0.5 text-xs text-indigo-700 dark:text-indigo-300">Database</span>
+              {% else %}
+              <span class="rounded bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300">Config</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ b.size_human }}</td>
+            <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ b.mtime.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex justify-end gap-2">
+                <a href="/backup/download/{{ b.name }}" class="rounded border border-slate-200 dark:border-slate-700 bg-bg-800 px-2 py-1 text-xs hover:bg-bg-700">Download</a>
+                <form method="post" action="/backup/delete/{{ b.name }}" class="inline">
+                  {{ csrf_input(request) }}
+                  <button type="submit" onclick="return confirm('Delete this backup?')" class="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 px-2 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800 p-5 text-center text-sm text-slate-500 dark:text-slate-400">
+    No backups found. Create your first backup using the buttons above.
+  </div>
+  {% endif %}
+{% endblock %}

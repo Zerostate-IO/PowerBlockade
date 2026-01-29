@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Settings</h1>
+      <p class="mt-1 text-sm text-slate-400">Configure system-wide settings for PowerBlockade.</p>
+    </div>
+  </div>
+
+  {% if message %}
+    <div class="mt-4 rounded-lg border border-slate-700 bg-bg-800 px-3 py-2 text-sm text-slate-200">{{ message }}</div>
+  {% endif %}
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Timezone</h2>
+      <p class="mt-1 text-xs text-slate-400">Used for blocklist time schedules. Select your local timezone for accurate schedule enforcement.</p>
+      <form method="post" action="/settings/timezone" class="mt-4">
+        {{ csrf_input(request) }}
+        <div>
+          <label class="text-xs text-slate-400">Current timezone</label>
+          <select name="timezone" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+            <optgroup label="Common timezones">
+              {% for tz in common_timezones %}
+                <option value="{{ tz }}" {% if settings.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="All timezones">
+              {% for tz in all_timezones %}
+                {% if tz not in common_timezones %}
+                  <option value="{{ tz }}" {% if settings.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+                {% endif %}
+              {% endfor %}
+            </optgroup>
+          </select>
+        </div>
+        <button type="submit" class="mt-4 rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Save timezone</button>
+      </form>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Data Retention</h2>
+      <p class="mt-1 text-xs text-slate-400">Configure how long data is kept before automatic cleanup.</p>
+      <form method="post" action="/settings/retention" class="mt-4 space-y-4">
+        {{ csrf_input(request) }}
+        <div>
+          <label class="text-xs text-slate-400">Query events (days)</label>
+          <input type="number" name="retention_events_days" value="{{ settings.retention_events_days }}" min="1" max="365" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+          <p class="mt-1 text-xs text-slate-500">Individual DNS query logs</p>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Rollup data (days)</label>
+          <input type="number" name="retention_rollups_days" value="{{ settings.retention_rollups_days }}" min="1" max="3650" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+          <p class="mt-1 text-xs text-slate-500">Aggregated hourly/daily statistics</p>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Node metrics (days)</label>
+          <input type="number" name="retention_node_metrics_days" value="{{ settings.retention_node_metrics_days }}" min="1" max="3650" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+          <p class="mt-1 text-xs text-slate-500">Recursor performance metrics</p>
+        </div>
+        <button type="submit" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Save retention</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">Other Settings</h2>
+    <p class="mt-1 text-xs text-slate-400">Additional configuration options are available on their respective pages:</p>
+    <ul class="mt-3 space-y-2 text-sm">
+      <li><a href="/precache" class="text-cyan-400 hover:underline">Precache Settings</a> - Configure cache warming behavior</li>
+      <li><a href="/client-resolver" class="text-cyan-400 hover:underline">Client Resolver Rules</a> - PTR resolution for client names</li>
+      <li><a href="/client-groups" class="text-cyan-400 hover:underline">Client Groups</a> - Organize clients by subnet/VLAN</li>
+      <li><a href="/forwardzones" class="text-cyan-400 hover:underline">Forward Zones</a> - Custom DNS forwarding rules</li>
+      <li><a href="/backup" class="text-cyan-400 hover:underline">Backup &amp; Restore</a> - Database and config backups</li>
+    </ul>
+  </div>
+{% endblock %}

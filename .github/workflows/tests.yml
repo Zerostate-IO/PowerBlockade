@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
         run: uv sync --dev
@@ -53,6 +53,9 @@ jobs:
       run:
         working-directory: admin-ui
 
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/test_powerblockade
+
     steps:
       - uses: actions/checkout@v4
 
@@ -62,13 +65,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
         run: uv sync --dev
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ -v -m integration
+        run: uv run pytest tests/integration/ -v
 
   playwright-tests:
     runs-on: ubuntu-latest
@@ -85,25 +88,23 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: |
-          uv sync --dev
-          uv run playwright install chromium
+        run: uv sync --dev
 
       - name: Install Playwright browsers
-        run: uv run playwright install
+        run: uv run playwright install --with-deps chromium
 
       - name: Run Playwright tests
-        run: uv run pytest tests/playwright/ -v -m playwright
+        run: uv run pytest tests/playwright/ -v
 
       - name: Upload test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: playwright-report/
+          path: admin-ui/playwright-report/
 
   lint:
     runs-on: ubuntu-latest
@@ -120,7 +121,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
         run: uv sync --dev
@@ -130,3 +131,15 @@ jobs:
 
       - name: Run formatter
         run: uv run ruff format --check .
+
+  pb-cli-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Run pb CLI tests
+        run: ./scripts/test-pb.sh

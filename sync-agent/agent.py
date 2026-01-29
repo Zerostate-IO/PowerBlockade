@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import subprocess
+import socket
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -19,6 +20,26 @@ def getenv_required(key: str) -> str:
 
 def compute_file_checksum(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def get_local_ip(target_host: str) -> str | None:
+    """Get the local IP address used to reach a target host."""
+    try:
+        # Create a socket and connect to determine our outbound IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2)
+        # Connect to the target on port 80 (doesn't actually send data for UDP)
+        s.connect((target_host, 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def get_version() -> str:
+    """Get the PowerBlockade version from environment."""
+    return os.getenv("PB_VERSION", "unknown")
 
 
 def write_if_changed(filepath: Path, content: str) -> bool:
@@ -124,6 +145,11 @@ def main() -> None:
     )
 
     headers = {"X-PowerBlockade-Node-Key": api_key}
+    version = get_version()
+
+    parsed_url = urlparse(primary_url)
+    primary_host = parsed_url.hostname or "localhost"
+    ip_address = get_local_ip(primary_host)
 
     def post(path: str, json: dict):
         url = f"{primary_url}{path}"
@@ -131,9 +157,14 @@ def main() -> None:
 
     while True:
         try:
-            r = post("/api/node-sync/register", {"name": node_name})
+            register_payload = {
+                "name": node_name,
+                "version": version,
+                "ip_address": ip_address,
+            }
+            r = post("/api/node-sync/register", register_payload)
             if r.status_code < 300:
-                print(f"registered as {node_name}")
+                print(f"registered as {node_name} (ip={ip_address}, version={version})")
                 break
             raise RuntimeError(f"register failed: {r.status_code} {r.text}")
         except Exception as e:
@@ -144,7 +175,8 @@ def main() -> None:
 
     while True:
         try:
-            r = post("/api/node-sync/heartbeat", {})
+            heartbeat_payload = {"version": version}
+            r = post("/api/node-sync/heartbeat", heartbeat_payload)
             if r.status_code >= 300:
                 print(f"heartbeat failed: {r.status_code} {r.text}")
             else:

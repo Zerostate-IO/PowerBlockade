@@ -75,3 +75,64 @@ groups:
         annotations:
           summary: "PowerBlockade service down"
           description: "Cannot scrape metrics from admin-ui"
+
+      - alert: HighQueryLatency
+        expr: |
+          (
+            sum by (node) (powerblockade_recursor_answers_slow)
+            / 
+            sum by (node) (powerblockade_recursor_questions)
+          ) * 100 > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High query latency on {{ $labels.node }}"
+          description: "{{ $value | printf \"%.1f\" }}% of queries have latency >1s"
+
+      - alert: HighBlockRate
+        expr: |
+          (
+            sum by (node) (rate(powerblockade_queries_blocked_total[5m]))
+            / 
+            sum by (node) (rate(powerblockade_queries_total[5m]))
+          ) * 100 > 50
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "High block rate on {{ $labels.node }}"
+          description: "Block rate is {{ $value | printf \"%.1f\" }}% - may indicate malware or misconfiguration"
+
+      - alert: HighNXDOMAINRate
+        expr: |
+          (
+            sum by (node) (rate(powerblockade_recursor_nxdomain_answers[5m]))
+            / 
+            sum by (node) (rate(powerblockade_recursor_questions[5m]))
+          ) * 100 > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High NXDOMAIN rate on {{ $labels.node }}"
+          description: "NXDOMAIN rate is {{ $value | printf \"%.1f\" }}% - may indicate DGA malware"
+
+      - alert: ConcurrentQueriesHigh
+        expr: powerblockade_recursor_concurrent_queries > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High concurrent queries on {{ $labels.node }}"
+          description: "{{ $value }} concurrent queries - check for DNS amplification or misconfiguration"
+
+      - alert: NodeNotSyncing
+        expr: |
+          time() - powerblockade_node_last_heartbeat_timestamp > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Secondary node {{ $labels.node }} not syncing"
+          description: "No heartbeat from node for more than 10 minutes"

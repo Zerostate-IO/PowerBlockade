@@ -26,7 +26,7 @@ class QueryRollup(Base):
         sa.Index("ix_rollup_bucket_start", "bucket_start"),
     )
 
-    id: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True)
+    id: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True, autoincrement=True)
 
     bucket_start: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     granularity: Mapped[str] = mapped_column(sa.String(10), nullable=False)

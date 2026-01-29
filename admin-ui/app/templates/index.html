@@ -69,6 +69,45 @@
     </div>
   </div>
 
+  <!-- Live Query Stream -->
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <h3 class="text-sm font-semibold text-slate-200">Live Queries</h3>
+        <span id="stream-status" class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">Disconnected</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="stream-count" class="text-xs text-slate-400">0 queries</span>
+        <button id="stream-toggle" class="px-3 py-1.5 text-xs rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium">
+          Start Stream
+        </button>
+        <button id="stream-clear" class="px-3 py-1.5 text-xs rounded-lg border border-slate-700 bg-bg-900 hover:bg-bg-700 text-slate-300">
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <div id="stream-container" class="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-bg-900">
+      <table class="min-w-full text-xs">
+        <thead class="bg-bg-800 text-slate-400">
+          <tr>
+            <th class="px-3 py-2 text-left font-medium w-24">Time</th>
+            <th class="px-3 py-2 text-left font-medium w-28">Client</th>
+            <th class="px-3 py-2 text-left font-medium">Domain</th>
+            <th class="px-3 py-2 text-left font-medium w-16">Type</th>
+            <th class="px-3 py-2 text-left font-medium w-20">Status</th>
+            <th class="px-3 py-2 text-left font-medium w-16">Latency</th>
+          </tr>
+        </thead>
+        <tbody id="stream-body" class="divide-y divide-slate-800">
+          <tr id="stream-placeholder">
+            <td colspan="6" class="px-3 py-6 text-center text-slate-500">Click "Start Stream" to see live queries</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <script>
     (function() {
       let chart = null;
@@ -168,6 +207,124 @@
           });
         });
       });
+    })();
+
+    (function() {
+      const userId = '{{ user.id }}';
+      const maxRows = 50;
+      let ws = null;
+      let queryCount = 0;
+
+      const statusEl = document.getElementById('stream-status');
+      const countEl = document.getElementById('stream-count');
+      const toggleBtn = document.getElementById('stream-toggle');
+      const clearBtn = document.getElementById('stream-clear');
+      const tbody = document.getElementById('stream-body');
+      const placeholder = document.getElementById('stream-placeholder');
+
+      const qtypeMap = {1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR', 15: 'MX', 16: 'TXT', 28: 'AAAA', 33: 'SRV', 65: 'HTTPS'};
+      const rcodeMap = {0: 'NOERROR', 1: 'FORMERR', 2: 'SERVFAIL', 3: 'NXDOMAIN', 4: 'NOTIMP', 5: 'REFUSED'};
+
+      function formatTime(isoStr) {
+        const d = new Date(isoStr);
+        return d.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'});
+      }
+
+      function setStatus(status, color) {
+        statusEl.textContent = status;
+        statusEl.className = 'text-xs px-2 py-0.5 rounded-full';
+        if (color === 'green') statusEl.classList.add('bg-emerald-900', 'text-emerald-400');
+        else if (color === 'yellow') statusEl.classList.add('bg-yellow-900', 'text-yellow-400');
+        else statusEl.classList.add('bg-slate-700', 'text-slate-400');
+      }
+
+      function updateCount() {
+        countEl.textContent = queryCount.toLocaleString() + ' queries';
+      }
+
+      function addRow(event) {
+        if (placeholder) placeholder.remove();
+        
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-bg-700' + (event.blocked ? ' bg-red-950/30' : '');
+        
+        const qtype = qtypeMap[event.qtype] || event.qtype;
+        const rcode = rcodeMap[event.rcode] || event.rcode;
+        const latency = event.latency_ms !== null ? event.latency_ms + 'ms' : '-';
+        const statusClass = event.blocked ? 'text-red-400' : 'text-emerald-400';
+        const statusText = event.blocked ? 'Blocked' : rcode;
+
+        tr.innerHTML = `
+          <td class="px-3 py-2 whitespace-nowrap text-slate-400">${formatTime(event.ts)}</td>
+          <td class="px-3 py-2 text-slate-300 font-mono text-[10px]">${event.client_ip}</td>
+          <td class="px-3 py-2 font-mono text-slate-200 truncate max-w-xs" title="${event.qname}">${event.qname}</td>
+          <td class="px-3 py-2 text-slate-400">${qtype}</td>
+          <td class="px-3 py-2 ${statusClass}">${statusText}</td>
+          <td class="px-3 py-2 text-slate-400">${latency}</td>
+        `;
+
+        tbody.insertBefore(tr, tbody.firstChild);
+        queryCount++;
+        updateCount();
+
+        while (tbody.children.length > maxRows) {
+          tbody.removeChild(tbody.lastChild);
+        }
+      }
+
+      function connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/stream?user_id=${userId}`;
+        
+        setStatus('Connecting...', 'yellow');
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function() {
+          setStatus('Connected', 'green');
+          toggleBtn.textContent = 'Stop Stream';
+        };
+
+        ws.onmessage = function(e) {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'events' && msg.data) {
+            msg.data.forEach(addRow);
+          }
+        };
+
+        ws.onclose = function(e) {
+          setStatus('Disconnected', 'gray');
+          toggleBtn.textContent = 'Start Stream';
+          ws = null;
+        };
+
+        ws.onerror = function(e) {
+          console.error('WebSocket error:', e);
+          setStatus('Error', 'yellow');
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+      }
+
+      function clearStream() {
+        tbody.innerHTML = '<tr id="stream-placeholder"><td colspan="6" class="px-3 py-6 text-center text-slate-500">Click "Start Stream" to see live queries</td></tr>';
+        queryCount = 0;
+        updateCount();
+      }
+
+      toggleBtn.addEventListener('click', function() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          disconnect();
+        } else {
+          connect();
+        }
+      });
+
+      clearBtn.addEventListener('click', clearStream);
     })();
   </script>
 {% endblock %}
