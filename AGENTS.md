@@ -141,6 +141,7 @@ NUM_DOMAINS=500 ./scripts/test-e2e.sh  # Test more domains
 | `DATABASE_URL` | Postgres DSN | `postgresql+psycopg://...` |
 | `RECURSOR_API_KEY` | Recursor webserver auth | required |
 | `PRIMARY_API_KEY` | Node auth for dnstap-processor | required for logging |
+| `DNSDIST_LISTEN_ADDRESS` | IP for dnsdist to bind port 53 | `0.0.0.0` (all interfaces) |
 
 ## Architecture Decisions
 

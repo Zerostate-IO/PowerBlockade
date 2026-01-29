@@ -118,6 +118,20 @@ docker compose --profile sync-agent up -d
 DOMAIN=dns.example.com ACME_EMAIL=admin@example.com docker compose --profile traefik up -d
 ```
 
+## Port 53 conflicts
+
+If another service (like Netbird, systemd-resolved, or another DNS server) is using port 53, you can bind dnsdist to a specific IP instead of all interfaces:
+
+```bash
+# Add to .env
+DNSDIST_LISTEN_ADDRESS=192.168.1.10  # Your server's LAN IP
+```
+
+This is common when running:
+- **Netbird/Tailscale** - VPN software that runs its own DNS resolver
+- **systemd-resolved** - Ubuntu's default DNS stub resolver (binds 127.0.0.53:53)
+- **dnsmasq** - Often used by NetworkManager
+
 ## Optional networking (prod)
 
 - **macvlan "appliance mode" (Linux wired):** run `dnsdist` on a real LAN IP (no port publishing)
