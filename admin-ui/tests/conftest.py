@@ -8,10 +8,15 @@ integration tests (PostgreSQL). Most tests should use the sync fixtures
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Generator
 
 import pytest
+
+os.environ.setdefault("POWERBLOCKADE_ALLOW_INSECURE", "true")
+os.environ.setdefault("ADMIN_PASSWORD", "test-password-for-ci")
+os.environ.setdefault("ADMIN_SECRET_KEY", "test-secret-key-for-ci-testing-only")
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
