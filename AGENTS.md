@@ -92,6 +92,8 @@ Before any release, you MUST deploy and verify on internal test hosts:
 
 **Port 53 conflict note:** Both hosts run netbird which binds port 53 on its interface. dnsdist is configured to bind only to the LAN IP (`DNSDIST_LISTEN_ADDRESS` in `.env`), avoiding conflict.
 
+**RPZ permission fix:** If "Apply" fails with permission error, run `chmod -R 777 recursor/rpz` on the host. This happens when Docker creates the directory as root.
+
 **DO NOT release if deployment fails on either host.**
 
 ## Anti-Patterns (DO NOT)

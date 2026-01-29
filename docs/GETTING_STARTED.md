@@ -252,6 +252,20 @@ docker compose logs recursor
 docker compose logs dnsdist
 ```
 
+### Blocklist Apply Fails with Permission Error
+
+If clicking "Apply" on the Blocklists page returns a 500 error, the RPZ directory may have incorrect permissions:
+
+```bash
+# Fix permissions on the shared RPZ directory
+sudo chmod -R 777 /path/to/PowerBlockade/recursor/rpz
+
+# Or from inside the project
+chmod -R 777 recursor/rpz
+```
+
+This can happen after pulling updates or if Docker created the directory as root.
+
 ### Database Issues
 
 If the admin-ui shows database errors:
