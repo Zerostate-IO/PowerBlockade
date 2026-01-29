@@ -101,12 +101,18 @@ def regenerate_rpz(db) -> None:
 
     out_dir = "/shared/rpz"
     os.makedirs(out_dir, exist_ok=True)
+
+    effective_blocked = blocked_domains - allow_domains
+
     with open(os.path.join(out_dir, "blocklist-combined.rpz"), "w", encoding="utf-8") as f:
-        f.write(render_rpz_zone(blocked_domains, policy_name="blocklist-combined"))
+        f.write(render_rpz_zone(effective_blocked, policy_name="blocklist-combined"))
     with open(os.path.join(out_dir, "whitelist.rpz"), "w", encoding="utf-8") as f:
         f.write(render_rpz_whitelist(allow_domains))
 
-    log.info(f"Regenerated RPZ: {len(blocked_domains)} blocked, {len(allow_domains)} allow")
+    removed = len(blocked_domains) - len(effective_blocked)
+    log.info(
+        f"Regenerated RPZ: {len(effective_blocked)} blocked, {len(allow_domains)} allow, {removed} removed by whitelist"
+    )
 
 
 def rollup_job() -> None:

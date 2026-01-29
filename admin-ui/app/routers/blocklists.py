@@ -292,8 +292,11 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
 
     out_dir = "/shared/rpz"
     os.makedirs(out_dir, exist_ok=True)
+
+    effective_blocked = blocked_domains - allow_domains
+
     with open(os.path.join(out_dir, "blocklist-combined.rpz"), "w", encoding="utf-8") as f:
-        f.write(render_rpz_zone(blocked_domains, policy_name="blocklist-combined"))
+        f.write(render_rpz_zone(effective_blocked, policy_name="blocklist-combined"))
     with open(os.path.join(out_dir, "whitelist.rpz"), "w", encoding="utf-8") as f:
         f.write(render_rpz_whitelist(allow_domains))
 
@@ -302,7 +305,10 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
 
     blocklists = db.query(Blocklist).order_by(Blocklist.created_at.desc()).all()
     timezone = get_setting(db, "timezone") or "UTC"
-    msg = f"Wrote RPZ: {len(blocked_domains)} blocked, {len(allow_domains)} allow"
+    removed_count = len(blocked_domains) - len(effective_blocked)
+    msg = f"Wrote RPZ: {len(effective_blocked)} blocked, {len(allow_domains)} allow"
+    if removed_count > 0:
+        msg += f" ({removed_count} removed by whitelist)"
     return templates.TemplateResponse(
         "blocklists.html",
         {
