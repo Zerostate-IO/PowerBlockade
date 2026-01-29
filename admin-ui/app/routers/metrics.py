@@ -36,47 +36,47 @@ def _get_latest_node_metrics(db: Session) -> list[tuple[str, NodeMetrics]]:
 def metrics(db: Session = Depends(get_db)):
     since = datetime.now(timezone.utc) - timedelta(hours=24)
 
-    total = db.scalar(sa.func.count(DNSQueryEvent.id).where(DNSQueryEvent.ts >= since)) or 0
+    total = (
+        db.query(sa.func.count(DNSQueryEvent.id)).filter(DNSQueryEvent.ts >= since).scalar() or 0
+    )
     blocked = (
-        db.scalar(
-            sa.func.count(DNSQueryEvent.id).where(
-                DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True)
-            )
-        )
+        db.query(sa.func.count(DNSQueryEvent.id))
+        .filter(DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True))
+        .scalar()
         or 0
     )
 
     cache_hits = (
-        db.scalar(
-            sa.func.count(DNSQueryEvent.id).where(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms < 5,
-            )
+        db.query(sa.func.count(DNSQueryEvent.id))
+        .filter(
+            DNSQueryEvent.ts >= since,
+            DNSQueryEvent.blocked.is_(False),
+            DNSQueryEvent.latency_ms < 5,
         )
+        .scalar()
         or 0
     )
 
     time_saved_total = 0
     if cache_hits > 0:
         avg_latency_miss = (
-            db.scalar(
-                sa.func.avg(DNSQueryEvent.latency_ms).where(
-                    DNSQueryEvent.ts >= since,
-                    DNSQueryEvent.blocked.is_(False),
-                    DNSQueryEvent.latency_ms >= 5,
-                )
+            db.query(sa.func.avg(DNSQueryEvent.latency_ms))
+            .filter(
+                DNSQueryEvent.ts >= since,
+                DNSQueryEvent.blocked.is_(False),
+                DNSQueryEvent.latency_ms >= 5,
             )
+            .scalar()
             or 0
         )
         avg_latency_hit = (
-            db.scalar(
-                sa.func.avg(DNSQueryEvent.latency_ms).where(
-                    DNSQueryEvent.ts >= since,
-                    DNSQueryEvent.blocked.is_(False),
-                    DNSQueryEvent.latency_ms < 5,
-                )
+            db.query(sa.func.avg(DNSQueryEvent.latency_ms))
+            .filter(
+                DNSQueryEvent.ts >= since,
+                DNSQueryEvent.blocked.is_(False),
+                DNSQueryEvent.latency_ms < 5,
             )
+            .scalar()
             or 0
         )
         time_saved_total = (avg_latency_miss - avg_latency_hit) * cache_hits

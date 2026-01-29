@@ -40,16 +40,18 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
     threshold = settings.cache_hit_threshold_ms
     since = datetime.now(timezone.utc) - timedelta(hours=24)
 
-    total = db.scalar(sa.func.count(DNSQueryEvent.id).where(DNSQueryEvent.ts >= since)) or 0
+    total = (
+        db.query(sa.func.count(DNSQueryEvent.id)).filter(DNSQueryEvent.ts >= since).scalar() or 0
+    )
 
     cache_hits = (
-        db.scalar(
-            sa.func.count(DNSQueryEvent.id).where(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms < threshold,
-            )
+        db.query(sa.func.count(DNSQueryEvent.id))
+        .filter(
+            DNSQueryEvent.ts >= since,
+            DNSQueryEvent.blocked.is_(False),
+            DNSQueryEvent.latency_ms < threshold,
         )
+        .scalar()
         or 0
     )
 
@@ -57,24 +59,24 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
     hit_rate = (cache_hits / total * 100) if total > 0 else 0
 
     avg_latency_hit = (
-        db.scalar(
-            sa.func.avg(DNSQueryEvent.latency_ms).where(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms < threshold,
-            )
+        db.query(sa.func.avg(DNSQueryEvent.latency_ms))
+        .filter(
+            DNSQueryEvent.ts >= since,
+            DNSQueryEvent.blocked.is_(False),
+            DNSQueryEvent.latency_ms < threshold,
         )
+        .scalar()
         or 0
     )
 
     avg_latency_miss = (
-        db.scalar(
-            sa.func.avg(DNSQueryEvent.latency_ms).where(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms >= threshold,
-            )
+        db.query(sa.func.avg(DNSQueryEvent.latency_ms))
+        .filter(
+            DNSQueryEvent.ts >= since,
+            DNSQueryEvent.blocked.is_(False),
+            DNSQueryEvent.latency_ms >= threshold,
         )
+        .scalar()
         or 0
     )
 
