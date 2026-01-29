@@ -1,7 +1,7 @@
 """Add blocklist schedule fields
 
-Revision ID: 0012
-Revises: 0011
+Revision ID: 0012_blocklist_schedules
+Revises: 0011_client_groups
 Create Date: 2026-01-28
 
 """
@@ -9,8 +9,8 @@ Create Date: 2026-01-28
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0012"
-down_revision = "0011"
+revision = "0012_blocklist_schedules"
+down_revision = "0011_client_groups"
 branch_labels = None
 depends_on = None
 
