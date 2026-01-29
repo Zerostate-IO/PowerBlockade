@@ -52,7 +52,6 @@ def bootstrap_admin() -> None:
 
 
 def bootstrap_primary_node() -> None:
-    # Ensure a Node row exists for the local primary's dnstap-processor.
     from sqlalchemy import text
 
     from app.db.session import engine
@@ -67,7 +66,8 @@ def bootstrap_primary_node() -> None:
             return
 
         existing = conn.execute(
-            text("SELECT id FROM nodes WHERE name = 'primary'"),
+            text("SELECT id FROM nodes WHERE name = 'primary' OR api_key = :k"),
+            {"k": settings.primary_api_key},
         ).fetchone()
         if existing is None:
             conn.execute(
