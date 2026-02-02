@@ -56,6 +56,8 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}-admin-ui
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -66,6 +68,8 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}-recursor
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -76,6 +80,8 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}-dnstap-processor
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -124,6 +130,8 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}-sync-agent
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
