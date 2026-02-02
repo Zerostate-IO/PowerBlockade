@@ -373,10 +373,10 @@ Existing alerts (already present):
 
 ### 28. SECURITY: Auth-gate Version Endpoint
 
-**Status:** Not started
+**Status:** COMPLETED
 **Effort:** Small (30 min)
 
-**Description:** `/api/version` exposes Git SHA which aids fingerprinting. Consider restricting to authenticated users.
+**Description:** `/api/version` exposes Git SHA which aids fingerprinting. Now restricted to authenticated users (session required in `admin-ui/app/main.py`).
 
 ---
 
