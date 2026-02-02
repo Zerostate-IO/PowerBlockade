@@ -281,10 +281,17 @@ def ingest(
         )
 
     if rows_data:
+        log.info(
+            f"Ingest: node={node.name} (id={node.id}) events={len(rows_data)} first_seq={rows_data[0].get('event_seq')} last_seq={rows_data[-1].get('event_seq')}"
+        )
         stmt = pg_insert(DNSQueryEvent).values(rows_data)
         stmt = stmt.on_conflict_do_nothing(constraint="uq_node_event_seq")
         result = cast(CursorResult, db.execute(stmt))
         inserted = result.rowcount or 0
+        if inserted < len(rows_data):
+            log.warning(
+                f"Ingest: only {inserted}/{len(rows_data)} inserted (conflicts on uq_node_event_seq)"
+            )
     else:
         inserted = 0
 
