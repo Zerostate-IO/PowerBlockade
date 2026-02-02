@@ -30,14 +30,14 @@ var (
 )
 
 func main() {
-  cfg, err := config.Load()
-  if err != nil {
-    log.Fatalf("config: %v", err)
-  }
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 
-  if cfg.Primary.APIKey == "" {
-    log.Fatalf("PRIMARY_API_KEY is required")
-  }
+	if cfg.Primary.APIKey == "" {
+		log.Fatalf("PRIMARY_API_KEY is required")
+	}
 
 	log.Printf(
 		"starting dnstap-processor version=%s sha=%s node=%s dnstap_socket=%s protobuf_listen=%s primary=%s buffer=%s",
@@ -55,71 +55,72 @@ func main() {
 	}
 
 	input, err := dnstap.NewFrameStreamSockInputFromPath(cfg.DnstapSocket)
-  if err != nil {
-    log.Fatalf("dnstap input: %v", err)
-  }
-  input.SetTimeout(5 * time.Second)
+	if err != nil {
+		log.Fatalf("dnstap input: %v", err)
+	}
+	input.SetTimeout(5 * time.Second)
+	input.SetLogger(log.Default())
 
-  // Ensure the socket is connectable by the recursor process.
-  // Recursor may not run as root; allow group/other write on the socket.
-  _ = os.Chmod(cfg.DnstapSocket, 0o666)
+	// Ensure the socket is connectable by the recursor process.
+	// Recursor may not run as root; allow group/other write on the socket.
+	_ = os.Chmod(cfg.DnstapSocket, 0o666)
 
-  dataChan := make(chan []byte, 2048)
-  go func() {
-    // ReadInto blocks; it closes channel on exit.
-    input.ReadInto(dataChan)
-  }()
+	dataChan := make(chan []byte, 2048)
+	go func() {
+		// ReadInto blocks; it closes channel on exit.
+		input.ReadInto(dataChan)
+	}()
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-  // Load RPZ sets for blocked detection (best-effort).
-  blockedSet := map[string]struct{}{}
-  allowSet := map[string]struct{}{}
-  lastLoad := time.Time{}
-  loadSets := func() {
-    // reload at most every 5s
-    if !lastLoad.IsZero() && time.Since(lastLoad) < 5*time.Second {
-      return
-    }
-    lastLoad = time.Now()
+	// Load RPZ sets for blocked detection (best-effort).
+	blockedSet := map[string]struct{}{}
+	allowSet := map[string]struct{}{}
+	lastLoad := time.Time{}
+	loadSets := func() {
+		// reload at most every 5s
+		if !lastLoad.IsZero() && time.Since(lastLoad) < 5*time.Second {
+			return
+		}
+		lastLoad = time.Now()
 
-    loadFile := func(path string) (map[string]struct{}, error) {
-      f, err := os.Open(path)
-      if err != nil {
-        return nil, err
-      }
-      defer f.Close()
-      b, err := io.ReadAll(f)
-      if err != nil {
-        return nil, err
-      }
-      m := map[string]struct{}{}
-      for _, line := range strings.Split(string(b), "\n") {
-        line = strings.TrimSpace(line)
-        if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$") {
-          continue
-        }
-        // Format: domain. CNAME .
-        parts := strings.Fields(line)
-        if len(parts) < 1 {
-          continue
-        }
-        d := strings.TrimSuffix(parts[0], ".")
-        d = strings.ToLower(d)
-        if d != "" && d != "@" {
-          m[d] = struct{}{}
-        }
-      }
-      return m, nil
-    }
+		loadFile := func(path string) (map[string]struct{}, error) {
+			f, err := os.Open(path)
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+			b, err := io.ReadAll(f)
+			if err != nil {
+				return nil, err
+			}
+			m := map[string]struct{}{}
+			for _, line := range strings.Split(string(b), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$") {
+					continue
+				}
+				// Format: domain. CNAME .
+				parts := strings.Fields(line)
+				if len(parts) < 1 {
+					continue
+				}
+				d := strings.TrimSuffix(parts[0], ".")
+				d = strings.ToLower(d)
+				if d != "" && d != "@" {
+					m[d] = struct{}{}
+				}
+			}
+			return m, nil
+		}
 
-    if m, err := loadFile("/shared/rpz/blocklist-combined.rpz"); err == nil {
-      blockedSet = m
-    }
-    if m, err := loadFile("/shared/rpz/whitelist.rpz"); err == nil {
-      allowSet = m
-    }
-  }
+		if m, err := loadFile("/shared/rpz/blocklist-combined.rpz"); err == nil {
+			blockedSet = m
+		}
+		if m, err := loadFile("/shared/rpz/whitelist.rpz"); err == nil {
+			allowSet = m
+		}
+	}
 
 	makeEvent := func(ts time.Time, clientIP string, qname string, qtype int, rcode int, latencyMS int) buffer.Event {
 		normQName := strings.TrimSuffix(strings.ToLower(qname), ".")
@@ -149,158 +150,158 @@ func main() {
 
 	protobufEvents := make(chan buffer.Event, 2048)
 
-  pbRecvTotal := 0
-  pbUnmarshalErr := 0
-  pbListUnmarshalErr := 0
-  pbSampleLeft := 25
+	pbRecvTotal := 0
+	pbUnmarshalErr := 0
+	pbListUnmarshalErr := 0
+	pbSampleLeft := 25
 
-  // Protobuf receiver: the Recursor connects to us over TCP and sends framed protobuf payloads.
-  ln, err := net.Listen("tcp", cfg.ProtobufListen)
-  if err != nil {
-    log.Fatalf("protobuf listen %s: %v", cfg.ProtobufListen, err)
-  }
-  go func() {
-    for {
-      conn, err := ln.Accept()
-      if err != nil {
-        // keep accepting unless the listener is closed
-        if ne, ok := err.(*net.OpError); ok && ne.Err != nil && strings.Contains(ne.Err.Error(), "closed") {
-          return
-        }
-        log.Printf("protobuf accept: %v", err)
-        continue
-      }
+	// Protobuf receiver: the Recursor connects to us over TCP and sends framed protobuf payloads.
+	ln, err := net.Listen("tcp", cfg.ProtobufListen)
+	if err != nil {
+		log.Fatalf("protobuf listen %s: %v", cfg.ProtobufListen, err)
+	}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				// keep accepting unless the listener is closed
+				if ne, ok := err.(*net.OpError); ok && ne.Err != nil && strings.Contains(ne.Err.Error(), "closed") {
+					return
+				}
+				log.Printf("protobuf accept: %v", err)
+				continue
+			}
 
-      if cfg.Debug {
-        log.Printf("protobuf accepted remote=%s", conn.RemoteAddr())
-      }
+			if cfg.Debug {
+				log.Printf("protobuf accepted remote=%s", conn.RemoteAddr())
+			}
 
-      go func(c net.Conn) {
-        defer func() { _ = c.Close() }()
-        r := bufio.NewReader(c)
-        ps := powerdns_protobuf.NewProtobufStream(r, c, 5*time.Second)
+			go func(c net.Conn) {
+				defer func() { _ = c.Close() }()
+				r := bufio.NewReader(c)
+				ps := powerdns_protobuf.NewProtobufStream(r, c, 5*time.Second)
 
-        processOne := func(pbdm *powerdns_protobuf.PBDNSMessage) {
-          t := pbdm.GetType()
+				processOne := func(pbdm *powerdns_protobuf.PBDNSMessage) {
+					t := pbdm.GetType()
 
-          from := net.IP(pbdm.GetFrom())
-          to := net.IP(pbdm.GetTo())
+					from := net.IP(pbdm.GetFrom())
+					to := net.IP(pbdm.GetTo())
 
-          q := pbdm.GetQuestion()
-          qname := ""
-          qtype := 0
-          if q != nil {
-            qname = q.GetQName()
-            qtype = int(q.GetQType())
-          }
+					q := pbdm.GetQuestion()
+					qname := ""
+					qtype := 0
+					if q != nil {
+						qname = q.GetQName()
+						qtype = int(q.GetQType())
+					}
 
-          if cfg.Debug && pbSampleLeft > 0 {
-            pbSampleLeft--
-            fromStr := ""
-            toStr := ""
-            if from != nil {
-              fromStr = from.String()
-            }
-            if to != nil {
-              toStr = to.String()
-            }
-            rcodeDebug := 0
-            if resp := pbdm.GetResponse(); resp != nil {
-              rcodeDebug = int(resp.GetRcode())
-            }
-            log.Printf(
-              "protobuf sample type=%s from=%s:%d to=%s:%d qname=%s qtype=%d rcode=%d",
-              t.String(), fromStr, pbdm.GetFromPort(), toStr, pbdm.GetToPort(), qname, qtype, rcodeDebug,
-            )
-          }
+					if cfg.Debug && pbSampleLeft > 0 {
+						pbSampleLeft--
+						fromStr := ""
+						toStr := ""
+						if from != nil {
+							fromStr = from.String()
+						}
+						if to != nil {
+							toStr = to.String()
+						}
+						rcodeDebug := 0
+						if resp := pbdm.GetResponse(); resp != nil {
+							rcodeDebug = int(resp.GetRcode())
+						}
+						log.Printf(
+							"protobuf sample type=%s from=%s:%d to=%s:%d qname=%s qtype=%d rcode=%d",
+							t.String(), fromStr, pbdm.GetFromPort(), toStr, pbdm.GetToPort(), qname, qtype, rcodeDebug,
+						)
+					}
 
-          // Process both queries and responses
-          // Responses have latency info and rcode; queries don't
-          if t != powerdns_protobuf.PBDNSMessage_DNSQueryType && t != powerdns_protobuf.PBDNSMessage_DNSResponseType {
-            return
-          }
+					// Process both queries and responses
+					// Responses have latency info and rcode; queries don't
+					if t != powerdns_protobuf.PBDNSMessage_DNSQueryType && t != powerdns_protobuf.PBDNSMessage_DNSResponseType {
+						return
+					}
 
-          if from == nil {
-            return
-          }
-          if q == nil || qname == "" {
-            return
-          }
+					if from == nil {
+						return
+					}
+					if q == nil || qname == "" {
+						return
+					}
 
-          clientIP := from.String()
+					clientIP := from.String()
 
-          rcode := 0
-          latencyMS := 0
-          ts := time.Now().UTC()
+					rcode := 0
+					latencyMS := 0
+					ts := time.Now().UTC()
 
-          if t == powerdns_protobuf.PBDNSMessage_DNSResponseType {
-            // Response events have rcode and latency info
-            resp := pbdm.GetResponse()
-            if resp != nil {
-              rcode = int(resp.GetRcode())
+					if t == powerdns_protobuf.PBDNSMessage_DNSResponseType {
+						// Response events have rcode and latency info
+						resp := pbdm.GetResponse()
+						if resp != nil {
+							rcode = int(resp.GetRcode())
 
-              // Calculate latency from query time in response
-              queryTimeSec := resp.GetQueryTimeSec()
-              queryTimeUsec := resp.GetQueryTimeUsec()
-              if queryTimeSec != 0 && pbdm.GetTimeSec() != 0 {
-                qts := time.Unix(int64(queryTimeSec), int64(queryTimeUsec)*1e3)
-                rts := time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3)
-                if d := rts.Sub(qts); d > 0 {
-                  latencyMS = int(d / time.Millisecond)
-                }
-              }
-            }
-            if pbdm.GetTimeSec() != 0 {
-              ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
-            }
-          } else {
-            // Query events: use message timestamp, no rcode/latency
-            if pbdm.GetTimeSec() != 0 {
-              ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
-            }
-          }
+							// Calculate latency from query time in response
+							queryTimeSec := resp.GetQueryTimeSec()
+							queryTimeUsec := resp.GetQueryTimeUsec()
+							if queryTimeSec != 0 && pbdm.GetTimeSec() != 0 {
+								qts := time.Unix(int64(queryTimeSec), int64(queryTimeUsec)*1e3)
+								rts := time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3)
+								if d := rts.Sub(qts); d > 0 {
+									latencyMS = int(d / time.Millisecond)
+								}
+							}
+						}
+						if pbdm.GetTimeSec() != 0 {
+							ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
+						}
+					} else {
+						// Query events: use message timestamp, no rcode/latency
+						if pbdm.GetTimeSec() != 0 {
+							ts = time.Unix(int64(pbdm.GetTimeSec()), int64(pbdm.GetTimeUsec())*1e3).UTC()
+						}
+					}
 
-          ev := makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS)
-          select {
-          case protobufEvents <- ev:
-          default:
-            // drop under backpressure
-          }
-        }
+					ev := makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS)
+					select {
+					case protobufEvents <- ev:
+					default:
+						// drop under backpressure
+					}
+				}
 
-        for {
-          payload, err := ps.RecvPayload(false)
-          if err != nil {
-            if cfg.Debug {
-              log.Printf("protobuf recv error: %v", err)
-            }
-            return
-          }
+				for {
+					payload, err := ps.RecvPayload(false)
+					if err != nil {
+						if cfg.Debug {
+							log.Printf("protobuf recv error: %v", err)
+						}
+						return
+					}
 
-          pbRecvTotal++
-          data := payload.Data()
-          pbdm := &powerdns_protobuf.PBDNSMessage{}
-          if err := proto.Unmarshal(data, pbdm); err == nil {
-            processOne(pbdm)
-            continue
-          }
-          pbUnmarshalErr++
+					pbRecvTotal++
+					data := payload.Data()
+					pbdm := &powerdns_protobuf.PBDNSMessage{}
+					if err := proto.Unmarshal(data, pbdm); err == nil {
+						processOne(pbdm)
+						continue
+					}
+					pbUnmarshalErr++
 
-          // Some senders batch messages using PBDNSMessageList.
-          pbl := &powerdns_protobuf.PBDNSMessageList{}
-          if err := proto.Unmarshal(data, pbl); err != nil {
-            pbListUnmarshalErr++
-            continue
-          }
-          for _, m := range pbl.GetMsg() {
-            if m != nil {
-              processOne(m)
-            }
-          }
-        }
-      }(conn)
-    }
-  }()
+					// Some senders batch messages using PBDNSMessageList.
+					pbl := &powerdns_protobuf.PBDNSMessageList{}
+					if err := proto.Unmarshal(data, pbl); err != nil {
+						pbListUnmarshalErr++
+						continue
+					}
+					for _, m := range pbl.GetMsg() {
+						if m != nil {
+							processOne(m)
+						}
+					}
+				}
+			}(conn)
+		}
+	}()
 
 	flushEvery := 2 * time.Second
 	maxBatch := 500
