@@ -1,7 +1,8 @@
 # PowerBlockade Knowledge Base
 
-**Generated:** 2026-01-28
-**Status:** Early scaffolding (MVP in progress)
+**Generated:** 2026-02-02
+**Version:** 0.3.1
+**Status:** MVP with multi-node support
 
 ## Overview
 

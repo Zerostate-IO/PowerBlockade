@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -8,6 +10,13 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+func getHostname() string {
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return "unknown"
+}
 
 func parseBytes(s string) (int64, error) {
 	s = strings.TrimSpace(strings.ToUpper(s))
@@ -63,7 +72,7 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		NodeName:       "primary",
+		NodeName:       getHostname(),
 		DnstapSocket:   "/var/run/dnstap/dnstap.sock",
 		ProtobufListen: "0.0.0.0:50001",
 		Primary: PrimaryConfig{
@@ -110,8 +119,17 @@ func Load() (Config, error) {
 	if v := strings.TrimSpace(os.Getenv("PRIMARY_URL")); v != "" {
 		cfg.Primary.URL = v
 	}
-	if v := strings.TrimSpace(os.Getenv("PRIMARY_API_KEY")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LOCAL_NODE_API_KEY")); v != "" {
 		cfg.Primary.APIKey = v
+	} else if v := strings.TrimSpace(os.Getenv("PRIMARY_API_KEY")); v != "" {
+		cfg.Primary.APIKey = v
+	}
+	if cfg.Primary.APIKey == "" {
+		if secret := strings.TrimSpace(os.Getenv("ADMIN_SECRET_KEY")); secret != "" {
+			seed := cfg.NodeName + ":" + secret
+			hash := sha256.Sum256([]byte(seed))
+			cfg.Primary.APIKey = hex.EncodeToString(hash[:])
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("GELF_ENDPOINT")); v != "" {
 		cfg.GELF.Endpoint = v

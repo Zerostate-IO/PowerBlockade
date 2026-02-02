@@ -1,10 +1,5 @@
 """Unit tests for /api/version endpoint authentication."""
 
-import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
-
 
 class TestVersionEndpointAuth:
     def test_version_requires_authentication(self, sync_client):

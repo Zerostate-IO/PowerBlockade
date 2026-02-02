@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     admin_password: str = "change-me"
 
     primary_api_key: str | None = None
+    # Local node API key for the primary's own node identity
+    # If not set, auto-generates one based on hostname + secret
+    local_node_api_key: str | None = None
+    # Node name for the primary (defaults to hostname)
+    node_name: str | None = None
     grafana_url: str = "http://grafana:3000"
     recursor_api_url: str = "http://recursor:8082"
 
@@ -24,7 +29,7 @@ class Settings(BaseSettings):
     cache_hit_threshold_ms: int = 5
 
     # Version info (injected at build time)
-    pb_version: str = "0.1.0-dev"
+    pb_version: str = "0.3.1"
     pb_git_sha: str = "unknown"
     pb_build_date: str = "unknown"
 

@@ -95,12 +95,18 @@ def bootstrap_admin() -> None:
 
 
 def bootstrap_primary_node() -> None:
+    import hashlib
+    import socket
+
     from sqlalchemy import text
 
     from app.db.session import engine
 
-    if not settings.primary_api_key:
-        return
+    node_name = settings.node_name or socket.gethostname()
+    local_key = settings.local_node_api_key
+    if not local_key:
+        seed = f"{node_name}:{settings.admin_secret_key}"
+        local_key = hashlib.sha256(seed.encode()).hexdigest()
 
     with engine.begin() as conn:
         try:
@@ -109,13 +115,13 @@ def bootstrap_primary_node() -> None:
             return
 
         existing = conn.execute(
-            text("SELECT id FROM nodes WHERE name = 'primary' OR api_key = :k"),
-            {"k": settings.primary_api_key},
+            text("SELECT id FROM nodes WHERE name = :n"),
+            {"n": node_name},
         ).fetchone()
         if existing is None:
             conn.execute(
                 text("INSERT INTO nodes (name, api_key, status) VALUES (:n, :k, 'active')"),
-                {"n": "primary", "k": settings.primary_api_key},
+                {"n": node_name, "k": local_key},
             )
 
 

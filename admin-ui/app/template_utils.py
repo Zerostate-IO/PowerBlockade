@@ -47,8 +47,12 @@ def csrf_input(request: Request) -> Markup:
 
 
 def get_templates() -> Jinja2Templates:
+    from app.settings import get_settings
+
+    settings = get_settings()
     templates = Jinja2Templates(directory="app/templates")
     templates.env.filters["timeago"] = timeago
     templates.env.filters["format_number"] = format_number
     templates.env.globals["csrf_input"] = csrf_input
+    templates.env.globals["version"] = settings.pb_version
     return templates

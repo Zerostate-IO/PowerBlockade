@@ -94,12 +94,14 @@ services:
     container_name: powerblockade-dnstap-processor
     restart: unless-stopped
     environment:
-      NODE_NAME: ${NODE_NAME:-primary}
+      NODE_NAME: ${NODE_NAME:-}
       DNSTAP_LISTEN: ${DNSTAP_LISTEN:-0.0.0.0:6000}
       DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
       PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
       PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
+      LOCAL_NODE_API_KEY: ${LOCAL_NODE_API_KEY:-}
       PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-}
       DEBUG_DNSTAP: ${DEBUG_DNSTAP:-false}
       GELF_ENABLED: ${GELF_ENABLED:-false}
       GELF_ENDPOINT: ${GELF_ENDPOINT:-}
@@ -134,6 +136,8 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
       PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      LOCAL_NODE_API_KEY: ${LOCAL_NODE_API_KEY:-}
+      NODE_NAME: ${NODE_NAME:-}
       RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
       RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
       TIMEZONE: ${TIMEZONE:-America/Los_Angeles}
