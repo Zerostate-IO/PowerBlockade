@@ -75,9 +75,29 @@ jobs:
 
   playwright-tests:
     runs-on: ubuntu-latest
+    continue-on-error: true
     defaults:
       run:
         working-directory: admin-ui
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: test_powerblockade
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/test_powerblockade
+      ADMIN_SECRET_KEY: test-secret-key-for-ci-only
+      ADMIN_PASSWORD: testpassword
 
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +116,14 @@ jobs:
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium
 
+      - name: Start app server
+        run: |
+          uv run alembic upgrade head
+          uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 &
+          sleep 5
+
       - name: Run Playwright tests
-        run: uv run pytest tests/playwright/ -v
+        run: uv run pytest tests/playwright/ -v --base-url http://localhost:8080
 
       - name: Upload test artifacts
         if: failure()

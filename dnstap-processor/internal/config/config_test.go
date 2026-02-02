@@ -81,8 +81,9 @@ func TestParseInt(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 
-	if cfg.NodeName != "primary" {
-		t.Errorf("NodeName = %q, want %q", cfg.NodeName, "primary")
+	// NodeName now defaults to hostname instead of "primary"
+	if cfg.NodeName == "" {
+		t.Errorf("NodeName should not be empty")
 	}
 	if cfg.DnstapSocket != "/var/run/dnstap/dnstap.sock" {
 		t.Errorf("DnstapSocket = %q, want default", cfg.DnstapSocket)
