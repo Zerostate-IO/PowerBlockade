@@ -108,6 +108,8 @@ Before any release, you MUST deploy and verify on internal test hosts:
 | `pip install --break-system-packages` | Use pipx or venv |
 | Passwords > 72 chars without pre-hash | Bcrypt silently truncates |
 | `dnsdist newServer()` with hostname | Must use IP literal (e.g., `172.30.0.10:5300`) |
+| Primary/secondary sharing same `PRIMARY_API_KEY` in nodes table | Each node needs unique api_key in DB; bootstrap conflict on same key |
+| dnstap connection after restart | Must restart dnsdist after dnstap-processor restart to re-establish TCP connection |
 
 ## Commands
 
