@@ -39,9 +39,13 @@ func main() {
 		log.Fatalf("PRIMARY_API_KEY is required")
 	}
 
+	dnstapSource := cfg.DnstapSocket
+	if cfg.DnstapListen != "" {
+		dnstapSource = "tcp:" + cfg.DnstapListen
+	}
 	log.Printf(
-		"starting dnstap-processor version=%s sha=%s node=%s dnstap_socket=%s protobuf_listen=%s primary=%s buffer=%s",
-		Version, GitSHA, cfg.NodeName, cfg.DnstapSocket, cfg.ProtobufListen, cfg.Primary.URL, cfg.Buffer.Path,
+		"starting dnstap-processor version=%s sha=%s node=%s dnstap=%s protobuf_listen=%s primary=%s buffer=%s",
+		Version, GitSHA, cfg.NodeName, dnstapSource, cfg.ProtobufListen, cfg.Primary.URL, cfg.Buffer.Path,
 	)
 
 	buf, err := buffer.Open(cfg.Buffer.Path, cfg.Buffer.MaxBytes, cfg.Buffer.MaxAge)
@@ -54,16 +58,24 @@ func main() {
 		log.Printf("buffer: %d pending events from previous run", pending)
 	}
 
-	input, err := dnstap.NewFrameStreamSockInputFromPath(cfg.DnstapSocket)
-	if err != nil {
-		log.Fatalf("dnstap input: %v", err)
+	var input *dnstap.FrameStreamSockInput
+	if cfg.DnstapListen != "" {
+		ln, err := net.Listen("tcp", cfg.DnstapListen)
+		if err != nil {
+			log.Fatalf("dnstap tcp listen %s: %v", cfg.DnstapListen, err)
+		}
+		input = dnstap.NewFrameStreamSockInput(ln)
+		log.Printf("dnstap listening on tcp %s", cfg.DnstapListen)
+	} else {
+		var err error
+		input, err = dnstap.NewFrameStreamSockInputFromPath(cfg.DnstapSocket)
+		if err != nil {
+			log.Fatalf("dnstap input: %v", err)
+		}
+		_ = os.Chmod(cfg.DnstapSocket, 0o666)
 	}
 	input.SetTimeout(5 * time.Second)
 	input.SetLogger(log.Default())
-
-	// Ensure the socket is connectable by the recursor process.
-	// Recursor may not run as root; allow group/other write on the socket.
-	_ = os.Chmod(cfg.DnstapSocket, 0o666)
 
 	dataChan := make(chan []byte, 2048)
 	go func() {

@@ -95,6 +95,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_NAME: ${NODE_NAME:-primary}
+      DNSTAP_LISTEN: ${DNSTAP_LISTEN:-0.0.0.0:6000}
       DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
       PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
       PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
@@ -107,6 +108,7 @@ services:
       BUFFER_MAX_AGE: ${BUFFER_MAX_AGE:-86400}
     expose:
       - "50001"
+      - "6000"
     networks:
       default:
         ipv4_address: 172.30.0.20
