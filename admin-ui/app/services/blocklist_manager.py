@@ -28,7 +28,7 @@ def fetch_and_parse_blocklist(url: str, fmt: str) -> set[str]:
         req = urllib.request.Request(
             url,
             data=None,
-            headers={"User-Agent": "PowerBlockade/0.3.1"},
+            headers={"User-Agent": "PowerBlockade/0.3.2"},
         )
 
         with urllib.request.urlopen(req, timeout=60) as response:
