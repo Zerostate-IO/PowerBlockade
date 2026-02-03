@@ -110,6 +110,87 @@ def scrape_recursor_metrics(recursor_url: str) -> dict:
         return {}
 
 
+def warm_domain(
+    domain: str, dns_server: str = "127.0.0.1", port: int = 53
+) -> int | None:
+    try:
+        import dns.resolver
+
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = [dns_server]
+        resolver.port = port
+        resolver.lifetime = 5.0
+
+        answer = resolver.resolve(domain, "A")
+        ttl = answer.rrset.ttl if answer.rrset else 300
+        return ttl
+    except Exception:
+        return None
+
+
+def warm_cache(
+    domains: list[str], dns_server: str = "127.0.0.1", port: int = 53
+) -> tuple[int, int]:
+    success = 0
+    failed = 0
+    batch_size = 50
+    batch_delay_ms = 100
+
+    for i, domain in enumerate(domains):
+        ttl = warm_domain(domain, dns_server, port)
+        if ttl is not None:
+            success += 1
+        else:
+            failed += 1
+
+        if (i + 1) % batch_size == 0 and i + 1 < len(domains):
+            time.sleep(batch_delay_ms / 1000.0)
+
+    return success, failed
+
+
+def fetch_precache_domains(
+    primary_url: str, headers: dict, limit: int = 1000
+) -> list[str]:
+    try:
+        r = requests.get(
+            f"{primary_url}/api/node-sync/precache-domains",
+            headers=headers,
+            params={"limit": limit},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            print(f"precache-domains fetch failed: {r.status_code}")
+            return []
+
+        data = r.json()
+        return data.get("domains", [])
+    except Exception as e:
+        print(f"precache-domains error: {e}")
+        return []
+
+
+def run_precache_warming(
+    primary_url: str,
+    headers: dict,
+    settings: dict,
+    dns_server: str = "127.0.0.1",
+) -> None:
+    if settings.get("precache_enabled", "true").lower() != "true":
+        return
+
+    domain_count = int(settings.get("precache_domain_count", "1000"))
+    domains = fetch_precache_domains(primary_url, headers, limit=domain_count)
+
+    if not domains:
+        print("no domains to warm")
+        return
+
+    print(f"warming {len(domains)} domains...")
+    success, failed = warm_cache(domains, dns_server=dns_server, port=53)
+    print(f"precache warming: {success}/{len(domains)} succeeded, {failed} failed")
+
+
 def poll_and_execute_commands(
     primary_url: str,
     headers: dict,
@@ -152,14 +233,14 @@ def poll_and_execute_commands(
 
 def sync_config(
     primary_url: str, headers: dict, rpz_dir: Path, fzones_path: Path
-) -> bool:
+) -> tuple[bool, dict]:
     try:
         r = requests.get(
             f"{primary_url}/api/node-sync/config", headers=headers, timeout=30
         )
         if r.status_code != 200:
             print(f"config fetch failed: {r.status_code}")
-            return False
+            return False, {}
 
         data = r.json()
         changed = False
@@ -182,10 +263,11 @@ def sync_config(
                 print("updated forward-zones.conf")
                 changed = True
 
-        return changed
+        settings = data.get("settings", {})
+        return changed, settings
     except Exception as e:
         print(f"config sync error: {e}")
-        return False
+        return False, {}
 
 
 def main() -> None:
@@ -230,6 +312,9 @@ def main() -> None:
 
     last_config_sync = 0.0
     last_config_version = None
+    last_precache_run = 0.0
+    precache_interval = int(os.getenv("PRECACHE_INTERVAL_SECONDS", "300"))
+    current_settings: dict = {}
 
     while True:
         config_version_from_primary = None
@@ -272,10 +357,19 @@ def main() -> None:
             should_sync = True
 
         if should_sync:
-            if sync_config(primary_url, headers, rpz_dir, fzones_path):
+            changed, settings = sync_config(primary_url, headers, rpz_dir, fzones_path)
+            if changed:
                 print("config changed, recursor will reload via polling")
+            if settings:
+                current_settings = settings
             last_config_sync = now
             last_config_version = config_version_from_primary
+
+        if now - last_precache_run >= precache_interval:
+            run_precache_warming(
+                primary_url, headers, current_settings, dns_server="127.0.0.1"
+            )
+            last_precache_run = now
 
         poll_and_execute_commands(primary_url, headers, recursor_url, recursor_api_key)
 

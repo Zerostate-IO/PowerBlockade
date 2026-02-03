@@ -168,6 +168,11 @@ def config(
     settings = {
         "retention_events_days": get_setting(db, "retention_events_days"),
         "ptr_resolution_enabled": get_setting(db, "ptr_resolution_enabled"),
+        "precache_enabled": get_setting(db, "precache_enabled"),
+        "precache_domain_count": get_setting(db, "precache_domain_count"),
+        "precache_refresh_minutes": get_setting(db, "precache_refresh_minutes"),
+        "precache_ignore_ttl": get_setting(db, "precache_ignore_ttl"),
+        "precache_custom_refresh_minutes": get_setting(db, "precache_custom_refresh_minutes"),
     }
 
     blocklists = db.query(Blocklist).filter(Blocklist.enabled.is_(True)).all()
@@ -200,6 +205,23 @@ def config(
         "forward_zones": forward_zones,
         "settings": settings,
         "blocklists": blocklist_info,
+    }
+
+
+@router.get("/precache-domains")
+def precache_domains(
+    limit: int = 1000,
+    node: Node = Depends(get_node_from_api_key),
+    db: Session = Depends(get_db),
+):
+    """Return top domains for secondary nodes to pre-warm their cache."""
+    from app.services.precache import get_top_domains_to_warm
+
+    domains = get_top_domains_to_warm(db, hours=24, limit=limit)
+    return {
+        "ok": True,
+        "domains": domains,
+        "count": len(domains),
     }
 
 

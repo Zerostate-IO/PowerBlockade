@@ -212,6 +212,8 @@ def logs_page(
     rcode: str | None = Query(None),
     qtype: str | None = Query(None),
     blocked: str | None = Query(None),
+    blocklist: str | None = Query(None),
+    view: str = Query("all"),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -221,7 +223,79 @@ def logs_page(
     hours = WINDOW_HOURS[window]
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
+    # Handle view-based filtering
+    if view == "blocked":
+        blocked = "yes"
+    elif view == "failures":
+        # Filter to SERVFAIL and NXDOMAIN
+        rcode = None  # Clear rcode filter, we'll handle it below
+    elif view == "top":
+        # Top domains view - aggregated
+        query = db.query(
+            DNSQueryEvent.qname,
+            func.count().label("count"),
+            func.sum(func.cast(DNSQueryEvent.blocked, sa.Integer())).label("blocked_count"),
+        ).filter(DNSQueryEvent.ts >= since)
+
+        if q:
+            query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
+        if client:
+            query = query.filter(DNSQueryEvent.client_ip == client)
+        if blocklist:
+            query = query.filter(DNSQueryEvent.blocklist_name == blocklist)
+
+        query = query.group_by(DNSQueryEvent.qname).order_by(func.count().desc())
+
+        total = query.count()
+        total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
+
+        offset = (page - 1) * DEFAULT_PAGE_SIZE
+        top_domains = query.offset(offset).limit(DEFAULT_PAGE_SIZE).all()
+
+        # Get distinct blocklist names for dropdown
+        blocklist_options = (
+            db.query(DNSQueryEvent.blocklist_name)
+            .filter(DNSQueryEvent.blocklist_name.isnot(None))
+            .distinct()
+            .order_by(DNSQueryEvent.blocklist_name)
+            .all()
+        )
+        blocklist_options = [b[0] for b in blocklist_options if b[0]]
+
+        all_clients = (
+            db.query(Client.ip, Client.display_name, Client.rdns_name)
+            .order_by(Client.display_name, Client.rdns_name, Client.ip)
+            .all()
+        )
+        client_options = [
+            {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
+        ]
+
+        return templates.TemplateResponse(
+            "logs.html",
+            {
+                "request": request,
+                "user": user,
+                "top_domains": top_domains,
+                "page": page,
+                "total_pages": total_pages,
+                "total": total,
+                "q": q or "",
+                "client": client or "",
+                "window": window,
+                "blocklist": blocklist or "",
+                "view": view,
+                "client_options": client_options,
+                "blocklist_options": blocklist_options,
+                "window_options": list(WINDOW_HOURS.keys()),
+            },
+        )
+
+    # Regular log view (all, blocked, failures)
     query = db.query(DNSQueryEvent).filter(DNSQueryEvent.ts >= since)
+
+    if view == "failures":
+        query = query.filter(DNSQueryEvent.rcode.in_([2, 3]))  # SERVFAIL, NXDOMAIN
 
     if q:
         query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
@@ -239,6 +313,8 @@ def logs_page(
         query = query.filter(DNSQueryEvent.blocked.is_(True))
     elif blocked == "no":
         query = query.filter(DNSQueryEvent.blocked.is_(False))
+    if blocklist:
+        query = query.filter(DNSQueryEvent.blocklist_name == blocklist)
 
     total = query.count()
     total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
@@ -276,6 +352,16 @@ def logs_page(
         {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
     ]
 
+    # Get distinct blocklist names for dropdown
+    blocklist_options = (
+        db.query(DNSQueryEvent.blocklist_name)
+        .filter(DNSQueryEvent.blocklist_name.isnot(None))
+        .distinct()
+        .order_by(DNSQueryEvent.blocklist_name)
+        .all()
+    )
+    blocklist_options = [b[0] for b in blocklist_options if b[0]]
+
     return templates.TemplateResponse(
         "logs.html",
         {
@@ -291,9 +377,12 @@ def logs_page(
             "rcode": rcode or "",
             "qtype": qtype or "",
             "blocked": blocked or "",
+            "blocklist": blocklist or "",
+            "view": view,
             "client_options": client_options,
             "rcode_options": list(RCODE_NAMES.values()),
             "qtype_options": list(QTYPE_NAMES.values()),
+            "blocklist_options": blocklist_options,
             "window_options": list(WINDOW_HOURS.keys()),
         },
     )
@@ -335,158 +424,25 @@ def domains_page(
 @router.get("/blocked", response_class=HTMLResponse)
 def blocked_page(
     request: Request,
-    page: int = Query(1, ge=1),
-    q: str | None = Query(None),
-    client: str | None = Query(None),
-    window: TimeWindow = Query("24h"),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    hours = WINDOW_HOURS[window]
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-
-    query = db.query(DNSQueryEvent).filter(
-        DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True)
-    )
-
-    if q:
-        query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
-    if client:
-        query = query.filter(DNSQueryEvent.client_ip == client)
-
-    total = query.count()
-    total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
-
-    offset = (page - 1) * DEFAULT_PAGE_SIZE
-    blocked = query.order_by(DNSQueryEvent.ts.desc()).offset(offset).limit(DEFAULT_PAGE_SIZE).all()
-
-    client_ips = {e.client_ip for e in blocked}
-    labels = _get_client_labels(db, client_ips)
-
-    domains = {e.qname for e in blocked}
-    blocklist_names = _get_blocklist_names(db, domains)
-
-    events = []
-    for e in blocked:
-        events.append(
-            {
-                "ts": e.ts.strftime("%Y-%m-%d %H:%M:%S") if e.ts else "-",
-                "client_ip": e.client_ip,
-                "client_label": labels.get(e.client_ip, e.client_ip),
-                "qname": e.qname,
-                "blocklist": blocklist_names.get(e.qname, "Unknown"),
-            }
-        )
-
-    all_clients = (
-        db.query(Client.ip, Client.display_name, Client.rdns_name)
-        .order_by(Client.display_name, Client.rdns_name, Client.ip)
-        .all()
-    )
-    client_options = [
-        {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
-    ]
-
-    return templates.TemplateResponse(
-        "blocked.html",
-        {
-            "request": request,
-            "user": user,
-            "events": events,
-            "page": page,
-            "total_pages": total_pages,
-            "total": total,
-            "q": q or "",
-            "client": client or "",
-            "window": window,
-            "client_options": client_options,
-            "window_options": list(WINDOW_HOURS.keys()),
-        },
-    )
+    return RedirectResponse(url="/logs?view=blocked", status_code=302)
 
 
 @router.get("/failures", response_class=HTMLResponse)
 def failures_page(
     request: Request,
-    page: int = Query(1, ge=1),
-    q: str | None = Query(None),
-    client: str | None = Query(None),
-    window: TimeWindow = Query("24h"),
-    rcode: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    hours = WINDOW_HOURS[window]
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-
-    failure_rcodes = [2, 3]
-    if rcode == "SERVFAIL":
-        failure_rcodes = [2]
-    elif rcode == "NXDOMAIN":
-        failure_rcodes = [3]
-
-    query = db.query(DNSQueryEvent).filter(
-        DNSQueryEvent.ts >= since, DNSQueryEvent.rcode.in_(failure_rcodes)
-    )
-
-    if q:
-        query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
-    if client:
-        query = query.filter(DNSQueryEvent.client_ip == client)
-
-    total = query.count()
-    total_pages = (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE
-
-    offset = (page - 1) * DEFAULT_PAGE_SIZE
-    failures = query.order_by(DNSQueryEvent.ts.desc()).offset(offset).limit(DEFAULT_PAGE_SIZE).all()
-
-    client_ips = {e.client_ip for e in failures}
-    labels = _get_client_labels(db, client_ips)
-
-    events = []
-    for e in failures:
-        events.append(
-            {
-                "ts": e.ts.strftime("%Y-%m-%d %H:%M:%S") if e.ts else "-",
-                "client_ip": e.client_ip,
-                "client_label": labels.get(e.client_ip, e.client_ip),
-                "qname": e.qname,
-                "rcode": RCODE_NAMES.get(e.rcode, str(e.rcode)),
-            }
-        )
-
-    all_clients = (
-        db.query(Client.ip, Client.display_name, Client.rdns_name)
-        .order_by(Client.display_name, Client.rdns_name, Client.ip)
-        .all()
-    )
-    client_options = [
-        {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
-    ]
-
-    return templates.TemplateResponse(
-        "failures.html",
-        {
-            "request": request,
-            "user": user,
-            "events": events,
-            "page": page,
-            "total_pages": total_pages,
-            "total": total,
-            "q": q or "",
-            "client": client or "",
-            "window": window,
-            "rcode": rcode or "",
-            "client_options": client_options,
-            "window_options": list(WINDOW_HOURS.keys()),
-        },
-    )
+    return RedirectResponse(url="/logs?view=failures", status_code=302)
 
 
 TimeWindow = Literal["1h", "6h", "12h", "24h", "3d", "7d"]

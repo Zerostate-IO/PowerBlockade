@@ -88,11 +88,11 @@
             {{ n.version or "-" }}
           </td>
           <td class="px-4 py-3 text-right text-slate-300">
-            {{ n.queries_total|format_number }}
+            {{ item.queries_total|format_number }}
           </td>
           <td class="px-4 py-3 text-right">
-            {% if n.queries_blocked > 0 %}
-            <span class="text-red-400">{{ n.queries_blocked|format_number }}</span>
+            {% if item.queries_blocked > 0 %}
+            <span class="text-red-400">{{ item.queries_blocked|format_number }}</span>
             {% else %}
             <span class="text-slate-500">0</span>
             {% endif %}

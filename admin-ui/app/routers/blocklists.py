@@ -291,13 +291,18 @@ def entries_add(
     request: Request,
     domain: str = Form(...),
     entry_type: str = Form(...),
+    comment: str = Form(""),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    e = ManualEntry(domain=domain.strip().lower().rstrip("."), entry_type=entry_type)
+    e = ManualEntry(
+        domain=domain.strip().lower().rstrip("."),
+        entry_type=entry_type,
+        comment=comment.strip() if comment else None,
+    )
     db.add(e)
     db.flush()
     record_change(
@@ -309,6 +314,13 @@ def entries_add(
         after_data=model_to_dict(e),
     )
     db.commit()
+
+    # Redirect back to referring page
+    referer = request.headers.get("referer", "")
+    if "/entries" in referer:
+        return RedirectResponse(url="/entries", status_code=302)
+    elif "/logs" in referer:
+        return RedirectResponse(url=referer, status_code=302)
     return RedirectResponse(url="/blocklists", status_code=302)
 
 

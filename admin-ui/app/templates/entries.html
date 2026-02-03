@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="flex items-end justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">Manual Entries</h1>
+      <p class="mt-1 text-sm text-slate-400">Manage whitelist and blacklist entries. Whitelist entries override blocking.</p>
+    </div>
+  </div>
+
+  {% if message %}
+    <div class="mt-4 rounded-lg border border-slate-700 bg-bg-800 px-3 py-2 text-sm text-slate-200">{{ message }}</div>
+  {% endif %}
+
+  <div class="mt-4 grid gap-4 md:grid-cols-2">
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Add Entry</h2>
+      <form class="mt-3 space-y-3" method="post" action="/entries/add">
+        {{ csrf_input(request) }}
+        <div>
+          <label class="text-sm text-slate-300">Domain</label>
+          <input class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="domain" placeholder="example.com" required />
+        </div>
+        <div>
+          <label class="text-sm text-slate-300">Type</label>
+          <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="entry_type">
+            <option value="allow">allow (whitelist)</option>
+            <option value="block">block</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-sm text-slate-300">Comment (optional)</label>
+          <textarea class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="comment" rows="2" placeholder="Why this entry exists..."></textarea>
+        </div>
+        <button class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" type="submit">Add Entry</button>
+      </form>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
+      <h2 class="text-sm font-semibold text-slate-200">Filter Entries</h2>
+      <p class="mt-1 text-xs text-slate-400">View entries by type</p>
+      <div class="mt-3 flex gap-2">
+        <a href="/entries" class="rounded-lg border px-3 py-2 text-sm {% if not filter_type %}border-cyan-500 bg-cyan-900/30 text-cyan-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">All</a>
+        <a href="/entries?type=allow" class="rounded-lg border px-3 py-2 text-sm {% if filter_type == 'allow' %}border-emerald-500 bg-emerald-900/30 text-emerald-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">Allow</a>
+        <a href="/entries?type=block" class="rounded-lg border px-3 py-2 text-sm {% if filter_type == 'block' %}border-red-500 bg-red-900/30 text-red-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">Block</a>
+      </div>
+      <div class="mt-4 text-xs text-slate-500">
+        <div class="flex items-center gap-2">
+          <span class="rounded px-2 py-0.5 bg-emerald-900/50 text-emerald-400">allow</span>
+          <span>= Whitelist (overrides blocks)</span>
+        </div>
+        <div class="flex items-center gap-2 mt-2">
+          <span class="rounded px-2 py-0.5 bg-red-900/50 text-red-400">block</span>
+          <span>= Blacklist (blocks domain)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
+    <table class="min-w-full text-sm">
+      <thead class="bg-bg-900 text-slate-300">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium">Domain</th>
+          <th class="px-4 py-3 text-left font-medium">Type</th>
+          <th class="px-4 py-3 text-left font-medium">Comment</th>
+          <th class="px-4 py-3 text-left font-medium">Created</th>
+          <th class="px-4 py-3 text-left font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800">
+        {% for e in entries %}
+          <tr class="hover:bg-bg-700">
+            <td class="px-4 py-3">
+              <div class="text-slate-200 font-mono">{{ e.domain }}</div>
+            </td>
+            <td class="px-4 py-3">
+              <span class="rounded px-2 py-0.5 text-xs {% if e.entry_type == 'allow' %}bg-emerald-900/50 text-emerald-400{% else %}bg-red-900/50 text-red-400{% endif %}">
+                {{ e.entry_type }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-400 text-xs max-w-xs truncate">
+              {% if e.comment %}
+                {{ e.comment }}
+              {% else %}
+                <span class="text-slate-600">—</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-xs text-slate-400">
+              {% if e.created_at %}
+                {{ e.created_at.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                <span class="text-slate-500">—</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <form method="post" action="/entries/delete" class="inline">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="id" value="{{ e.id }}" />
+                <button class="rounded border border-slate-700 bg-bg-900 px-2 py-1 text-xs text-red-400 hover:bg-red-900/30" type="submit" onclick="return confirm('Delete this entry?')">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not entries %}
+      <div class="p-8 text-center text-slate-500">No manual entries configured. Add one above.</div>
+    {% endif %}
+  </div>
+
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">About Manual Entries</h2>
+    <p class="mt-1 text-xs text-slate-400">
+      Manual entries let you override blocklist behavior for specific domains. Use <strong>allow</strong> to whitelist domains that are incorrectly blocked, or <strong>block</strong> to blacklist domains not covered by your blocklists.
+    </p>
+    <p class="mt-2 text-xs text-slate-500">
+      After adding or removing entries, click <strong>Apply (generate RPZ)</strong> on the Blocklists page to regenerate the RPZ zones.
+    </p>
+  </div>
+{% endblock %}

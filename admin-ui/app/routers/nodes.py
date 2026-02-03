@@ -5,9 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.dns_query_event import DNSQueryEvent
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
 from app.routers.auth import get_current_user
@@ -58,6 +60,20 @@ def compute_cache_hit_rate(metrics: NodeMetrics | None) -> float | None:
     return (metrics.cache_hits / total) * 100
 
 
+def get_node_query_stats(db: Session) -> dict[int, tuple[int, int]]:
+    stats = (
+        db.query(
+            DNSQueryEvent.node_id,
+            func.count(DNSQueryEvent.id).label("total"),
+            func.count().filter(DNSQueryEvent.blocked == True).label("blocked"),
+        )
+        .filter(DNSQueryEvent.node_id.isnot(None))
+        .group_by(DNSQueryEvent.node_id)
+        .all()
+    )
+    return {row.node_id: (row.total, int(row.blocked or 0)) for row in stats}
+
+
 ERROR_MESSAGES = {
     "cannot_delete_primary": "Cannot delete the primary node.",
 }
@@ -70,12 +86,14 @@ def nodes_page(request: Request, error: str | None = None, db: Session = Depends
         return RedirectResponse(url="/login", status_code=302)
 
     nodes = db.query(Node).order_by(Node.created_at.desc()).all()
+    query_stats = get_node_query_stats(db)
 
     node_data = []
     for node in nodes:
         metrics = get_latest_metrics(db, node.id)
         cache_hit_rate = compute_cache_hit_rate(metrics)
         status_class, status_text = get_node_status_badge(node)
+        total, blocked = query_stats.get(node.id, (0, 0))
         node_data.append(
             {
                 "node": node,
@@ -83,6 +101,8 @@ def nodes_page(request: Request, error: str | None = None, db: Session = Depends
                 "status_text": status_text,
                 "cache_hit_rate": cache_hit_rate,
                 "is_primary": node.name == "primary",
+                "queries_total": total,
+                "queries_blocked": blocked,
             }
         )
 

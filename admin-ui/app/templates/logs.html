@@ -3,11 +3,31 @@
   <div class="flex items-end justify-between">
     <div>
       <h1 class="text-xl font-semibold">Query Logs</h1>
-      <p class="mt-1 text-sm text-slate-400">{{ total }} queries{% if q or client or rcode %} (filtered){% endif %}</p>
+      <p class="mt-1 text-sm text-slate-400">{{ total }} queries{% if q or client or rcode or blocklist %} (filtered){% endif %}</p>
     </div>
   </div>
 
+  <div class="mt-4 flex gap-1 border-b border-slate-700">
+    <a href="/logs?view=all&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if rcode %}&rcode={{ rcode }}{% endif %}{% if qtype %}&qtype={{ qtype }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}" 
+       class="px-4 py-2 text-sm font-medium {% if view == 'all' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
+      All
+    </a>
+    <a href="/logs?view=blocked&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}" 
+       class="px-4 py-2 text-sm font-medium {% if view == 'blocked' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
+      Blocked
+    </a>
+    <a href="/logs?view=failures&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}" 
+       class="px-4 py-2 text-sm font-medium {% if view == 'failures' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
+      Failures
+    </a>
+    <a href="/logs?view=top&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}" 
+       class="px-4 py-2 text-sm font-medium {% if view == 'top' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
+      Top Domains
+    </a>
+  </div>
+
   <form method="get" action="/logs" class="mt-4 flex flex-wrap items-end gap-3">
+    <input type="hidden" name="view" value="{{ view }}">
     <div class="flex-1 min-w-[200px]">
       <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Search domain</label>
       <input type="text" name="q" value="{{ q }}" placeholder="e.g. google.com" 
@@ -22,6 +42,7 @@
         {% endfor %}
       </select>
     </div>
+    {% if view == 'all' or view == 'blocked' %}
     <div class="w-24">
       <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Type</label>
       <select name="qtype" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
@@ -31,6 +52,8 @@
         {% endfor %}
       </select>
     </div>
+    {% endif %}
+    {% if view == 'all' %}
     <div class="w-32">
       <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Response</label>
       <select name="rcode" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
@@ -48,6 +71,18 @@
         <option value="no" {% if blocked == 'no' %}selected{% endif %}>Allowed</option>
       </select>
     </div>
+    {% endif %}
+    {% if view != 'failures' and blocklist_options %}
+    <div class="w-40">
+      <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Blocklist</label>
+      <select name="blocklist" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
+        <option value="">All blocklists</option>
+        {% for bl in blocklist_options %}
+        <option value="{{ bl }}" {% if blocklist == bl %}selected{% endif %}>{{ bl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
     <div class="w-28">
       <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Time range</label>
       <select name="window" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm">
@@ -58,12 +93,56 @@
     </div>
     <div class="flex gap-2">
       <button type="submit" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium hover:bg-cyan-500">Filter</button>
-      {% if q or client or rcode or qtype or blocked or window != '24h' %}
-      <a href="/logs" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Clear</a>
+      {% if q or client or rcode or qtype or blocked or blocklist or window != '24h' %}
+      <a href="/logs?view={{ view }}" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Clear</a>
       {% endif %}
     </div>
   </form>
 
+  {% if view == 'top' %}
+  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800">
+    <table class="min-w-full text-sm">
+      <thead class="bg-bg-900 text-slate-500 dark:text-slate-300">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium">Domain</th>
+          <th class="px-4 py-3 text-left font-medium">Total Queries</th>
+          <th class="px-4 py-3 text-left font-medium">Blocked</th>
+          <th class="px-4 py-3 text-left font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+        {% for d in top_domains %}
+          <tr class="hover:bg-bg-700">
+            <td class="px-4 py-3 font-mono text-slate-700 dark:text-slate-200">{{ d.qname }}</td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ d.count }}</td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ d.blocked_count or 0 }}</td>
+            <td class="px-4 py-3">
+              <div class="flex gap-2">
+                <form method="post" action="/entries/add" class="inline">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="domain" value="{{ d.qname }}">
+                  <input type="hidden" name="entry_type" value="allow">
+                  <button type="submit" class="rounded bg-green-600 px-2 py-1 text-xs font-medium hover:bg-green-500">Allow</button>
+                </form>
+                <form method="post" action="/entries/add" class="inline">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="domain" value="{{ d.qname }}">
+                  <input type="hidden" name="entry_type" value="block">
+                  <button type="submit" class="rounded bg-red-600 px-2 py-1 text-xs font-medium hover:bg-red-500">Block</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        {% if not top_domains %}
+        <tr>
+          <td colspan="4" class="px-4 py-8 text-center text-slate-500">No domains found.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
   <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-bg-800">
     <table class="min-w-full text-sm">
       <thead class="bg-bg-900 text-slate-500 dark:text-slate-300">
@@ -75,6 +154,7 @@
           <th class="px-4 py-3 text-left font-medium">Type</th>
           <th class="px-4 py-3 text-left font-medium">Status</th>
           <th class="px-4 py-3 text-left font-medium">Latency</th>
+          <th class="px-4 py-3 text-left font-medium">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
@@ -83,7 +163,7 @@
             <td class="px-4 py-3 whitespace-nowrap text-slate-600 dark:text-slate-300">{{ e.ts }}</td>
             <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.node_name }}</td>
             <td class="px-4 py-3 text-slate-700 dark:text-slate-200">
-              <a href="/logs?client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
+              <a href="/logs?view={{ view }}&client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
             </td>
             <td class="px-4 py-3 font-mono text-slate-700 dark:text-slate-200 truncate max-w-xs" title="{{ e.qname }}">{{ e.qname }}</td>
             <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.qtype }}</td>
@@ -95,19 +175,36 @@
               {% endif %}
             </td>
             <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{% if e.latency_ms is not none %}{{ e.latency_ms }}ms{% else %}-{% endif %}</td>
+            <td class="px-4 py-3">
+              <div class="flex gap-2">
+                <form method="post" action="/entries/add" class="inline">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="domain" value="{{ e.qname }}">
+                  <input type="hidden" name="entry_type" value="allow">
+                  <button type="submit" class="rounded bg-green-600 px-2 py-1 text-xs font-medium hover:bg-green-500">Allow</button>
+                </form>
+                <form method="post" action="/entries/add" class="inline">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="domain" value="{{ e.qname }}">
+                  <input type="hidden" name="entry_type" value="block">
+                  <button type="submit" class="rounded bg-red-600 px-2 py-1 text-xs font-medium hover:bg-red-500">Block</button>
+                </form>
+              </div>
+            </td>
           </tr>
         {% endfor %}
         {% if not events %}
         <tr>
-          <td colspan="7" class="px-4 py-8 text-center text-slate-500">No queries found.</td>
+          <td colspan="8" class="px-4 py-8 text-center text-slate-500">No queries found.</td>
         </tr>
         {% endif %}
       </tbody>
     </table>
   </div>
+  {% endif %}
 
   {% if total_pages > 1 %}
-  {% set filter_params = "window=" ~ window ~ ("&q=" ~ q if q else "") ~ ("&client=" ~ client if client else "") ~ ("&rcode=" ~ rcode if rcode else "") ~ ("&qtype=" ~ qtype if qtype else "") ~ ("&blocked=" ~ blocked if blocked else "") %}
+  {% set filter_params = "view=" ~ view ~ "&window=" ~ window ~ ("&q=" ~ q if q else "") ~ ("&client=" ~ client if client else "") ~ ("&rcode=" ~ rcode if rcode else "") ~ ("&qtype=" ~ qtype if qtype else "") ~ ("&blocked=" ~ blocked if blocked else "") ~ ("&blocklist=" ~ blocklist if blocklist else "") %}
   <div class="mt-4 flex items-center justify-between">
     <div class="text-sm text-slate-400">Page {{ page }} of {{ total_pages }}</div>
     <div class="flex gap-2">

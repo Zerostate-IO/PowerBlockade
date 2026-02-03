@@ -251,6 +251,7 @@ def start_scheduler() -> None:
         id="precache_warming",
         name="Warm cache with top domains",
         replace_existing=True,
+        next_run_time=datetime.now(timezone.utc),  # Run immediately on boot
     )
 
     _scheduler.add_job(
