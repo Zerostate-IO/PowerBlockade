@@ -61,12 +61,29 @@ def get_top_domains_to_warm(db: Session, hours: int = 24, limit: int = 1000) -> 
     return [r.qname for r in results]
 
 
+def _resolve_dns_server(dns_server: str) -> str:
+    """Resolve hostname to IP if needed (dnspython requires IP addresses)."""
+    import socket
+
+    try:
+        socket.inet_aton(dns_server)
+        return dns_server
+    except socket.error:
+        pass
+
+    try:
+        return socket.gethostbyname(dns_server)
+    except socket.gaierror:
+        return dns_server
+
+
 def warm_domain(domain: str, dns_server: str = "127.0.0.1", port: int = 53) -> int | None:
     try:
         import dns.resolver
 
+        resolved_server = _resolve_dns_server(dns_server)
         resolver = dns.resolver.Resolver()
-        resolver.nameservers = [dns_server]
+        resolver.nameservers = [resolved_server]
         resolver.port = port
         resolver.lifetime = 5.0
 
