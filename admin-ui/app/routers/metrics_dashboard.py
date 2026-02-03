@@ -15,7 +15,7 @@ router = APIRouter()
 templates = get_templates()
 
 
-@router.get("/metrics", response_class=HTMLResponse)
+@router.get("/analytics/dashboard", response_class=HTMLResponse)
 def advanced_metrics(request: Request, db: Session = Depends(get_db)):
     """Full-page Grafana dashboard for query analytics."""
     user = get_current_user(request, db)
