@@ -96,6 +96,7 @@ def bootstrap_admin() -> None:
 
 def bootstrap_primary_node() -> None:
     import hashlib
+    import logging
     import socket
 
     from sqlalchemy import text
@@ -108,10 +109,13 @@ def bootstrap_primary_node() -> None:
         seed = f"{node_name}:{settings.admin_secret_key}"
         local_key = hashlib.sha256(seed.encode()).hexdigest()
 
+    print(f"[bootstrap] Bootstrapping node: {node_name}")
+
     with engine.begin() as conn:
         try:
             conn.execute(text("SELECT 1 FROM nodes LIMIT 1"))
         except Exception:
+            print("[bootstrap] Nodes table not ready, skipping")
             return
 
         existing = conn.execute(
@@ -126,11 +130,13 @@ def bootstrap_primary_node() -> None:
                 ),
                 {"n": node_name, "k": local_key},
             )
+            print(f"[bootstrap] Created node: {node_name}")
         else:
             conn.execute(
                 text("UPDATE nodes SET last_seen = NOW() WHERE name = :n"),
                 {"n": node_name},
             )
+            print(f"[bootstrap] Updated last_seen for node: {node_name}")
 
 
 @asynccontextmanager
