@@ -69,6 +69,7 @@
       <thead class="bg-bg-900 text-slate-500 dark:text-slate-300">
         <tr>
           <th class="px-4 py-3 text-left font-medium">Time</th>
+          <th class="px-4 py-3 text-left font-medium">Node</th>
           <th class="px-4 py-3 text-left font-medium">Client</th>
           <th class="px-4 py-3 text-left font-medium">Domain</th>
           <th class="px-4 py-3 text-left font-medium">Type</th>
@@ -80,6 +81,7 @@
         {% for e in events %}
           <tr class="hover:bg-bg-700 {% if e.blocked %}bg-red-50 dark:bg-red-950/30{% endif %}">
             <td class="px-4 py-3 whitespace-nowrap text-slate-600 dark:text-slate-300">{{ e.ts }}</td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.node_name }}</td>
             <td class="px-4 py-3 text-slate-700 dark:text-slate-200">
               <a href="/logs?client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
             </td>
@@ -97,7 +99,7 @@
         {% endfor %}
         {% if not events %}
         <tr>
-          <td colspan="6" class="px-4 py-8 text-center text-slate-500">No queries found.</td>
+          <td colspan="7" class="px-4 py-8 text-center text-slate-500">No queries found.</td>
         </tr>
         {% endif %}
       </tbody>

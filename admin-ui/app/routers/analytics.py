@@ -10,8 +10,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.blocklist import Blocklist
+from app.models.blocklist_entry import BlocklistEntry
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
+from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
 from app.routers.auth import get_current_user
@@ -99,10 +102,10 @@ def index_page(request: Request, db: Session = Depends(get_db)):
         )
         time_saved_total = (avg_latency_miss - avg_latency_hit) * cache_hits
 
-    hit_rate = cache_hits / total * 100 if total > 0 else 0
-
     nodes = db.query(Node).filter(Node.status == "active").all()
     node_data = []
+    total_cache_hits = 0
+    total_cache_misses = 0
     for node in nodes:
         latest = (
             db.query(NodeMetrics)
@@ -111,6 +114,12 @@ def index_page(request: Request, db: Session = Depends(get_db)):
             .first()
         )
         node_data.append({"node": node, "metrics": latest})
+        if latest:
+            total_cache_hits += latest.cache_hits
+            total_cache_misses += latest.cache_misses
+
+    total_cache_queries = total_cache_hits + total_cache_misses
+    real_hit_rate = (total_cache_hits / total_cache_queries * 100) if total_cache_queries > 0 else 0
 
     warnings = compute_health_warnings(node_data)
     critical_count = sum(1 for w in warnings if w.severity == "critical")
@@ -123,7 +132,7 @@ def index_page(request: Request, db: Session = Depends(get_db)):
             "user": user,
             "total": total,
             "blocked": blocked,
-            "hit_rate": hit_rate,
+            "hit_rate": real_hit_rate,
             "time_saved": time_saved_total,
             "node_count": len(nodes),
             "critical_count": critical_count,
@@ -137,6 +146,55 @@ def _get_client_labels(db: Session, client_ips: set[str]) -> dict[str, str]:
         return {}
     clients = db.query(Client).filter(Client.ip.in_(list(client_ips))).all()
     return {c.ip: c.display_name or c.rdns_name or c.ip for c in clients}
+
+
+def _get_blocklist_names(db: Session, domains: set[str]) -> dict[str, str]:
+    """Look up which blocklist each domain belongs to.
+
+    Returns a dict mapping domain -> blocklist name (or "Manual" for manual entries).
+    """
+    if not domains:
+        return {}
+
+    result: dict[str, str] = {}
+    domain_list = list(domains)
+
+    # Normalize domains for lookup (strip trailing dots, lowercase)
+    normalized = {d.rstrip(".").lower(): d for d in domain_list}
+    normalized_domains = list(normalized.keys())
+
+    # Check blocklist entries first
+    entries = (
+        db.query(BlocklistEntry.domain, Blocklist.name)
+        .join(Blocklist, BlocklistEntry.blocklist_id == Blocklist.id)
+        .filter(
+            sa.func.lower(BlocklistEntry.domain).in_(normalized_domains),
+            Blocklist.enabled.is_(True),
+        )
+        .all()
+    )
+    for entry_domain, list_name in entries:
+        original = normalized.get(entry_domain.lower())
+        if original and original not in result:
+            result[original] = list_name
+
+    # Check manual entries for remaining domains
+    remaining = [d for d in normalized_domains if normalized.get(d) not in result]
+    if remaining:
+        manual = (
+            db.query(ManualEntry.domain)
+            .filter(
+                sa.func.lower(ManualEntry.domain).in_(remaining),
+                ManualEntry.entry_type == "block",
+            )
+            .all()
+        )
+        for (manual_domain,) in manual:
+            original = normalized.get(manual_domain.lower())
+            if original:
+                result[original] = "Manual"
+
+    return result
 
 
 @router.get("/logs", response_class=HTMLResponse)
@@ -200,6 +258,7 @@ def logs_page(
                 "rcode": RCODE_NAMES.get(e.rcode, str(e.rcode)),
                 "latency_ms": e.latency_ms,
                 "blocked": e.blocked,
+                "node_name": e.node.name if e.node else "Unknown",
             }
         )
 
@@ -302,6 +361,9 @@ def blocked_page(
     client_ips = {e.client_ip for e in blocked}
     labels = _get_client_labels(db, client_ips)
 
+    domains = {e.qname for e in blocked}
+    blocklist_names = _get_blocklist_names(db, domains)
+
     events = []
     for e in blocked:
         events.append(
@@ -310,7 +372,7 @@ def blocked_page(
                 "client_ip": e.client_ip,
                 "client_label": labels.get(e.client_ip, e.client_ip),
                 "qname": e.qname,
-                "blocklist": e.blocklist_name or "manual",
+                "blocklist": blocklist_names.get(e.qname, "Unknown"),
             }
         )
 

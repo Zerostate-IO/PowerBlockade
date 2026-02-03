@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.node import Node
 
 
 class DNSQueryEvent(Base):
@@ -20,6 +24,7 @@ class DNSQueryEvent(Base):
     node_id: Mapped[int | None] = mapped_column(
         sa.Integer(), sa.ForeignKey("nodes.id", ondelete="SET NULL")
     )
+    node: Mapped["Node | None"] = relationship("Node", lazy="joined")
 
     client_ip: Mapped[str] = mapped_column(sa.String(64), index=True)
     client_id: Mapped[int | None] = mapped_column(

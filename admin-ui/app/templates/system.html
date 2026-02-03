@@ -208,9 +208,19 @@
     </div>
 
     <div class="rounded-xl border border-slate-800 bg-bg-800 overflow-hidden">
-      <div class="px-5 py-3 border-b border-slate-800">
-        <h2 class="font-semibold text-slate-100">Performance Dashboard</h2>
-        <p class="text-xs text-slate-400 mt-1">Real-time metrics from all nodes</p>
+      <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold text-slate-100">Performance Dashboard</h2>
+          <p class="text-xs text-slate-400 mt-1">Real-time metrics from all nodes</p>
+        </div>
+        <a href="/grafana/d/powerblockade-health/system-health?orgId=1&kiosk&theme=dark" 
+           target="_blank"
+           class="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          Open full screen
+        </a>
       </div>
       <div class="relative" style="padding-bottom: 56.25%; min-height: 500px;">
         <iframe 

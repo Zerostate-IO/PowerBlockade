@@ -165,6 +165,7 @@ app.add_middleware(
         "/api/",  # API endpoints use their own auth (API keys)
         "/health",  # Health check
         "/metrics",  # Prometheus metrics
+        "/grafana/",  # Grafana proxy (has its own auth/CSRF)
     ],
     cookie_secure=False,  # Set True when using HTTPS
     cookie_samesite="lax",
