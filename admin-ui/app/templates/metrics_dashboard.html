@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="h-full flex flex-col -m-6">
+    <!-- Header bar -->
+    <div class="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-bg-900">
+      <div>
+        <h1 class="text-xl font-semibold">Advanced Metrics</h1>
+        <p class="text-xs text-slate-400 mt-0.5">Query analytics powered by Grafana</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="/system" class="text-sm text-slate-400 hover:text-slate-200 flex items-center gap-1">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          System Health
+        </a>
+        <a href="/grafana/d/powerblockade-analytics/query-analytics?orgId=1&theme=dark" 
+           target="_blank"
+           class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5 transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Open in Grafana
+        </a>
+      </div>
+    </div>
+    
+    <!-- Full-height Grafana iframe -->
+    <div class="flex-1 min-h-0">
+      <iframe 
+        src="{{ dashboard_url }}"
+        class="w-full h-full border-0"
+        allow="fullscreen"
+        loading="lazy"
+      ></iframe>
+    </div>
+  </div>
+{% endblock %}

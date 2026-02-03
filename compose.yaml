@@ -235,6 +235,10 @@ services:
       GF_SECURITY_CSRF_TRUSTED_ORIGINS: "${GRAFANA_CSRF_ORIGINS:-*}"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:8080/grafana/}"
+      # Postgres datasource credentials (used in provisioning)
+      POSTGRES_USER: ${POSTGRES_USER:-powerblockade}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-powerblockade}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -242,6 +246,8 @@ services:
     expose:
       - "3000"
     depends_on:
+      postgres:
+        condition: service_healthy
       prometheus:
         condition: service_started
     labels:

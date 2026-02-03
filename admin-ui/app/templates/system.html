@@ -207,27 +207,37 @@
       </div>
     </div>
 
-    <div class="rounded-xl border border-slate-800 bg-bg-800 overflow-hidden">
-      <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div class="rounded-xl border border-slate-800 bg-bg-800 p-5">
+      <div class="flex items-center justify-between">
         <div>
-          <h2 class="font-semibold text-slate-100">Performance Dashboard</h2>
-          <p class="text-xs text-slate-400 mt-1">Real-time metrics from all nodes</p>
+          <h2 class="font-semibold text-slate-100">Advanced Metrics</h2>
+          <p class="text-sm text-slate-400 mt-1">Detailed query analytics with Grafana dashboards</p>
         </div>
-        <a href="/grafana/d/powerblockade-health/system-health?orgId=1&kiosk&theme=dark" 
-           target="_blank"
-           class="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
+        <a href="/metrics" 
+           class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium flex items-center gap-2 transition-colors">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
           </svg>
-          Open full screen
+          Open Dashboard
         </a>
       </div>
-      <div class="relative" style="padding-bottom: 56.25%; min-height: 500px;">
-        <iframe 
-          src="/grafana/d/powerblockade-health/system-health?orgId=1&kiosk=tv&theme=dark"
-          class="absolute inset-0 w-full h-full border-0"
-          loading="lazy"
-        ></iframe>
+      <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div class="bg-bg-900 rounded-lg p-3">
+          <div class="text-slate-400">Record Types</div>
+          <div class="text-slate-200 mt-1">A, AAAA, HTTPS, PTR...</div>
+        </div>
+        <div class="bg-bg-900 rounded-lg p-3">
+          <div class="text-slate-400">Latency</div>
+          <div class="text-slate-200 mt-1">p50, p95, p99 percentiles</div>
+        </div>
+        <div class="bg-bg-900 rounded-lg p-3">
+          <div class="text-slate-400">Top Domains</div>
+          <div class="text-slate-200 mt-1">Most queried domains</div>
+        </div>
+        <div class="bg-bg-900 rounded-lg p-3">
+          <div class="text-slate-400">Top Clients</div>
+          <div class="text-slate-200 mt-1">Most active clients</div>
+        </div>
       </div>
     </div>
   </div>

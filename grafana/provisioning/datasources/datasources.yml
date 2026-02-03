@@ -7,3 +7,18 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    access: proxy
+    url: postgres:5432
+    user: ${POSTGRES_USER:-powerblockade}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD:-change-me}
+    jsonData:
+      database: ${POSTGRES_DB:-powerblockade}
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
