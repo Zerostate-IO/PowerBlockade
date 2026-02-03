@@ -155,17 +155,14 @@ def scrape_local_recursor_metrics() -> None:
     settings = get_settings()
     recursor_url = settings.recursor_api_url
     if not recursor_url:
-        log.warning("Local metrics: RECURSOR_API_URL not configured")
         return
 
     node_name = settings.node_name or socket.gethostname()
-    log.info(f"Local metrics: checking node '{node_name}' at {recursor_url}")
 
     db = SessionLocal()
     try:
         local_node = db.query(Node).filter(Node.name == node_name, Node.status == "active").first()
         if not local_node:
-            log.warning(f"Local metrics: node '{node_name}' not found or not active")
             return
 
         try:
@@ -209,7 +206,6 @@ def scrape_local_recursor_metrics() -> None:
         local_node.last_seen = datetime.now(timezone.utc)
         db.add(nm)
         db.commit()
-        log.info(f"Collected local recursor metrics for node '{node_name}'")
     except Exception as e:
         log.error(f"Local metrics collection failed: {e}")
         db.rollback()
