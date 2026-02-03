@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     cache_hit_threshold_ms: int = 5
 
     # Version info (injected at build time)
-    pb_version: str = "0.3.3"
+    pb_version: str = "0.4.0"
     pb_git_sha: str = "unknown"
     pb_build_date: str = "unknown"
 
