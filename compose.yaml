@@ -124,6 +124,14 @@ services:
       admin-ui:
         condition: service_started
 
+  init-permissions:
+    image: busybox:latest
+    container_name: powerblockade-init-permissions
+    command: sh -c "chown -R 1000:1000 /shared/rpz && chmod -R 775 /shared/rpz && touch /shared/rpz/.gitkeep"
+    volumes:
+      - ./recursor/rpz:/shared/rpz
+    restart: "no"
+
   admin-ui:
     build:
       context: ./admin-ui
@@ -148,6 +156,8 @@ services:
     expose:
       - "8080"
     depends_on:
+      init-permissions:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       recursor:
