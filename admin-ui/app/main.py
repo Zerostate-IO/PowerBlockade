@@ -120,8 +120,16 @@ def bootstrap_primary_node() -> None:
         ).fetchone()
         if existing is None:
             conn.execute(
-                text("INSERT INTO nodes (name, api_key, status) VALUES (:n, :k, 'active')"),
+                text(
+                    "INSERT INTO nodes (name, api_key, status, last_seen) "
+                    "VALUES (:n, :k, 'active', NOW())"
+                ),
                 {"n": node_name, "k": local_key},
+            )
+        else:
+            conn.execute(
+                text("UPDATE nodes SET last_seen = NOW() WHERE name = :n"),
+                {"n": node_name},
             )
 
 

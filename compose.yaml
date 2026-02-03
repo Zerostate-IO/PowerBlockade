@@ -29,13 +29,13 @@ services:
     image: powerdns/dnsdist-19:latest
     container_name: powerblockade-dnsdist
     restart: unless-stopped
-    entrypoint: ["dnsdist"]
-    command: ["--supervised", "-C", "/etc/dnsdist/dnsdist.conf"]
+    entrypoint: ["/docker-entrypoint.sh"]
     ports:
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
     volumes:
       - ./dnsdist/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
+      - ./dnsdist/docker-entrypoint.sh:/docker-entrypoint.sh:ro
       - dnstap-socket:/var/run/dnstap
     cap_add:
       - NET_BIND_SERVICE
@@ -221,6 +221,8 @@ services:
       GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_CSRF_ALWAYS_CHECK: "false"
+      GF_SECURITY_CSRF_TRUSTED_ORIGINS: "${GRAFANA_CSRF_ORIGINS:-*}"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:8080/grafana/}"
     volumes:
