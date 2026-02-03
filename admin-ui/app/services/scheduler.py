@@ -150,15 +150,19 @@ def blocklist_schedule_job() -> None:
 
 
 def scrape_local_recursor_metrics() -> None:
+    import socket
+
     settings = get_settings()
     recursor_url = settings.recursor_api_url
     if not recursor_url:
         return
 
+    node_name = settings.node_name or socket.gethostname()
+
     db = SessionLocal()
     try:
-        primary = db.query(Node).filter(Node.name == "primary", Node.status == "active").first()
-        if not primary:
+        local_node = db.query(Node).filter(Node.name == node_name, Node.status == "active").first()
+        if not local_node:
             return
 
         try:
@@ -180,7 +184,7 @@ def scrape_local_recursor_metrics() -> None:
             return
 
         nm = NodeMetrics(
-            node_id=primary.id,
+            node_id=local_node.id,
             cache_hits=metrics.get("cache_hits", 0),
             cache_misses=metrics.get("cache_misses", 0),
             cache_entries=metrics.get("cache_entries", 0),
@@ -199,9 +203,10 @@ def scrape_local_recursor_metrics() -> None:
             all_outqueries=metrics.get("all_outqueries", 0),
             uptime_seconds=metrics.get("uptime_seconds", 0),
         )
+        local_node.last_seen = datetime.now(timezone.utc)
         db.add(nm)
         db.commit()
-        log.debug("Collected local recursor metrics for primary node")
+        log.info(f"Collected local recursor metrics for node '{node_name}'")
     except Exception as e:
         log.error(f"Local metrics collection failed: {e}")
         db.rollback()

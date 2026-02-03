@@ -44,27 +44,64 @@
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-5">
-      <div class="flex gap-4 items-end">
-        <div>
-          <h3 class="text-sm font-semibold text-slate-200">Health</h3>
-          <div class="mt-1 text-xs text-slate-400"><a class="text-cyan-300 hover:underline" href="/precache">Precache stats</a> · <a class="text-cyan-300 hover:underline" href="/metrics">Prometheus metrics</a></div>
-        </div>
-        <div class="text-xs text-slate-200"><span class="text-emerald-400">All systems operational</span></div>
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-slate-200">Health</h3>
+        <a href="/system" class="text-xs text-cyan-300 hover:underline">View details</a>
       </div>
 
-      <div class="mt-4 space-y-2">
-        <div class="flex items-center gap-2">
-          <span class="h-3 w-3 rounded-full bg-indigo-500"></span>
-          <span class="text-xs text-slate-400">Total queries</span>
+      <div class="mt-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-sm text-slate-300">Nodes</span>
+          </div>
+          <span class="text-sm font-medium text-slate-100">{{ node_count }} active</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="h-3 w-3 rounded-full bg-red-500"></span>
-          <span class="text-xs text-slate-400">Blocked</span>
+
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            {% if critical_count > 0 %}
+            <span class="inline-block w-2 h-2 rounded-full bg-red-400"></span>
+            {% elif warning_count > 0 %}
+            <span class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
+            {% else %}
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+            {% endif %}
+            <span class="text-sm text-slate-300">Status</span>
+          </div>
+          <span class="text-sm font-medium {% if critical_count > 0 %}text-red-400{% elif warning_count > 0 %}text-amber-400{% else %}text-emerald-400{% endif %}">
+            {% if critical_count > 0 %}
+              {{ critical_count }} critical
+            {% elif warning_count > 0 %}
+              {{ warning_count }} warning{{ 's' if warning_count != 1 else '' }}
+            {% else %}
+              All good
+            {% endif %}
+          </span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
-          <span class="text-xs text-slate-400">Cached</span>
+      </div>
+
+      <div class="mt-4 pt-4 border-t border-slate-800">
+        <div class="text-xs font-medium text-slate-400 mb-2">Chart Legend</div>
+        <div class="flex flex-wrap gap-3">
+          <div class="flex items-center gap-1.5">
+            <span class="h-2.5 w-2.5 rounded-full bg-indigo-500"></span>
+            <span class="text-xs text-slate-400">Total</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="h-2.5 w-2.5 rounded-full bg-red-500"></span>
+            <span class="text-xs text-slate-400">Blocked</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+            <span class="text-xs text-slate-400">Cached</span>
+          </div>
         </div>
+      </div>
+
+      <div class="mt-4 pt-4 border-t border-slate-800 text-xs text-slate-400">
+        <a class="text-cyan-300 hover:underline" href="/precache">Precache</a> · 
+        <a class="text-cyan-300 hover:underline" href="/metrics">Metrics</a>
       </div>
     </div>
   </div>

@@ -291,6 +291,9 @@ def ingest(
     else:
         inserted = 0
 
+    node.last_seen = datetime.now(timezone.utc)
+    node.status = "active"
+    db.add(node)
     db.commit()
 
     new_ips = [

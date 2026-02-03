@@ -12,7 +12,10 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
+from app.models.node import Node
+from app.models.node_metrics import NodeMetrics
 from app.routers.auth import get_current_user
+from app.routers.system import compute_health_warnings
 from app.template_utils import get_templates
 
 router = APIRouter()
@@ -98,6 +101,21 @@ def index_page(request: Request, db: Session = Depends(get_db)):
 
     hit_rate = cache_hits / total * 100 if total > 0 else 0
 
+    nodes = db.query(Node).filter(Node.status == "active").all()
+    node_data = []
+    for node in nodes:
+        latest = (
+            db.query(NodeMetrics)
+            .filter(NodeMetrics.node_id == node.id)
+            .order_by(NodeMetrics.ts.desc())
+            .first()
+        )
+        node_data.append({"node": node, "metrics": latest})
+
+    warnings = compute_health_warnings(node_data)
+    critical_count = sum(1 for w in warnings if w.severity == "critical")
+    warning_count = sum(1 for w in warnings if w.severity == "warning")
+
     return templates.TemplateResponse(
         "index.html",
         {
@@ -107,6 +125,9 @@ def index_page(request: Request, db: Session = Depends(get_db)):
             "blocked": blocked,
             "hit_rate": hit_rate,
             "time_saved": time_saved_total,
+            "node_count": len(nodes),
+            "critical_count": critical_count,
+            "warning_count": warning_count,
         },
     )
 
