@@ -13,11 +13,11 @@ datasources:
     uid: postgres
     access: proxy
     url: postgres:5432
-    user: ${POSTGRES_USER:-powerblockade}
+    user: $__env{POSTGRES_USER}
     secureJsonData:
-      password: ${POSTGRES_PASSWORD:-change-me}
+      password: $__env{POSTGRES_PASSWORD}
     jsonData:
-      database: ${POSTGRES_DB:-powerblockade}
+      database: $__env{POSTGRES_DB}
       sslmode: disable
       maxOpenConns: 5
       maxIdleConns: 2
