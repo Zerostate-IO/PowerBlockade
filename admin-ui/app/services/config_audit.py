@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -47,6 +48,15 @@ def get_recent_changes(db: Session, limit: int = 100) -> list[ConfigChange]:
     return db.query(ConfigChange).order_by(ConfigChange.created_at.desc()).limit(limit).all()
 
 
+def _json_serialize(val: Any) -> Any:
+    """Convert non-JSON-serializable types to serializable equivalents."""
+    if isinstance(val, datetime):
+        return val.isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    return val
+
+
 def model_to_dict(obj: Any, exclude: set[str] | None = None) -> dict[str, Any]:
     exclude = exclude or set()
     exclude.add("_sa_instance_state")
@@ -60,5 +70,5 @@ def model_to_dict(obj: Any, exclude: set[str] | None = None) -> dict[str, Any]:
             continue
         if hasattr(val, "__table__"):
             continue
-        result[key] = val
+        result[key] = _json_serialize(val)
     return result
