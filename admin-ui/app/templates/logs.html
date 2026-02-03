@@ -148,34 +148,19 @@
     <table class="min-w-full text-sm">
       <thead class="bg-bg-900 text-slate-500 dark:text-slate-300">
         <tr>
+          <th class="px-2 py-3 text-left font-medium">Actions</th>
           <th class="px-3 py-3 text-left font-medium whitespace-nowrap">Time</th>
           <th class="px-3 py-3 text-left font-medium">Node</th>
           <th class="px-3 py-3 text-left font-medium">Client</th>
-          <th class="px-3 py-3 text-left font-medium">Domain</th>
           <th class="px-2 py-3 text-left font-medium">Type</th>
           <th class="px-2 py-3 text-left font-medium">Status</th>
           <th class="px-2 py-3 text-left font-medium">Latency</th>
-          <th class="px-2 py-3 text-left font-medium">Actions</th>
+          <th class="px-3 py-3 text-left font-medium">Domain</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
         {% for e in events %}
           <tr class="hover:bg-bg-700 {% if e.blocked %}bg-red-50 dark:bg-red-950/30{% endif %}">
-            <td class="px-3 py-3 whitespace-nowrap text-slate-600 dark:text-slate-300 text-xs">{{ e.ts }}</td>
-            <td class="px-3 py-3 text-slate-600 dark:text-slate-300">{{ e.node_name }}</td>
-            <td class="px-3 py-3 text-slate-700 dark:text-slate-200 max-w-[140px] truncate" title="{{ e.client_label }}">
-              <a href="/logs?view={{ view }}&client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
-            </td>
-            <td class="px-3 py-3 font-mono text-slate-700 dark:text-slate-200 truncate max-w-[200px]" title="{{ e.qname }}">{{ e.qname }}</td>
-            <td class="px-2 py-3 text-slate-600 dark:text-slate-300">{{ e.qtype }}</td>
-            <td class="px-2 py-3">
-              {% if e.blocked %}
-              <span class="text-red-600 dark:text-red-400">Blocked</span>
-              {% else %}
-              <span class="text-slate-600 dark:text-slate-400">{{ e.rcode }}</span>
-              {% endif %}
-            </td>
-            <td class="px-2 py-3 text-slate-600 dark:text-slate-300">{% if e.latency_ms is not none %}{{ e.latency_ms }}ms{% else %}-{% endif %}</td>
             <td class="px-2 py-3 whitespace-nowrap">
               <div class="flex gap-1">
                 <form method="post" action="/entries/add" class="inline">
@@ -192,6 +177,21 @@
                 </form>
               </div>
             </td>
+            <td class="px-3 py-3 whitespace-nowrap text-slate-600 dark:text-slate-300 text-xs">{{ e.ts }}</td>
+            <td class="px-3 py-3 text-slate-600 dark:text-slate-300">{{ e.node_name }}</td>
+            <td class="px-3 py-3 text-slate-700 dark:text-slate-200 max-w-[140px] truncate" title="{{ e.client_label }}">
+              <a href="/logs?view={{ view }}&client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
+            </td>
+            <td class="px-2 py-3 text-slate-600 dark:text-slate-300">{{ e.qtype }}</td>
+            <td class="px-2 py-3">
+              {% if e.blocked %}
+              <span class="text-red-600 dark:text-red-400">Blocked</span>
+              {% else %}
+              <span class="text-slate-600 dark:text-slate-400">{{ e.rcode }}</span>
+              {% endif %}
+            </td>
+            <td class="px-2 py-3 text-slate-600 dark:text-slate-300">{% if e.latency_ms is not none %}{{ e.latency_ms }}ms{% else %}-{% endif %}</td>
+            <td class="px-3 py-3 font-mono text-slate-700 dark:text-slate-200">{{ e.qname }}</td>
           </tr>
         {% endfor %}
         {% if not events %}
