@@ -10,6 +10,14 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.models.settings import (
+    get_health_cache_hit_critical,
+    get_health_cache_hit_warning,
+    get_health_servfail_warning,
+    get_health_slow_warning,
+    get_health_stale_minutes,
+    get_health_timeout_warning,
+)
 from app.routers.auth import get_current_user
 from app.settings import get_settings
 from app.template_utils import get_templates
@@ -29,19 +37,34 @@ class HealthWarning:
     node_name: str | None = None  # None means global
 
 
-# Thresholds for health warnings
-CACHE_HIT_RATE_WARNING = 50.0  # Warn if cache hit rate below 50%
-CACHE_HIT_RATE_CRITICAL = 20.0  # Critical if below 20%
-SERVFAIL_RATE_WARNING = 5.0  # Warn if more than 5% SERVFAIL
-TIMEOUT_RATE_WARNING = 2.0  # Warn if more than 2% timeouts
-SLOW_ANSWER_RATE_WARNING = 10.0  # Warn if more than 10% slow answers
-STALE_METRICS_MINUTES = 5  # Warn if metrics older than 5 minutes
+@dataclass
+class HealthThresholds:
+    cache_hit_warning: float = 50.0
+    cache_hit_critical: float = 20.0
+    servfail_warning: float = 5.0
+    timeout_warning: float = 2.0
+    slow_warning: float = 10.0
+    stale_minutes: int = 5
+
+
+def load_health_thresholds(db) -> HealthThresholds:
+    return HealthThresholds(
+        cache_hit_warning=get_health_cache_hit_warning(db),
+        cache_hit_critical=get_health_cache_hit_critical(db),
+        servfail_warning=get_health_servfail_warning(db),
+        timeout_warning=get_health_timeout_warning(db),
+        slow_warning=get_health_slow_warning(db),
+        stale_minutes=get_health_stale_minutes(db),
+    )
 
 
 def compute_health_warnings(
     node_data: list[dict],
+    thresholds: HealthThresholds | None = None,
 ) -> list[HealthWarning]:
-    """Compute health warnings based on node metrics."""
+    if thresholds is None:
+        thresholds = HealthThresholds()
+
     warnings: list[HealthWarning] = []
     now = datetime.now(timezone.utc)
 
@@ -77,7 +100,7 @@ def compute_health_warnings(
         # Check for stale metrics
         if metrics.ts:
             metrics_age = now - metrics.ts.replace(tzinfo=timezone.utc)
-            if metrics_age > timedelta(minutes=STALE_METRICS_MINUTES):
+            if metrics_age > timedelta(minutes=thresholds.stale_minutes):
                 age_mins = int(metrics_age.total_seconds() / 60)
                 warnings.append(
                     HealthWarning(
@@ -94,7 +117,7 @@ def compute_health_warnings(
         total_queries = metrics.cache_hits + metrics.cache_misses
         if total_queries > 100:  # Only warn if meaningful sample size
             hit_rate = (metrics.cache_hits / total_queries) * 100
-            if hit_rate < CACHE_HIT_RATE_CRITICAL:
+            if hit_rate < thresholds.cache_hit_critical:
                 warnings.append(
                     HealthWarning(
                         severity="critical",
@@ -106,7 +129,7 @@ def compute_health_warnings(
                         node_name=node.name,
                     )
                 )
-            elif hit_rate < CACHE_HIT_RATE_WARNING:
+            elif hit_rate < thresholds.cache_hit_warning:
                 warnings.append(
                     HealthWarning(
                         severity="warning",
@@ -121,7 +144,7 @@ def compute_health_warnings(
         # SERVFAIL rate
         if metrics.questions > 100:
             servfail_rate = (metrics.servfail_answers / metrics.questions) * 100
-            if servfail_rate > SERVFAIL_RATE_WARNING:
+            if servfail_rate > thresholds.servfail_warning:
                 warnings.append(
                     HealthWarning(
                         severity="warning",
@@ -137,7 +160,7 @@ def compute_health_warnings(
         # Timeout rate
         if metrics.all_outqueries > 100:
             timeout_rate = (metrics.outgoing_timeouts / metrics.all_outqueries) * 100
-            if timeout_rate > TIMEOUT_RATE_WARNING:
+            if timeout_rate > thresholds.timeout_warning:
                 warnings.append(
                     HealthWarning(
                         severity="warning",
@@ -160,7 +183,7 @@ def compute_health_warnings(
         )
         if total_answers > 100:
             slow_rate = (metrics.answers_slow / total_answers) * 100
-            if slow_rate > SLOW_ANSWER_RATE_WARNING:
+            if slow_rate > thresholds.slow_warning:
                 warnings.append(
                     HealthWarning(
                         severity="info",
@@ -193,7 +216,8 @@ def system_health(request: Request, db: Session = Depends(get_db)):
         )
         node_data.append({"node": node, "metrics": latest})
 
-    warnings = compute_health_warnings(node_data)
+    thresholds = load_health_thresholds(db)
+    warnings = compute_health_warnings(node_data, thresholds)
 
     settings = get_settings()
 

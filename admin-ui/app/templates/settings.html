@@ -64,12 +64,52 @@
   </div>
 
   <div class="mt-6 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <h2 class="text-sm font-semibold text-slate-200">Health Warning Thresholds</h2>
+    <p class="mt-1 text-xs text-slate-400">Configure when health warnings appear on the System Health page.</p>
+    <form method="post" action="/settings/health-thresholds" class="mt-4 grid gap-4 md:grid-cols-2">
+      {{ csrf_input(request) }}
+      <div>
+        <label class="text-xs text-slate-400">Cache hit rate - warning (%)</label>
+        <input type="number" name="health_cache_hit_warning" value="{{ settings.health_cache_hit_warning }}" min="0" max="100" step="1" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+        <p class="mt-1 text-xs text-slate-500">Warn if below this percentage</p>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400">Cache hit rate - critical (%)</label>
+        <input type="number" name="health_cache_hit_critical" value="{{ settings.health_cache_hit_critical }}" min="0" max="100" step="1" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+        <p class="mt-1 text-xs text-slate-500">Critical alert if below this percentage</p>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400">SERVFAIL rate - warning (%)</label>
+        <input type="number" name="health_servfail_warning" value="{{ settings.health_servfail_warning }}" min="0" max="100" step="0.1" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+        <p class="mt-1 text-xs text-slate-500">Warn if SERVFAIL exceeds this percentage</p>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400">Timeout rate - warning (%)</label>
+        <input type="number" name="health_timeout_warning" value="{{ settings.health_timeout_warning }}" min="0" max="100" step="0.1" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+        <p class="mt-1 text-xs text-slate-500">Warn if upstream timeouts exceed this percentage</p>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400">Slow answers - warning (%)</label>
+        <input type="number" name="health_slow_warning" value="{{ settings.health_slow_warning }}" min="0" max="100" step="1" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+        <p class="mt-1 text-xs text-slate-500">Warn if slow answers (>1s) exceed this percentage</p>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400">Stale metrics (minutes)</label>
+        <input type="number" name="health_stale_minutes" value="{{ settings.health_stale_minutes }}" min="1" max="60" class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm" />
+        <p class="mt-1 text-xs text-slate-500">Warn if metrics older than this</p>
+      </div>
+      <div class="md:col-span-2">
+        <button type="submit" class="rounded-lg border border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Save thresholds</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 rounded-2xl border border-slate-800 bg-bg-800 p-5">
     <h2 class="text-sm font-semibold text-slate-200">Other Settings</h2>
     <p class="mt-1 text-xs text-slate-400">Additional configuration options are available on their respective pages:</p>
     <ul class="mt-3 space-y-2 text-sm">
       <li><a href="/precache" class="text-cyan-400 hover:underline">Precache Settings</a> - Configure cache warming behavior</li>
       <li><a href="/clients/resolver" class="text-cyan-400 hover:underline">Client Resolver Rules</a> - PTR resolution for client names</li>
-      <li><a href="/client-groups" class="text-cyan-400 hover:underline">Client Groups</a> - Organize clients by subnet/VLAN</li>
       <li><a href="/forwardzones" class="text-cyan-400 hover:underline">Forward Zones</a> - Custom DNS forwarding rules</li>
       <li><a href="/backup" class="text-cyan-400 hover:underline">Backup &amp; Restore</a> - Database and config backups</li>
     </ul>

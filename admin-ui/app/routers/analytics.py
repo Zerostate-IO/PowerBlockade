@@ -17,8 +17,9 @@ from app.models.dns_query_event import DNSQueryEvent
 from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.models.settings import get_blocking_state
 from app.routers.auth import get_current_user
-from app.routers.system import compute_health_warnings
+from app.routers.system import compute_health_warnings, load_health_thresholds
 from app.template_utils import get_templates
 
 router = APIRouter()
@@ -121,9 +122,12 @@ def index_page(request: Request, db: Session = Depends(get_db)):
     total_cache_queries = total_cache_hits + total_cache_misses
     real_hit_rate = (total_cache_hits / total_cache_queries * 100) if total_cache_queries > 0 else 0
 
-    warnings = compute_health_warnings(node_data)
+    thresholds = load_health_thresholds(db)
+    warnings = compute_health_warnings(node_data, thresholds)
     critical_count = sum(1 for w in warnings if w.severity == "critical")
     warning_count = sum(1 for w in warnings if w.severity == "warning")
+
+    blocking_state = get_blocking_state(db)
 
     return templates.TemplateResponse(
         "index.html",
@@ -137,6 +141,7 @@ def index_page(request: Request, db: Session = Depends(get_db)):
             "node_count": len(nodes),
             "critical_count": critical_count,
             "warning_count": warning_count,
+            "blocking_state": blocking_state,
         },
     )
 

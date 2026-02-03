@@ -106,6 +106,48 @@
     </div>
   </div>
 
+  <!-- Emergency Controls -->
+  <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <h3 class="text-sm font-semibold text-slate-200">Quick Actions</h3>
+        <span id="blocking-status" class="text-xs px-2 py-0.5 rounded-full {% if blocking_state == 'enabled' %}bg-emerald-900 text-emerald-400{% elif blocking_state == 'disabled' %}bg-red-900 text-red-400{% else %}bg-amber-900 text-amber-400{% endif %}">
+          {% if blocking_state == 'enabled' %}
+            Blocking Active
+          {% elif blocking_state == 'disabled' %}
+            Blocking Disabled
+          {% else %}
+            Blocking Paused
+          {% endif %}
+        </span>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-3">
+      {% if blocking_state == 'enabled' %}
+      <button id="btn-pause" onclick="pauseBlocking()" class="px-4 py-2 text-sm rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        Pause 15 min
+      </button>
+      <button id="btn-disable" onclick="disableBlocking()" class="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+        Disable Blocking
+      </button>
+      {% else %}
+      <button id="btn-enable" onclick="enableBlocking()" class="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        Enable Blocking
+      </button>
+      {% endif %}
+      <button id="btn-clear-cache" onclick="clearCache()" class="px-4 py-2 text-sm rounded-lg border border-slate-700 bg-bg-900 hover:bg-bg-700 text-slate-300 font-medium flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+        Clear DNS Cache
+      </button>
+    </div>
+
+    <div id="action-message" class="mt-3 text-sm hidden"></div>
+  </div>
+
   <!-- Live Query Stream -->
   <div class="mt-4 rounded-2xl border border-slate-800 bg-bg-800 p-5">
     <div class="flex items-center justify-between">
@@ -363,5 +405,82 @@
 
       clearBtn.addEventListener('click', clearStream);
     })();
+
+    function showActionMessage(msg, isError) {
+      const el = document.getElementById('action-message');
+      el.textContent = msg;
+      el.className = 'mt-3 text-sm ' + (isError ? 'text-red-400' : 'text-emerald-400');
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 5000);
+    }
+
+    async function pauseBlocking() {
+      if (!confirm('Pause blocking for 15 minutes? All domains will resolve normally.')) return;
+      try {
+        const resp = await fetch('/api/blocking/pause?minutes=15', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+          showActionMessage('Blocking paused for 15 minutes. Refresh page to see updated status.', false);
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          showActionMessage('Error: ' + (data.error || 'Unknown error'), true);
+        }
+      } catch (err) {
+        showActionMessage('Error: ' + err.message, true);
+      }
+    }
+
+    async function disableBlocking() {
+      if (!confirm('DISABLE blocking completely? All domains will resolve normally until you re-enable.')) return;
+      try {
+        const resp = await fetch('/api/blocking/disable', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+          showActionMessage('Blocking disabled. Refresh page to see updated status.', false);
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          showActionMessage('Error: ' + (data.error || 'Unknown error'), true);
+        }
+      } catch (err) {
+        showActionMessage('Error: ' + err.message, true);
+      }
+    }
+
+    async function enableBlocking() {
+      try {
+        const resp = await fetch('/api/blocking/enable', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+          showActionMessage('Blocking enabled. Go to Blocklists and click Apply to regenerate RPZ zones.', false);
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          showActionMessage('Error: ' + (data.error || 'Unknown error'), true);
+        }
+      } catch (err) {
+        showActionMessage('Error: ' + err.message, true);
+      }
+    }
+
+    async function clearCache() {
+      if (!confirm('Clear DNS cache on all nodes? This may temporarily increase query latency.')) return;
+      try {
+        const resp = await fetch('/api/blocking/clear-cache', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+          const results = data.results || [];
+          const success = results.filter(r => r.success).length;
+          const failed = results.filter(r => !r.success).length;
+          if (failed > 0) {
+            showActionMessage(`Cache cleared on ${success} node(s), ${failed} failed.`, true);
+          } else {
+            showActionMessage(`Cache cleared on ${success} node(s).`, false);
+          }
+        } else {
+          showActionMessage('Error: ' + (data.error || 'Unknown error'), true);
+        }
+      } catch (err) {
+        showActionMessage('Error: ' + err.message, true);
+      }
+    }
   </script>
 {% endblock %}

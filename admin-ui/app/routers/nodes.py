@@ -123,10 +123,12 @@ def nodes_generate(
         db.commit()
         db.refresh(node)
 
+    recursor_api_key = secrets.token_urlsafe(32)
     payload = generate_secondary_package_zip(
         node_name=node.name,
         primary_url=primary_url,
         node_api_key=node.api_key,
+        recursor_api_key=recursor_api_key,
     )
 
     filename = f"powerblockade-secondary-{node.name}.zip"

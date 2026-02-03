@@ -54,6 +54,22 @@ def write_if_changed(filepath: Path, content: str) -> bool:
     return True
 
 
+def clear_recursor_cache(recursor_url: str, api_key: str) -> tuple[bool, str]:
+    try:
+        r = requests.delete(
+            f"{recursor_url}/api/v1/servers/localhost/cache/flush",
+            headers={"X-API-Key": api_key},
+            params={"domain": "."},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            return True, f"flushed {data.get('count', 0)} entries"
+        return False, f"status {r.status_code}: {r.text}"
+    except Exception as e:
+        return False, str(e)
+
+
 def scrape_recursor_metrics(recursor_url: str) -> dict:
     try:
         r = requests.get(f"{recursor_url}/metrics", timeout=5)
@@ -92,6 +108,46 @@ def scrape_recursor_metrics(recursor_url: str) -> dict:
     except Exception as e:
         print(f"metrics scrape error: {e}")
         return {}
+
+
+def poll_and_execute_commands(
+    primary_url: str,
+    headers: dict,
+    recursor_url: str,
+    recursor_api_key: str,
+) -> None:
+    try:
+        r = requests.get(
+            f"{primary_url}/api/node-sync/commands", headers=headers, timeout=10
+        )
+        if r.status_code != 200:
+            return
+
+        data = r.json()
+        commands = data.get("commands", [])
+
+        for cmd in commands:
+            cmd_id = cmd.get("id")
+            cmd_type = cmd.get("command")
+            success = False
+            result = "unknown command"
+
+            if cmd_type == "clear_cache":
+                success, result = clear_recursor_cache(recursor_url, recursor_api_key)
+                print(f"executed clear_cache: success={success} result={result}")
+
+            try:
+                requests.post(
+                    f"{primary_url}/api/node-sync/commands/result",
+                    headers=headers,
+                    json={"command_id": cmd_id, "success": success, "result": result},
+                    timeout=10,
+                )
+            except Exception as e:
+                print(f"failed to report command result: {e}")
+
+    except Exception as e:
+        print(f"command poll error: {e}")
 
 
 def sync_config(
@@ -136,6 +192,7 @@ def main() -> None:
     node_name = getenv_required("NODE_NAME")
     primary_url = getenv_required("PRIMARY_URL").rstrip("/")
     api_key = getenv_required("PRIMARY_API_KEY")
+    recursor_api_key = os.getenv("RECURSOR_API_KEY", "")
     interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "60"))
     config_sync_interval = int(os.getenv("CONFIG_SYNC_INTERVAL_SECONDS", "300"))
     recursor_url = os.getenv("RECURSOR_API_URL", "http://recursor:8082")
@@ -172,15 +229,19 @@ def main() -> None:
             time.sleep(5)
 
     last_config_sync = 0.0
+    last_config_version = None
 
     while True:
+        config_version_from_primary = None
         try:
             heartbeat_payload = {"version": version}
             r = post("/api/node-sync/heartbeat", heartbeat_payload)
             if r.status_code >= 300:
                 print(f"heartbeat failed: {r.status_code} {r.text}")
             else:
-                print("heartbeat ok")
+                data = r.json()
+                config_version_from_primary = data.get("config_version")
+                print(f"heartbeat ok (config_version={config_version_from_primary})")
         except Exception as e:
             print(f"heartbeat error: {e}")
 
@@ -196,10 +257,27 @@ def main() -> None:
                 print(f"metrics push error: {e}")
 
         now = time.time()
+        should_sync = False
+
+        if (
+            config_version_from_primary
+            and config_version_from_primary != last_config_version
+        ):
+            print(
+                f"config version changed: {last_config_version} -> {config_version_from_primary}"
+            )
+            should_sync = True
+
         if now - last_config_sync >= config_sync_interval:
+            should_sync = True
+
+        if should_sync:
             if sync_config(primary_url, headers, rpz_dir, fzones_path):
                 print("config changed, recursor will reload via polling")
             last_config_sync = now
+            last_config_version = config_version_from_primary
+
+        poll_and_execute_commands(primary_url, headers, recursor_url, recursor_api_key)
 
         time.sleep(interval)
 

@@ -19,6 +19,7 @@ from app.routers.analytics import router as analytics_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
 from app.routers.backup import router as backup_router
+from app.routers.blocking import router as blocking_router
 from app.routers.blocklists import router as blocklists_router
 from app.routers.client_groups import router as client_groups_router
 from app.routers.client_resolver import router as client_resolver_router
@@ -172,6 +173,7 @@ app.add_middleware(
 )
 
 app.include_router(node_sync_router)
+app.include_router(blocking_router)
 app.include_router(auth_router)
 app.include_router(analytics_router)
 app.include_router(blocklists_router)

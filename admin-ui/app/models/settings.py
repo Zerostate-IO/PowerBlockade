@@ -32,6 +32,14 @@ DEFAULTS = {
     "precache_custom_refresh_minutes": "60",
     "precache_dns_server": "recursor",
     "timezone": "UTC",
+    "health_cache_hit_warning": "50",
+    "health_cache_hit_critical": "20",
+    "health_servfail_warning": "5",
+    "health_timeout_warning": "2",
+    "health_slow_warning": "10",
+    "health_stale_minutes": "5",
+    # Blocking state: "enabled", "disabled", or ISO timestamp for pause-until
+    "blocking_state": "enabled",
 }
 
 
@@ -90,3 +98,35 @@ def get_precache_dns_server(db) -> str:
 
 def get_timezone(db) -> str:
     return get_setting(db, "timezone") or "UTC"
+
+
+def get_health_cache_hit_warning(db) -> float:
+    return float(get_setting(db, "health_cache_hit_warning") or "50")
+
+
+def get_health_cache_hit_critical(db) -> float:
+    return float(get_setting(db, "health_cache_hit_critical") or "20")
+
+
+def get_health_servfail_warning(db) -> float:
+    return float(get_setting(db, "health_servfail_warning") or "5")
+
+
+def get_health_timeout_warning(db) -> float:
+    return float(get_setting(db, "health_timeout_warning") or "2")
+
+
+def get_health_slow_warning(db) -> float:
+    return float(get_setting(db, "health_slow_warning") or "10")
+
+
+def get_health_stale_minutes(db) -> int:
+    return int(get_setting(db, "health_stale_minutes") or "5")
+
+
+def get_blocking_state(db) -> str:
+    return get_setting(db, "blocking_state") or "enabled"
+
+
+def set_blocking_state(db, state: str) -> None:
+    set_setting(db, "blocking_state", state)

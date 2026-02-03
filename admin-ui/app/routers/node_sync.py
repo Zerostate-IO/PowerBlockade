@@ -39,6 +39,26 @@ def get_node_from_api_key(
 router = APIRouter(prefix="/api/node-sync", tags=["node-sync"])
 
 
+def compute_config_version() -> str:
+    """Compute hash of current RPZ files to detect config changes."""
+    import hashlib
+    import os
+
+    rpz_dir = "/shared/rpz"
+    checksums = []
+
+    for filename in ["blocklist-combined.rpz", "whitelist.rpz"]:
+        filepath = os.path.join(rpz_dir, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "rb") as f:
+                    checksums.append(hashlib.sha256(f.read()).hexdigest()[:16])
+            except Exception:
+                pass
+
+    return hashlib.sha256(":".join(checksums).encode()).hexdigest()[:12]
+
+
 class RegisterRequest(BaseModel):
     name: str
     version: str | None = None
@@ -87,7 +107,8 @@ def heartbeat(
     db.add(node)
     db.commit()
 
-    return {"ok": True, "config_version": node.config_version}
+    current_config_version = compute_config_version()
+    return {"ok": True, "config_version": current_config_version}
 
 
 @router.get("/config")
@@ -359,3 +380,63 @@ def metrics(
     db.commit()
 
     return {"ok": True, "node": node.name}
+
+
+@router.get("/commands")
+def get_commands(
+    node: Node = Depends(get_node_from_api_key),
+    db: Session = Depends(get_db),
+):
+    """Get pending commands for this node."""
+    from app.models.node_command import NodeCommand
+
+    pending = (
+        db.query(NodeCommand)
+        .filter(
+            NodeCommand.executed_at.is_(None),
+            (NodeCommand.node_id == node.id) | (NodeCommand.node_id.is_(None)),
+        )
+        .order_by(NodeCommand.created_at)
+        .all()
+    )
+
+    commands = [
+        {
+            "id": cmd.id,
+            "command": cmd.command,
+            "params": cmd.params,
+            "created_at": cmd.created_at.isoformat() if cmd.created_at else None,
+        }
+        for cmd in pending
+    ]
+
+    return {"ok": True, "commands": commands}
+
+
+class CommandResultRequest(BaseModel):
+    command_id: int
+    success: bool
+    result: str | None = None
+
+
+@router.post("/commands/result")
+def report_command_result(
+    payload: CommandResultRequest,
+    node: Node = Depends(get_node_from_api_key),
+    db: Session = Depends(get_db),
+):
+    """Report the result of executing a command."""
+    from app.models.node_command import NodeCommand
+
+    cmd = db.query(NodeCommand).filter(NodeCommand.id == payload.command_id).first()
+    if not cmd:
+        raise HTTPException(status_code=404, detail="Command not found")
+
+    if cmd.node_id is not None and cmd.node_id != node.id:
+        raise HTTPException(status_code=403, detail="Command not for this node")
+
+    cmd.executed_at = datetime.now(timezone.utc)
+    cmd.result = f"node={node.name} success={payload.success} result={payload.result}"
+    db.commit()
+
+    return {"ok": True}

@@ -99,6 +99,40 @@ Before any release, you MUST deploy and verify on internal test hosts:
 
 **DO NOT release if deployment fails on either host.**
 
+## Secondary Node Architecture
+
+Secondary nodes are **headless mirrors** of the primary - no admin UI, just DNS resolution + sync.
+
+### Components (secondary node)
+| Component | Purpose |
+|-----------|---------|
+| `dnsdist` | Receives DNS queries on :53, logs client IPs via dnstap |
+| `recursor` | PowerDNS Recursor on :5300, RPZ blocking |
+| `dnstap-processor` | Ships query logs to primary's `/api/node-sync/ingest` |
+| `sync-agent` | Pulls config from primary, executes commands |
+
+### Sync Behavior
+| Event | Latency | Mechanism |
+|-------|---------|-----------|
+| Config change (RPZ, forward zones) | ~60s | Heartbeat returns `config_version`, triggers immediate sync if changed |
+| Cache clear | ~60s | Commands queue polled on heartbeat |
+| Emergency disable/pause | ~60s | Writes empty RPZ → config_version changes → sync |
+
+### Node Generator (`admin-ui/app/services/node_generator.py`)
+
+Generates ZIP package for new secondary nodes. **MUST be updated when:**
+- Adding new env vars that secondary nodes need
+- Changing compose service configuration
+- Modifying sync-agent behavior or API
+- Adding new node-sync endpoints
+
+**Checklist for changes affecting secondary nodes:**
+1. Update `node_generator.py` compose template
+2. Update `.env` template in generator
+3. Update sync-agent if new env vars needed
+4. Update README in generator
+5. Test by generating a package and deploying to test host
+
 ## Anti-Patterns (DO NOT)
 
 | Pattern | Why |
@@ -112,6 +146,7 @@ Before any release, you MUST deploy and verify on internal test hosts:
 | Passwords > 72 chars without pre-hash | Bcrypt silently truncates |
 | `dnsdist newServer()` with hostname | Must use IP literal (e.g., `172.30.0.10:5300`) |
 | Primary/secondary sharing same `PRIMARY_API_KEY` in nodes table | Each node needs unique api_key in DB; bootstrap conflict on same key |
+| Modify secondary node config without updating node_generator.py | Generator gets out of sync, new nodes won't work |
 
 ## Commands
 

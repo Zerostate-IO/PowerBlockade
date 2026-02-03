@@ -98,3 +98,34 @@ def settings_update_retention(
         set_setting(db, "retention_node_metrics_days", str(retention_node_metrics_days))
 
     return RedirectResponse(url="/settings", status_code=302)
+
+
+@router.post("/settings/health-thresholds")
+def settings_update_health_thresholds(
+    request: Request,
+    health_cache_hit_warning: float = Form(...),
+    health_cache_hit_critical: float = Form(...),
+    health_servfail_warning: float = Form(...),
+    health_timeout_warning: float = Form(...),
+    health_slow_warning: float = Form(...),
+    health_stale_minutes: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    if 0 <= health_cache_hit_warning <= 100:
+        set_setting(db, "health_cache_hit_warning", str(health_cache_hit_warning))
+    if 0 <= health_cache_hit_critical <= 100:
+        set_setting(db, "health_cache_hit_critical", str(health_cache_hit_critical))
+    if 0 <= health_servfail_warning <= 100:
+        set_setting(db, "health_servfail_warning", str(health_servfail_warning))
+    if 0 <= health_timeout_warning <= 100:
+        set_setting(db, "health_timeout_warning", str(health_timeout_warning))
+    if 0 <= health_slow_warning <= 100:
+        set_setting(db, "health_slow_warning", str(health_slow_warning))
+    if health_stale_minutes >= 1:
+        set_setting(db, "health_stale_minutes", str(health_stale_minutes))
+
+    return RedirectResponse(url="/settings", status_code=302)
