@@ -1,14 +1,12 @@
-#!/bin/sh
-# dnsdist entrypoint that monitors dnstap-processor connectivity
-# and restarts dnsdist if the connection is broken
+#!/bin/bash
+set -e
 
 DNSTAP_HOST="${DNSTAP_HOST:-172.30.0.20}"
 DNSTAP_PORT="${DNSTAP_PORT:-6000}"
 CHECK_INTERVAL="${DNSTAP_CHECK_INTERVAL:-10}"
 
-# Function to check if dnstap-processor is accepting connections
 check_dnstap() {
-    nc -z -w2 "$DNSTAP_HOST" "$DNSTAP_PORT" 2>/dev/null
+    timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_HOST/$DNSTAP_PORT" 2>/dev/null
 }
 
 # Wait for dnstap-processor to be ready before starting dnsdist
