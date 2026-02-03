@@ -12,6 +12,7 @@ from app.db.session import SessionLocal
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.settings import (
     get_precache_custom_refresh_minutes,
+    get_precache_dns_port,
     get_precache_dns_server,
     get_precache_domain_count,
     get_precache_enabled,
@@ -162,6 +163,7 @@ def precache_warming_job() -> None:
             return
 
         dns_host = get_precache_dns_server(db)
+        dns_port = get_precache_dns_port(db)
         domain_count = get_precache_domain_count(db)
         ignore_ttl = get_precache_ignore_ttl(db)
         custom_refresh = get_precache_custom_refresh_minutes(db)
@@ -178,7 +180,7 @@ def precache_warming_job() -> None:
             return
 
         log.info(f"Warming {len(domains_to_warm)}/{len(all_domains)} domains (TTL-based refresh)")
-        result = warm_cache(domains_to_warm, dns_server=dns_host, port=53)
+        result = warm_cache(domains_to_warm, dns_server=dns_host, port=dns_port)
         log.info(
             f"Precache warming completed: {result.success} warmed in {result.duration_ms:.0f}ms"
         )

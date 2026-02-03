@@ -31,6 +31,7 @@ DEFAULTS = {
     "precache_ignore_ttl": "false",
     "precache_custom_refresh_minutes": "60",
     "precache_dns_server": "recursor",
+    "precache_dns_port": "5300",
     "timezone": "UTC",
     "health_cache_hit_warning": "50",
     "health_cache_hit_critical": "20",
@@ -94,6 +95,10 @@ def get_precache_custom_refresh_minutes(db) -> int:
 
 def get_precache_dns_server(db) -> str:
     return get_setting(db, "precache_dns_server") or "recursor"
+
+
+def get_precache_dns_port(db) -> int:
+    return int(get_setting(db, "precache_dns_port") or "5300")
 
 
 def get_timezone(db) -> str:
