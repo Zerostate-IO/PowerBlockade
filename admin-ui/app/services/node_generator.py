@@ -126,7 +126,7 @@ def generate_secondary_package_zip(
 
         1. Copy this folder to your secondary host
         2. Review `.env`:
-           - `PRIMARY_URL` - URL of the primary Admin UI (e.g., http://10.5.5.2:8080)
+           - `PRIMARY_URL` - URL of the primary Admin UI (e.g., http://192.168.1.10:8080)
            - `RECURSOR_API_KEY` - Set a secure random key
            - `DNSDIST_LISTEN_ADDRESS` - Set to host's LAN IP if port 53 conflicts
         3. Run:

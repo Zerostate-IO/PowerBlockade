@@ -126,7 +126,7 @@ services create records without explicit IDs, relying on SERIAL auto-increment.
 **Usage:**
 ```bash
 ./scripts/pb test                          # Default IPs
-./scripts/pb test 10.5.5.2 10.5.5.3       # Explicit IPs
+./scripts/pb test 192.168.1.10 192.168.1.11  # Explicit IPs
 NUM_DOMAINS=500 ./scripts/test-e2e.sh     # More domains
 ```
 
@@ -496,4 +496,4 @@ Existing alerts (already present):
 - All times are estimates
 - Docker-only deployment assumed (no bare-metal support planned)
 - UI configurability is a priority - minimize need for env vars/config files
-- Test on celsate (primary) and bowlister (secondary) before any release
+- Test on primary and secondary nodes before any release
