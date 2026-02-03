@@ -25,11 +25,12 @@
       </div>
     </div>
     
-    <!-- Full-height Grafana iframe -->
-    <div class="flex-1 min-h-0">
+    <!-- Grafana iframe - height accommodates all dashboard panels -->
+    <div class="flex-1" style="min-height: 900px;">
       <iframe 
         src="{{ dashboard_url }}"
-        class="w-full h-full border-0"
+        class="w-full border-0"
+        style="height: 900px;"
         allow="fullscreen"
         loading="lazy"
       ></iframe>
