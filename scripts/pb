@@ -453,7 +453,7 @@ Rollback Options:
 
 Test Options:
     pb test [primary_ip] [secondary_ip]
-    Default IPs: 10.5.5.64 (primary), 10.5.5.65 (secondary)
+    Default IPs: 10.5.5.2 (primary), 10.5.5.3 (secondary)
 
 Examples:
     pb status
@@ -464,7 +464,7 @@ Examples:
     pb rollback --fast
     pb backup
     pb test
-    pb test 10.5.5.64 10.5.5.65
+    pb test 10.5.5.2 10.5.5.3
 
 EOF
 }

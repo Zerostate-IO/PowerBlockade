@@ -81,17 +81,19 @@ Before any release, you MUST deploy and verify on internal test hosts:
 
 | Host | Role | LAN IP | Deploy Command |
 |------|------|--------|----------------|
-| **celsate** | Primary | `10.5.5.64` | `ssh root@celsate "cd /opt/PowerBlockade && git pull && docker compose up -d --build"` |
-| **bowlister** | Secondary | `10.5.5.65` | `ssh root@bowlister "cd /opt/PowerBlockade && git pull && docker compose --profile sync-agent up -d --build"` |
+| **celsate** | Primary | `10.5.5.2` | `ssh root@celsate "cd /opt/PowerBlockade && git pull && docker compose up -d --build"` |
+| **bowlister** | Secondary | `10.5.5.3` | `ssh root@bowlister "cd /opt/PowerBlockade && git pull && docker compose --profile sync-agent up -d --build"` |
 
 **Verification checklist:**
 1. All containers healthy: `docker compose ps`
-2. Admin UI loads: `http://10.5.5.64:8080`
-3. DNS resolves: `dig @10.5.5.64 google.com`
+2. Admin UI loads: `http://10.5.5.2:8080`
+3. DNS resolves: `dig @10.5.5.2 google.com`
 4. Logs flowing: Check Analytics page shows recent queries
 5. Secondary syncing: Check Nodes page shows bowlister heartbeat
 
 **Port 53 conflict note:** Both hosts run netbird which binds port 53 on its interface. dnsdist is configured to bind only to the LAN IP (`DNSDIST_LISTEN_ADDRESS` in `.env`), avoiding conflict.
+
+**IP change note:** If you change `DNSDIST_LISTEN_ADDRESS`, you must **recreate** (not just restart) the dnsdist container: `docker compose up -d --force-recreate dnsdist`. Docker caches port bindings at container creation time.
 
 **RPZ permission fix:** If "Apply" fails with permission error, run `chmod -R 777 recursor/rpz` on the host. This happens when Docker creates the directory as root.
 
@@ -132,8 +134,8 @@ uvicorn app.main:app --reload  # Dev server
 cd dnstap-processor && go build ./cmd/dnstap-processor
 
 # E2E Testing (pre-release verification)
-./scripts/pb test              # Run against default IPs (10.5.5.64/65)
-./scripts/pb test 10.5.5.64 10.5.5.65  # Explicit IPs
+./scripts/pb test              # Run against default IPs (10.5.5.2/3)
+./scripts/pb test 10.5.5.2 10.5.5.3  # Explicit IPs
 NUM_DOMAINS=500 ./scripts/test-e2e.sh  # Test more domains
 ```
 

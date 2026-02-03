@@ -126,7 +126,7 @@ services create records without explicit IDs, relying on SERIAL auto-increment.
 **Usage:**
 ```bash
 ./scripts/pb test                          # Default IPs
-./scripts/pb test 10.5.5.64 10.5.5.65     # Explicit IPs
+./scripts/pb test 10.5.5.2 10.5.5.3       # Explicit IPs
 NUM_DOMAINS=500 ./scripts/test-e2e.sh     # More domains
 ```
 

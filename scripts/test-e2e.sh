@@ -7,8 +7,8 @@
 #
 set -uo pipefail
 
-PRIMARY_IP="${1:-10.5.5.64}"
-SECONDARY_IP="${2:-10.5.5.65}"
+PRIMARY_IP="${1:-10.5.5.2}"
+SECONDARY_IP="${2:-10.5.5.3}"
 ADMIN_PORT="8080"
 
 NUM_DOMAINS="${NUM_DOMAINS:-1000}"
