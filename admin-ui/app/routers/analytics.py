@@ -25,7 +25,7 @@ from app.template_utils import get_templates
 router = APIRouter()
 templates = get_templates()
 
-DEFAULT_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 25
 QTYPE_NAMES = {
     1: "A",
     2: "NS",
