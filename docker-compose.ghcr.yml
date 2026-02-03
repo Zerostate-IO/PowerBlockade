@@ -1,10 +1,9 @@
 # Docker Compose configuration for pre-built images from GitHub Container Registry (GHCR)
 #
 # Usage:
-#   export POWERBLOCKADE_REPO=your-org-here
 #   docker compose -f docker-compose.ghcr.yml up -d
 #
-# Replace 'your-org-here' with your GitHub username or organization name where images are hosted.
+# Images are pulled from ghcr.io/zerostate-io/powerblockade-*
 
 services:
   dnsdist:
@@ -46,7 +45,7 @@ services:
       retries: 20
 
   recursor:
-    image: ghcr.io/${POWERBLOCKADE_REPO:-YOUR_GITHUB_USERNAME}/powerblockade-recursor:latest
+    image: ghcr.io/zerostate-io/powerblockade-recursor:latest
     container_name: powerblockade-recursor
     restart: unless-stopped
     environment:
@@ -68,7 +67,7 @@ services:
         ipv4_address: 172.30.0.10
 
   dnstap-processor:
-    image: ghcr.io/${POWERBLOCKADE_REPO:-YOUR_GITHUB_USERNAME}/powerblockade-dnstap-processor:latest
+    image: ghcr.io/zerostate-io/powerblockade-dnstap-processor:latest
     container_name: powerblockade-dnstap-processor
     restart: unless-stopped
     environment:
@@ -99,7 +98,7 @@ services:
         condition: service_started
 
   admin-ui:
-    image: ghcr.io/${POWERBLOCKADE_REPO:-YOUR_GITHUB_USERNAME}/powerblockade-admin-ui:latest
+    image: ghcr.io/zerostate-io/powerblockade-admin-ui:latest
     container_name: powerblockade-admin-ui
     restart: unless-stopped
     environment:
@@ -177,7 +176,7 @@ services:
         condition: service_started
 
   sync-agent:
-    image: ghcr.io/${POWERBLOCKADE_REPO:-powerblockade}/sync-agent:latest
+    image: ghcr.io/zerostate-io/powerblockade-sync-agent:latest
     container_name: powerblockade-sync-agent
     restart: unless-stopped
     profiles:
