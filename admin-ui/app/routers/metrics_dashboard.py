@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.routers.auth import get_current_user
-from app.settings import get_settings
 from app.template_utils import get_templates
 
 router = APIRouter()
@@ -22,14 +21,7 @@ def advanced_metrics(request: Request, db: Session = Depends(get_db)):
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    settings = get_settings()
-
-    # Build the Grafana URL for the Query Analytics dashboard
-    grafana_url = settings.grafana_url or "http://grafana:3000"
-    # Use kiosk mode for embedded viewing (hides nav and sidebars)
-    dashboard_url = (
-        f"{grafana_url}/d/powerblockade-analytics/query-analytics?orgId=1&kiosk&theme=dark"
-    )
+    dashboard_url = "/grafana/d/powerblockade-analytics/query-analytics?orgId=1&kiosk&theme=dark"
 
     return templates.TemplateResponse(
         "metrics_dashboard.html",
