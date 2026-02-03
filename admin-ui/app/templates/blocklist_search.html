@@ -40,9 +40,9 @@
           <td class="px-4 py-3 text-slate-300">{{ r.blocklist_name }}</td>
           <td class="px-4 py-3">
             {% if r.list_type == "block" %}
-            <span class="rounded-full bg-red-900/50 px-2 py-0.5 text-xs text-red-400">block</span>
+            <span class="rounded-full bg-red-900/50 px-2 py-0.5 text-xs text-red-400">blacklist</span>
             {% else %}
-            <span class="rounded-full bg-emerald-900/50 px-2 py-0.5 text-xs text-emerald-400">allow</span>
+            <span class="rounded-full bg-emerald-900/50 px-2 py-0.5 text-xs text-emerald-400">whitelist</span>
             {% endif %}
           </td>
         </tr>

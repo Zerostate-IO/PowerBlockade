@@ -42,8 +42,8 @@
           <div>
             <label class="text-sm text-slate-300">Type</label>
             <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="list_type">
-              <option value="block">block</option>
-              <option value="allow">allow (whitelist)</option>
+              <option value="block">blacklist</option>
+              <option value="allow">whitelist</option>
             </select>
           </div>
         </div>
@@ -74,8 +74,8 @@
         <div>
           <label class="text-sm text-slate-300">Type</label>
           <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="entry_type">
-            <option value="allow">allow</option>
-            <option value="block">block</option>
+            <option value="allow">whitelist</option>
+            <option value="block">blacklist</option>
           </select>
         </div>
         <button class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700" type="submit">Add entry</button>
@@ -147,7 +147,7 @@
             </td>
             <td class="px-4 py-3">
               <span class="rounded px-2 py-0.5 text-xs {% if b.list_type == 'allow' %}bg-emerald-900/50 text-emerald-400{% else %}bg-red-900/50 text-red-400{% endif %}">
-                {{ b.list_type }}
+                {% if b.list_type == 'allow' %}whitelist{% else %}blacklist{% endif %}
               </span>
             </td>
             <td class="px-4 py-3 text-slate-300">{{ b.entry_count or 0 }}</td>

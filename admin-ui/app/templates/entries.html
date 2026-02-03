@@ -23,8 +23,8 @@
         <div>
           <label class="text-sm text-slate-300">Type</label>
           <select class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2" name="entry_type">
-            <option value="allow">allow (whitelist)</option>
-            <option value="block">block</option>
+            <option value="allow">whitelist</option>
+            <option value="block">blacklist</option>
           </select>
         </div>
         <div>
@@ -40,17 +40,17 @@
       <p class="mt-1 text-xs text-slate-400">View entries by type</p>
       <div class="mt-3 flex gap-2">
         <a href="/entries" class="rounded-lg border px-3 py-2 text-sm {% if not filter_type %}border-cyan-500 bg-cyan-900/30 text-cyan-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">All</a>
-        <a href="/entries?type=allow" class="rounded-lg border px-3 py-2 text-sm {% if filter_type == 'allow' %}border-emerald-500 bg-emerald-900/30 text-emerald-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">Allow</a>
-        <a href="/entries?type=block" class="rounded-lg border px-3 py-2 text-sm {% if filter_type == 'block' %}border-red-500 bg-red-900/30 text-red-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">Block</a>
+        <a href="/entries?type=allow" class="rounded-lg border px-3 py-2 text-sm {% if filter_type == 'allow' %}border-emerald-500 bg-emerald-900/30 text-emerald-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">Whitelist</a>
+        <a href="/entries?type=block" class="rounded-lg border px-3 py-2 text-sm {% if filter_type == 'block' %}border-red-500 bg-red-900/30 text-red-400{% else %}border-slate-700 bg-bg-900 text-slate-300 hover:bg-bg-700{% endif %}">Blacklist</a>
       </div>
       <div class="mt-4 text-xs text-slate-500">
         <div class="flex items-center gap-2">
-          <span class="rounded px-2 py-0.5 bg-emerald-900/50 text-emerald-400">allow</span>
-          <span>= Whitelist (overrides blocks)</span>
+          <span class="rounded px-2 py-0.5 bg-emerald-900/50 text-emerald-400">whitelist</span>
+          <span>= overrides blocks</span>
         </div>
         <div class="flex items-center gap-2 mt-2">
-          <span class="rounded px-2 py-0.5 bg-red-900/50 text-red-400">block</span>
-          <span>= Blacklist (blocks domain)</span>
+          <span class="rounded px-2 py-0.5 bg-red-900/50 text-red-400">blacklist</span>
+          <span>= blocks domain</span>
         </div>
       </div>
     </div>
