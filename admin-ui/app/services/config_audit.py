@@ -59,16 +59,12 @@ def _json_serialize(val: Any) -> Any:
 
 def model_to_dict(obj: Any, exclude: set[str] | None = None) -> dict[str, Any]:
     exclude = exclude or set()
-    exclude.add("_sa_instance_state")
 
     result = {}
-    for key in dir(obj):
-        if key.startswith("_") or key in exclude:
+    for column in obj.__table__.columns:
+        key = column.name
+        if key in exclude:
             continue
         val = getattr(obj, key, None)
-        if callable(val):
-            continue
-        if hasattr(val, "__table__"):
-            continue
         result[key] = _json_serialize(val)
     return result
