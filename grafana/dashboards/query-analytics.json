@@ -358,7 +358,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  CASE\n    WHEN latency_ms IS NULL THEN 'Unknown'\n    WHEN latency_ms <= 1 THEN '0-1ms'\n    WHEN latency_ms <= 10 THEN '1-10ms'\n    WHEN latency_ms <= 50 THEN '10-50ms'\n    WHEN latency_ms <= 100 THEN '50-100ms'\n    ELSE '>100ms'\n  END as latency_bucket,\n  COUNT(*) as count\nFROM dns_query_events\nWHERE ts >= NOW() - INTERVAL '${window}'\n  AND latency_ms IS NOT NULL\nGROUP BY latency_bucket\nORDER BY \n  CASE latency_bucket\n    WHEN '0-1ms' THEN 1\n    WHEN '1-10ms' THEN 2\n    WHEN '10-50ms' THEN 3\n    WHEN '50-100ms' THEN 4\n    WHEN '>100ms' THEN 5\n    ELSE 6\n  END",
+          "rawSql": "WITH buckets AS (\n  SELECT \n    CASE\n      WHEN latency_ms <= 1 THEN '0-1ms'\n      WHEN latency_ms <= 10 THEN '1-10ms'\n      WHEN latency_ms <= 50 THEN '10-50ms'\n      WHEN latency_ms <= 100 THEN '50-100ms'\n      ELSE '>100ms'\n    END as latency_bucket,\n    CASE\n      WHEN latency_ms <= 1 THEN 1\n      WHEN latency_ms <= 10 THEN 2\n      WHEN latency_ms <= 50 THEN 3\n      WHEN latency_ms <= 100 THEN 4\n      ELSE 5\n    END as sort_order\n  FROM dns_query_events\n  WHERE ts >= NOW() - INTERVAL '${window}'\n    AND latency_ms IS NOT NULL\n)\nSELECT latency_bucket, COUNT(*) as count\nFROM buckets\nGROUP BY latency_bucket, sort_order\nORDER BY sort_order",
           "refId": "A",
           "sql": {
             "columns": [
