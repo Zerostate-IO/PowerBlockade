@@ -11,7 +11,7 @@ RUN go mod download
 COPY . ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-X main.Version=${PB_VERSION} -X main.GitSHA=${PB_GIT_SHA}" -o /out/dnstap-processor ./cmd/dnstap-processor
 
-FROM alpine:3.20
+FROM alpine:3.23
 
 ARG PB_VERSION=0.4.0
 ARG PB_GIT_SHA=unknown
