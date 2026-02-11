@@ -183,7 +183,7 @@ def clear_cache(request: Request, db: Session = Depends(get_db)):
     recursor_url = settings.recursor_api_url.rstrip("/")
     try:
         with httpx.Client(timeout=10.0) as client:
-            resp = client.delete(
+            resp = client.put(
                 f"{recursor_url}/api/v1/servers/localhost/cache/flush",
                 headers={"X-API-Key": os.environ.get("RECURSOR_API_KEY", "")},
                 params={"domain": "."},

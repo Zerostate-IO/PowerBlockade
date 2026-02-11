@@ -56,7 +56,7 @@ def write_if_changed(filepath: Path, content: str) -> bool:
 
 def clear_recursor_cache(recursor_url: str, api_key: str) -> tuple[bool, str]:
     try:
-        r = requests.delete(
+        r = requests.put(
             f"{recursor_url}/api/v1/servers/localhost/cache/flush",
             headers={"X-API-Key": api_key},
             params={"domain": "."},
