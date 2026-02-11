@@ -214,6 +214,7 @@ def logs_page(
     blocked: str | None = Query(None),
     blocklist: str | None = Query(None),
     view: str = Query("all"),
+    top_filter: str = Query("all"),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -230,7 +231,6 @@ def logs_page(
         # Filter to SERVFAIL and NXDOMAIN
         rcode = None  # Clear rcode filter, we'll handle it below
     elif view == "top":
-        # Top domains view - aggregated
         query = db.query(
             DNSQueryEvent.qname,
             func.count().label("count"),
@@ -243,6 +243,10 @@ def logs_page(
             query = query.filter(DNSQueryEvent.client_ip == client)
         if blocklist:
             query = query.filter(DNSQueryEvent.blocklist_name == blocklist)
+        if top_filter == "blocked":
+            query = query.filter(DNSQueryEvent.blocked.is_(True))
+        elif top_filter == "allowed":
+            query = query.filter(DNSQueryEvent.blocked.is_(False))
 
         query = query.group_by(DNSQueryEvent.qname).order_by(func.count().desc())
 
@@ -285,6 +289,7 @@ def logs_page(
                 "window": window,
                 "blocklist": blocklist or "",
                 "view": view,
+                "top_filter": top_filter,
                 "client_options": client_options,
                 "blocklist_options": blocklist_options,
                 "window_options": list(WINDOW_HOURS.keys()),
@@ -295,7 +300,7 @@ def logs_page(
     query = db.query(DNSQueryEvent).filter(DNSQueryEvent.ts >= since)
 
     if view == "failures":
-        query = query.filter(DNSQueryEvent.rcode.in_([2, 3]))  # SERVFAIL, NXDOMAIN
+        query = query.filter(DNSQueryEvent.rcode.in_([2, 3]), DNSQueryEvent.blocked.is_(False))
 
     if q:
         query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
