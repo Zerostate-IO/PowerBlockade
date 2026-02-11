@@ -97,6 +97,24 @@ def compute_health_warnings(
             )
             continue
 
+        if node.last_seen:
+            last_seen = node.last_seen
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            heartbeat_age = now - last_seen
+            if heartbeat_age > timedelta(minutes=thresholds.stale_minutes):
+                age_mins = int(heartbeat_age.total_seconds() / 60)
+                warnings.append(
+                    HealthWarning(
+                        severity="warning",
+                        title="Stale node heartbeat",
+                        message=f"Node '{node.name}' last checked in {age_mins} minutes ago.",
+                        remediation="Check that the sync-agent is running on this node and can "
+                        "reach the primary API. Verify network connectivity.",
+                        node_name=node.name,
+                    )
+                )
+
         # Check for stale metrics
         if metrics.ts:
             metrics_age = now - metrics.ts.replace(tzinfo=timezone.utc)
