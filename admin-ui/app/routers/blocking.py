@@ -196,7 +196,7 @@ def clear_cache(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         results.append({"node": "primary", "success": False, "error": str(e)})
 
-    secondary_nodes = db.query(Node).filter(Node.status == "active").all()
+    secondary_nodes = db.query(Node).filter(Node.status == "active", Node.name != "primary").all()
     commands_queued = 0
     for node in secondary_nodes:
         cmd = NodeCommand(node_id=node.id, command="clear_cache")
