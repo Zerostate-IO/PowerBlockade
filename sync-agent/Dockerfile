@@ -24,7 +24,7 @@ RUN addgroup -g 1000 -S appuser \
 COPY --chown=appuser:appuser requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=appuser:appuser agent.py ./agent.py
+COPY --chown=appuser:appuser agent.py buffer.py ./
 
 USER appuser
 
