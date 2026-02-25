@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from buffer import MetricsBuffer
+
 
 def getenv_required(key: str) -> str:
     v = os.getenv(key)
@@ -282,6 +284,8 @@ def main() -> None:
     fzones_path = Path(
         os.getenv("FORWARD_ZONES_PATH", "/etc/pdns-recursor/forward-zones.conf")
     )
+    buffer_path = os.getenv("METRICS_BUFFER_PATH", "/var/lib/powerblockade/metrics.db")
+    buffer_max_age = int(os.getenv("METRICS_BUFFER_MAX_AGE", "604800"))
 
     headers = {"X-PowerBlockade-Node-Key": api_key}
     version = get_version()
@@ -289,6 +293,8 @@ def main() -> None:
     parsed_url = urlparse(primary_url)
     primary_host = parsed_url.hostname or "localhost"
     ip_address = get_local_ip(primary_host)
+
+    metrics_buffer = MetricsBuffer(buffer_path, max_age_seconds=buffer_max_age)
 
     def post(path: str, json: dict):
         url = f"{primary_url}{path}"
@@ -313,6 +319,7 @@ def main() -> None:
     last_config_sync = 0.0
     last_config_version = None
     last_precache_run = 0.0
+    last_prune = 0.0
     precache_interval = int(os.getenv("PRECACHE_INTERVAL_SECONDS", "300"))
     current_settings: dict = {}
 
@@ -332,14 +339,25 @@ def main() -> None:
 
         metrics = scrape_recursor_metrics(recursor_url)
         if metrics:
-            try:
-                r = post("/api/node-sync/metrics", metrics)
-                if r.status_code >= 300:
-                    print(f"metrics push failed: {r.status_code} {r.text}")
-                else:
-                    print("metrics push ok")
-            except Exception as e:
-                print(f"metrics push error: {e}")
+            metrics_buffer.put(metrics, time.time())
+
+        pending = metrics_buffer.peek(limit=50)
+        if pending:
+            ids_to_delete = []
+            for item_id, item_metrics in pending:
+                try:
+                    r = post("/api/node-sync/metrics", item_metrics)
+                    if r.status_code < 300:
+                        ids_to_delete.append(item_id)
+                    else:
+                        print(f"metrics push failed: {r.status_code}")
+                        break
+                except Exception as e:
+                    print(f"metrics push error: {e}")
+                    break
+            if ids_to_delete:
+                metrics_buffer.delete(ids_to_delete)
+                print(f"pushed {len(ids_to_delete)} buffered metrics")
 
         now = time.time()
         should_sync = False
@@ -372,6 +390,12 @@ def main() -> None:
             last_precache_run = now
 
         poll_and_execute_commands(primary_url, headers, recursor_url, recursor_api_key)
+
+        if now - last_prune >= 300:
+            deleted = metrics_buffer.prune()
+            if deleted > 0:
+                print(f"pruned {deleted} old metrics from buffer")
+            last_prune = now
 
         time.sleep(interval)
 

@@ -5,8 +5,10 @@ import os
 import re
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from typing import cast
+from functools import wraps
+from typing import Callable, cast
 
+import sqlalchemy as sa
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
 from apscheduler.triggers.cron import CronTrigger  # type: ignore[import-untyped]
 from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
@@ -30,6 +32,52 @@ log = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 
 
+from typing import Any, Callable, cast
+
+
+def run_with_advisory_lock(job_name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator to run a job only if Postgres advisory lock can be acquired.
+    
+    Prevents duplicate job execution when multiple admin-ui instances are running.
+    Uses pg_try_advisory_lock for non-blocking lock acquisition.
+    """
+    # Generate stable lock ID from job name (positive 32-bit int)
+    lock_id = abs(hash(job_name)) % (2**31)
+    
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            db = SessionLocal()
+            try:
+                # Try to acquire lock (non-blocking)
+                result = db.execute(
+                    sa.text("SELECT pg_try_advisory_lock(:id)"),
+                    {"id": lock_id}
+                )
+                acquired = result.scalar()
+                
+                if not acquired:
+                    log.info(f"Job '{job_name}' skipped - lock held by another instance")
+                    return None
+                
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    # Always release lock
+                    db.execute(
+                        sa.text("SELECT pg_advisory_unlock(:id)"),
+                        {"id": lock_id}
+                    )
+                    db.commit()
+            except Exception as e:
+                log.error(f"Advisory lock error for '{job_name}': {e}")
+                # Try to run job anyway if lock mechanism fails
+                return func(*args, **kwargs)
+            finally:
+                db.close()
+        return wrapper
+    return decorator
+@run_with_advisory_lock("blocklist_update")
 def update_blocklists_job() -> None:
     db = SessionLocal()
     try:
@@ -117,6 +165,7 @@ def regenerate_rpz(db) -> None:
     )
 
 
+@run_with_advisory_lock("rollup")
 def rollup_job() -> None:
     db = SessionLocal()
     try:
@@ -128,6 +177,7 @@ def rollup_job() -> None:
         db.close()
 
 
+@run_with_advisory_lock("retention")
 def retention_job() -> None:
     db = SessionLocal()
     try:
@@ -137,8 +187,6 @@ def retention_job() -> None:
         log.error(f"Retention job failed: {e}")
     finally:
         db.close()
-
-
 def blocklist_schedule_job() -> None:
     """Check blocklist schedules and enable/disable based on time."""
     try:

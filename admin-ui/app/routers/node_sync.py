@@ -16,10 +16,9 @@ from app.models.blocklist import Blocklist
 from app.models.client import Client
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.forward_zone import ForwardZone
-from app.models.node import Node
+from app.models.node import Node, NodeStatus
 from app.models.node_metrics import NodeMetrics
 from app.models.settings import get_setting
-
 log = logging.getLogger(__name__)
 
 
@@ -96,8 +95,14 @@ def heartbeat(
     node: Node = Depends(get_node_from_api_key),
     db: Session = Depends(get_db),
 ):
-    node.last_seen = datetime.now(timezone.utc)
-    node.status = "active"
+    now = datetime.now(timezone.utc)
+    node.last_seen = now
+    node.last_heartbeat = now
+    
+    # Don't auto-clear ERROR or QUARANTINE status - these require manual intervention
+    if node.status not in (NodeStatus.ERROR.value, NodeStatus.QUARANTINE.value):
+        node.status = NodeStatus.ACTIVE.value
+    
     if payload.version:
         node.version = payload.version
     if payload.queries_total is not None:

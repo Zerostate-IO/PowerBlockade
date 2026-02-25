@@ -70,8 +70,7 @@ def get_retention_rollups_days(db) -> int:
 
 
 def get_retention_node_metrics_days(db) -> int:
-    return int(get_setting(db, "retention_node_metrics_days") or "90")
-
+    return int(get_setting(db, "retention_node_metrics_days") or "365")
 
 def get_precache_enabled(db) -> bool:
     return get_setting(db, "precache_enabled").lower() == "true"
