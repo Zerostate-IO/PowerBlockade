@@ -113,14 +113,25 @@ def test_user(sync_db_session):
 
 @pytest.fixture
 def authenticated_client(sync_client, test_user):
+    """Create authenticated client by logging in with CSRF token."""
     _ = test_user
+    
+    # First GET login page to get CSRF token cookie
+    response = sync_client.get("/login")
+    assert response.status_code == 200
+    
+    # Extract CSRF token from the response HTML
+    import re
+    match = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+    csrf_token = match.group(1) if match else ""
+    
+    # POST login with CSRF token
     sync_client.post(
         "/login",
-        data={"username": "testuser", "password": "testpassword"},
+        data={"username": "testuser", "password": "testpassword", "csrf_token": csrf_token},
         follow_redirects=False,
     )
     return sync_client
-
 
 @pytest.fixture
 def sample_blocklist_data():
