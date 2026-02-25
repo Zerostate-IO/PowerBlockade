@@ -35,7 +35,7 @@ class Node(Base):
     last_seen: Mapped[object | None] = mapped_column(sa.DateTime(), nullable=True)
     last_heartbeat: Mapped[object | None] = mapped_column(sa.DateTime(), nullable=True)
     last_error: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
-    
+
     # Quarantine tracking
     quarantine_entry_time: Mapped[object | None] = mapped_column(sa.DateTime(), nullable=True)
     quarantine_reason: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
