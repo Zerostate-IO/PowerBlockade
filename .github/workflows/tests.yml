@@ -119,7 +119,8 @@ jobs:
         run: |
           uv run alembic upgrade head
           uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 &
-
+        env:
+          PYTHONPATH: .
       - name: Wait for server to be ready
         run: |
           echo "Waiting for server to start..."
