@@ -19,7 +19,8 @@ LABEL org.opencontainers.image.version="${PB_VERSION}" \
 
 RUN addgroup -g 1000 -S appuser \
   && adduser -u 1000 -S -G appuser -h /home/appuser appuser \
-  && chown -R appuser:appuser /app
+  && mkdir -p /var/lib/powerblockade \
+  && chown -R appuser:appuser /app /var/lib/powerblockade
 
 COPY --chown=appuser:appuser requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
