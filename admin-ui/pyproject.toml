@@ -58,7 +58,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
-ignore = ["E501"]
+ignore = ["E501", "E402"]
 
 [tool.pyright]
 pythonVersion = "3.12"

@@ -65,7 +65,7 @@ def get_node_query_stats(db: Session) -> dict[int, tuple[int, int]]:
         db.query(
             DNSQueryEvent.node_id,
             func.count(DNSQueryEvent.id).label("total"),
-            func.count().filter(DNSQueryEvent.blocked == True).label("blocked"),
+            func.count().filter(DNSQueryEvent.blocked.is_(True)).label("blocked"),
         )
         .filter(DNSQueryEvent.node_id.isnot(None))
         .group_by(DNSQueryEvent.node_id)

@@ -32,18 +32,17 @@ log = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 
 
-from typing import Any, Callable, cast
+from typing import Any
 
 
 def run_with_advisory_lock(job_name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to run a job only if Postgres advisory lock can be acquired.
-    
+
     Prevents duplicate job execution when multiple admin-ui instances are running.
     Uses pg_try_advisory_lock for non-blocking lock acquisition.
     """
-    # Generate stable lock ID from job name (positive 32-bit int)
     lock_id = abs(hash(job_name)) % (2**31)
-    
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -55,11 +54,11 @@ def run_with_advisory_lock(job_name: str) -> Callable[[Callable[..., Any]], Call
                     {"id": lock_id}
                 )
                 acquired = result.scalar()
-                
+
                 if not acquired:
                     log.info(f"Job '{job_name}' skipped - lock held by another instance")
                     return None
-                
+
                 try:
                     return func(*args, **kwargs)
                 finally:
