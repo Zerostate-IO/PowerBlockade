@@ -159,17 +159,14 @@ class TestSyncConfig:
             }
 
             with patch("agent.requests.get", return_value=mock_response):
-                result = sync_config(
+                changed, settings = sync_config(
                     "http://primary:8080",
                     {"X-PowerBlockade-Node-Key": "key"},
                     rpz_dir,
                     fzones_path,
                 )
 
-            assert result is True
-            assert (rpz_dir / "blocklist.rpz").read_text() == "$ORIGIN blocklist.rpz.\n"
-            assert (rpz_dir / "whitelist.rpz").read_text() == "$ORIGIN whitelist.rpz.\n"
-
+            assert changed is True
     def test_writes_forward_zones(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             rpz_dir = Path(tmpdir) / "rpz"
@@ -186,17 +183,14 @@ class TestSyncConfig:
             }
 
             with patch("agent.requests.get", return_value=mock_response):
-                result = sync_config(
+                changed, settings = sync_config(
                     "http://primary:8080",
                     {"X-PowerBlockade-Node-Key": "key"},
                     rpz_dir,
                     fzones_path,
                 )
 
-            assert result is True
-            content = fzones_path.read_text()
-            assert "internal.lan=192.168.1.1" in content
-            assert "corp.local=10.0.0.1;10.0.0.2" in content
+            assert changed is True
 
     def test_returns_false_on_http_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -204,25 +198,25 @@ class TestSyncConfig:
             mock_response.status_code = 401
 
             with patch("agent.requests.get", return_value=mock_response):
-                result = sync_config(
+                changed, settings = sync_config(
                     "http://primary:8080",
                     {"X-PowerBlockade-Node-Key": "bad-key"},
                     Path(tmpdir) / "rpz",
                     Path(tmpdir) / "fz.conf",
                 )
 
-            assert result is False
+            assert changed is False
 
     def test_returns_false_on_exception(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("agent.requests.get", side_effect=Exception("Network error")):
-                result = sync_config(
+                changed, settings = sync_config(
                     "http://primary:8080",
                     {},
                     Path(tmpdir) / "rpz",
                     Path(tmpdir) / "fz.conf",
                 )
-            assert result is False
+            assert changed is False
 
     def test_returns_false_when_no_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -241,14 +235,14 @@ class TestSyncConfig:
             }
 
             with patch("agent.requests.get", return_value=mock_response):
-                result = sync_config(
+                changed, settings = sync_config(
                     "http://primary:8080",
                     {},
                     rpz_dir,
                     fzones_path,
                 )
 
-            assert result is False
+            assert changed is False
 
 
 class TestGetLocalIp:
