@@ -37,16 +37,19 @@ newServer({
 setServerPolicy(firstAvailable)
 
 -- Packet cache tuned for low-latency repeat lookups
+-- Rollback: restore previous values if cache issues arise:
+--   maxEntries: 100000 (conservative), maxTTL: 3600 (1h), staleTTL: 0 (disabled)
+-- See docs/performance/dns-caching-strategy.md#dnsdist-tuning-matrix
 local pc = newPacketCache(500000, {
-    maxTTL=86400,
-    minTTL=1,
-    temporaryFailureTTL=5,
-    staleTTL=60,
-    dontAge=false,
-    shuffle=true
+    maxTTL=86400,        -- 24h max cache (rollback: 3600)
+    minTTL=1,            -- Minimum 1 second (unchanged)
+    temporaryFailureTTL=5, -- Cache SERVFAIL briefly (unchanged)
+    staleTTL=60,         -- Serve stale for 60s during outage (rollback: 0)
+    dontAge=false,       -- Entries age normally (unchanged)
+    shuffle=true         -- Randomize RR order (unchanged)
 })
 getPool(''):setCache(pc)
-setStaleCacheEntriesTTL(60)
+setStaleCacheEntriesTTL(60)  -- Max age of stale entries (rollback: 0)
 
 -- ============================================================
 -- DNSTAP LOGGING
