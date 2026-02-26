@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Version alignment across admin-ui and main project
 
+## [0.5.4] - 2026-02-26
+
+### Fixed
+- Grafana PostgreSQL datasource now correctly disables TimescaleDB (fixes long-term metrics dashboard)
+- Sync-agent DNS resolution now uses configurable DNS_SERVER env var (fixes heartbeat blocking during precache)
+- Prometheus retention time now configurable via PROMETHEUS_RETENTION_TIME env var
+
 ## [0.5.3] - 2026-02-11
 
 ### Added
@@ -67,9 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards
 - Prometheus metrics
 
-[Unreleased]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.5.2...v0.5.3
-[0.5.2]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/code-yeongyu/PowerBlockade/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/code-yeongyu/PowerBlockade/releases/tag/v0.4.0

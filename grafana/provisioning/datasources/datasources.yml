@@ -22,3 +22,4 @@ datasources:
       maxOpenConns: 5
       maxIdleConns: 2
       connMaxLifetime: 14400
+      timescaledb: false

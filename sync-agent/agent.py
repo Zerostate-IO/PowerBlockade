@@ -286,7 +286,13 @@ def main() -> None:
     )
     buffer_path = os.getenv("METRICS_BUFFER_PATH", "/var/lib/powerblockade/metrics.db")
     buffer_max_age = int(os.getenv("METRICS_BUFFER_MAX_AGE", "604800"))
-
+    dns_server = os.getenv("DNS_SERVER", "dnsdist")
+    # Resolve hostname to IP if needed (dnspython requires IP addresses)
+    try:
+        dns_server_ip = socket.gethostbyname(dns_server)
+    except socket.gaierror:
+        # If resolution fails, assume it's already an IP
+        dns_server_ip = dns_server
     headers = {"X-PowerBlockade-Node-Key": api_key}
     version = get_version()
 
@@ -385,7 +391,7 @@ def main() -> None:
 
         if now - last_precache_run >= precache_interval:
             run_precache_warming(
-                primary_url, headers, current_settings, dns_server="127.0.0.1"
+            primary_url, headers, current_settings, dns_server=dns_server_ip
             )
             last_precache_run = now
 

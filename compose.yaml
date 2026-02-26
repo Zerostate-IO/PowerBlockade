@@ -198,6 +198,10 @@ services:
     image: prom/prometheus:latest
     container_name: powerblockade-prometheus
     restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}'
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -275,6 +279,7 @@ services:
       RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
       RPZ_DIR: /etc/pdns-recursor/rpz
       FORWARD_ZONES_PATH: /etc/pdns-recursor/forward-zones.conf
+      DNS_SERVER: ${DNS_SERVER:-dnsdist}
     volumes:
       - ./recursor/rpz:/etc/pdns-recursor/rpz
       - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf
