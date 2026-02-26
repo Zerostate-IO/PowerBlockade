@@ -56,7 +56,8 @@ jobs:
       - name: Update version in settings.py
         run: |
           VERSION="${{ steps.validate.outputs.version }}"
-          sed -i "s/^pb_version = \".*\"/pb_version = \"$VERSION\"/" admin-ui/app/settings.py
+          # Match the actual format: pb_version: str = "..."
+          sed -i "s/^pb_version: str = \".*\"/pb_version: str = \"$VERSION\"/" admin-ui/app/settings.py
           echo "✅ Updated settings.py to $VERSION"
 
       - name: Update version in Dockerfiles

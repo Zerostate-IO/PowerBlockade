@@ -1,0 +1,171 @@
+name: Docs Consistency Check
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'docs/**'
+      - 'QUICK_START.md'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'admin-ui/app/templates/help/**'
+      - '.env.example'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'QUICK_START.md'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'admin-ui/app/templates/help/**'
+      - '.env.example'
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check internal doc links
+        run: |
+          echo "Checking for broken internal doc links..."
+          
+          # Find all markdown files
+          DOCS=$(find docs -name "*.md" -o -name "QUICK_START.md" -o -name "README.md")
+          
+          # Extract all relative links to local files
+          BROKEN=""
+          for DOC in $DOCS; do
+            # Find links like [text](docs/file.md) or [text](../file.md)
+            LINKS=$(grep -oE '\]\([^)]+\.md[^)]*\)' "$DOC" 2>/dev/null | sed 's/](\(.*\))/\1/' | grep -v '^http' || true)
+            
+            for LINK in $LINKS; do
+              # Resolve relative path
+              DIR=$(dirname "$DOC")
+              TARGET=$(cd "$DIR" 2>/dev/null && realpath -m "$LINK" 2>/dev/null || echo "$LINK")
+              
+              if [[ ! -f "$TARGET" ]]; then
+                BROKEN="$BROKEN\n$DOC -> $LINK"
+              fi
+            done
+          done
+          
+          if [[ -n "$BROKEN" ]]; then
+            echo "❌ Broken internal links found:"
+            echo -e "$BROKEN"
+            exit 1
+          fi
+          
+          echo "✅ All internal doc links are valid"
+
+  check-env-example-keys:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check .env.example has all required keys
+        run: |
+          echo "Checking .env.example contains all required keys..."
+          
+          # Keys that must be in .env.example
+          REQUIRED_KEYS=(
+            "ADMIN_SECRET_KEY"
+            "ADMIN_PASSWORD"
+            "POSTGRES_PASSWORD"
+            "DATABASE_URL"
+            "RECURSOR_API_KEY"
+            "PRIMARY_API_KEY"
+            "GRAFANA_ADMIN_PASSWORD"
+            "DOCKER_SUBNET"
+            "RECURSOR_IP"
+            "DNSTAP_PROCESSOR_IP"
+          )
+          
+          MISSING=""
+          for KEY in "${REQUIRED_KEYS[@]}"; do
+            if ! grep -q "^${KEY}=" .env.example; then
+              MISSING="$MISSING $KEY"
+            fi
+          done
+          
+          if [[ -n "$MISSING" ]]; then
+            echo "❌ Missing required keys in .env.example:$MISSING"
+            exit 1
+          fi
+          
+          echo "✅ All required keys present in .env.example"
+
+  check-multi-node-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check multi-node heartbeat consistency
+        run: |
+          echo "Checking heartbeat interval consistency..."
+          
+          # Default heartbeat is 60 seconds in code
+          EXPECTED="60"
+          
+          # Check all docs mention 60s, not 30s
+          if grep -r "heartbeat.*30" docs/ admin-ui/app/templates/help/ 2>/dev/null; then
+            echo "❌ Found incorrect heartbeat interval (30s instead of 60s)"
+            exit 1
+          fi
+          
+          echo "✅ Heartbeat interval is consistent"
+
+  check-compose-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check docker-compose.ghcr.yml has feature parity with compose.yaml
+        run: |
+          echo "Checking compose file parity..."
+          
+          # Services that should be in both files
+          EXPECTED_SERVICES=(
+            "dnsdist"
+            "postgres"
+            "recursor"
+            "dnstap-processor"
+            "admin-ui"
+            "prometheus"
+            "grafana"
+            "sync-agent"
+            "init-permissions"
+          )
+          
+          MISSING=""
+          for SVC in "${EXPECTED_SERVICES[@]}"; do
+            if ! grep -q "^  ${SVC}:" docker-compose.ghcr.yml; then
+              MISSING="$MISSING $SVC"
+            fi
+          done
+          
+          if [[ -n "$MISSING" ]]; then
+            echo "❌ Missing services in docker-compose.ghcr.yml:$MISSING"
+            exit 1
+          fi
+          
+          echo "✅ docker-compose.ghcr.yml has all required services"
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [check-links, check-env-example-keys, check-multi-node-docs, check-compose-parity]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Docs Consistency Check Results"
+          echo ""
+          echo "| Check | Status |"
+          echo "|-------|--------|"
+          echo "| Internal Links | ${{ needs.check-links.result == 'success' && '✅ Pass' || '❌ Fail' }} |"
+          echo "| .env.example Keys | ${{ needs.check-env-example-keys.result == 'success' && '✅ Pass' || '❌ Fail' }} |"
+          echo "| Multi-node Consistency | ${{ needs.check-multi-node-docs.result == 'success' && '✅ Pass' || '❌ Fail' }} |"
+          echo "| Compose Parity | ${{ needs.check-compose-parity.result == 'success' && '✅ Pass' || '❌ Fail' }} |"

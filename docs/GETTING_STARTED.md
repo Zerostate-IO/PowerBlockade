@@ -315,7 +315,63 @@ docker compose up -d --build
 
 ## Multi-Node Setup (Optional)
 
-For high availability, you can run secondary nodes that sync from the primary:
+For high availability, you can run secondary nodes that sync from the primary.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Multi-Node Architecture                          │
+│
+│   ┌──────────────────────────────────────────────────────────────┐ │
+│   │                    PRIMARY NODE                               │ │
+│   │                                                               │ │
+│   │  dnsdist ──▶ recursor ──▶ internet                           │ │
+│   │     │                         │                               │ │
+│   │     ▼                         ▼                               │ │
+│   │  dnstap-processor         admin-ui (port 8080)               │ │
+│   │     │                         │                               │ │
+│   │     ▼                         ▼                               │ │
+│   │  POST /api/node-sync/     postgres ──▶ grafana               │ │
+│   │       ingest                 │      ──▶ prometheus            │ │
+│   │                              │                               │ │
+│   │                         ┌────┴────┐                          │ │
+│   │                         │ Central │                          │ │
+│   │                         │  Logs & │                          │ │
+│   │                         │ Metrics │                          │ │
+│   │                         └─────────┘                          │ │
+│   └──────────────────────────────────────────────────────────────┘ │
+│                                    ▲                                │
+│                                    │ HTTP POST                      │
+│                    ┌───────────────┼───────────────┐               │
+│                    │               │               │               │
+│   ┌────────────────┴──┐   ┌───────┴──────┐   ┌────┴────────────┐  │
+│   │  SECONDARY NODE 1 │   │ SECONDARY 2  │   │  SECONDARY N    │  │
+│   │                   │   │              │   │                 │  │
+│   │  dnsdist          │   │  dnsdist     │   │  dnsdist        │  │
+│   │     │             │   │     │        │   │     │           │  │
+│   │  recursor         │   │  recursor    │   │  recursor       │  │
+│   │     │             │   │     │        │   │     │           │  │
+│   │  dnstap-processor │   │  dnstap-     │   │  dnstap-        │  │
+│   │     │             │   │  processor   │   │  processor      │  │
+│   │     ▼             │   │     │        │   │     │           │  │
+│   │  sync-agent ──────┼───┼─────┼────────┼───┼──▶ sync-agent   │  │
+│   │  (heartbeats,     │   │     ▼        │   │  (sends data    │  │
+│   │   metrics,        │   │  sync-agent  │   │   to primary)   │  │
+│   │   config sync)    │   │              │   │                 │  │
+│   └───────────────────┘   └──────────────┘   └─────────────────┘  │
+│
+│   Data Flow:
+│   • Queries: Client → dnsdist → recursor → internet
+│   • Query Events: dnstap-processor → Primary /api/node-sync/ingest
+│   • Node Metrics: sync-agent → Primary /api/node-sync/metrics
+│   • Heartbeats: sync-agent → Primary /api/node-sync/heartbeat (60s)
+│   • Config Sync: Primary → sync-agent → local recursor
+│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+For complete architecture details, see [Multi-Node Architecture](MULTI_NODE_ARCHITECTURE.md).
 
 ### Prerequisites
 
@@ -373,19 +429,28 @@ Secondary nodes automatically sync from the primary:
 - **Forward Zones** - Split DNS configurations
 - **Whitelist/Blacklist** - Manual overrides
 
+### What is Sent to Primary
+
+Secondary nodes send telemetry to the primary for centralized visibility:
+
+- **Query logs** - DNS query events are POSTed to primary's `/api/node-sync/ingest`
+- **Node metrics** - CPU, memory, query counts sent via sync-agent to `/api/node-sync/metrics`
+- **Heartbeats** - Health status sent every 60 seconds (configurable)
+
+> 📖 **See [Multi-Node Architecture](MULTI_NODE_ARCHITECTURE.md) for detailed data flow diagrams.**
+
 ### What Stays Local
 
 Each node maintains its own:
 
-- **Query logs** - Stored in local database
-- **Metrics** - Prometheus data stays local
-- **Cache** - DNS cache is per-node
+- **DNS cache** - Per-node recursor cache for fast responses
+- **Runtime state** - Container and process state
 
 ### Secondary Node Behavior
 
 - **Normal operation**: Syncs config every 5 minutes, sends heartbeats every 60 seconds
-- **Primary unreachable**: Continues operating independently with last-known config
-- **Primary restored**: Automatically reconnects and syncs any missed changes
+- **Primary unreachable**: Continues operating independently with last-known config; buffers metrics and query events
+- **Primary restored**: Automatically reconnects, sends buffered data, and syncs any missed changes
 
 ### Troubleshooting Multi-Node
 
@@ -408,6 +473,7 @@ docker compose --profile sync-agent up -d
 - Verify `PRIMARY_URL` is correct and accessible from secondary
 - Verify `PRIMARY_API_KEY` matches the one shown in the primary's Nodes page
 - Check primary's API is accessible: `curl http://PRIMARY_IP:8080/health`
+
 ## Getting Help
 
 - **In-app Help**: Click "Help" in the navigation for contextual documentation

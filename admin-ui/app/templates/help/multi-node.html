@@ -41,8 +41,8 @@
       <ol class="mt-2 list-decimal pl-5 text-sm text-slate-300 space-y-1">
         <li>Generate a secondary node on the primary (creates <code class="bg-bg-900 px-1 rounded">api_key</code>)</li>
         <li>Deploy sync-agent on the secondary with that key</li>
-        <li>sync-agent sends heartbeats every 30s to prove it's alive</li>
-        <li>If primary misses 10 consecutive heartbeats (5 min), the node shows as <em>offline</em></li>
+        <li>sync-agent sends heartbeats every 60 seconds (configurable via <code class="bg-bg-900 px-1 rounded">HEARTBEAT_INTERVAL_SECONDS</code>)</li>
+        <li>If primary misses ~5 consecutive heartbeats (5 min), the node shows as <em>offline</em></li>
       </ol>
       <div class="mt-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
         <p class="text-sm text-indigo-200">

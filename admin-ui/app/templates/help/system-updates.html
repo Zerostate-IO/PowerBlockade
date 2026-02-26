@@ -35,31 +35,73 @@
     <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
       <h2 class="text-lg font-semibold text-slate-200">Updating PowerBlockade</h2>
       <p class="mt-2 text-sm text-slate-300">
-        PowerBlockade uses a simple CLI tool for updates, similar to Pi-hole's <code class="bg-bg-900 px-1 rounded">pihole -up</code>:
+        For deployments using pre-built images (recommended):
+      </p>
+      <div class="mt-3 bg-bg-900 rounded-lg p-4 font-mono text-sm text-slate-300 space-y-2">
+        <div><span class="text-slate-500"># Pull latest images</span></div>
+        <div>docker compose -f docker-compose.ghcr.yml pull</div>
+        <div class="mt-2"><span class="text-slate-500"># Restart with new images</span></div>
+        <div>docker compose -f docker-compose.ghcr.yml up -d</div>
+      </div>
+      <p class="mt-3 text-sm text-slate-300">
+        For version pinning (recommended for production):
+      </p>
+      <div class="mt-2 bg-bg-900 rounded-lg p-4 font-mono text-sm text-slate-300">
+        <div>POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml up -d</div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Patch vs Feature Updates</h2>
+      <div class="mt-3 space-y-3">
+        <div class="rounded-lg border border-green-500/30 bg-green-500/10 p-3">
+          <p class="text-sm text-green-200">
+            <strong>Patch updates (0.0.X → 0.0.Y)</strong> are always safe. No manual steps required—just pull and restart.
+          </p>
+        </div>
+        <div class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <p class="text-sm text-amber-200">
+            <strong>Feature updates (0.X.0 → 0.Y.0)</strong> may require manual steps. Check the release notes before upgrading.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
+      <h2 class="text-lg font-semibold text-red-300">⚠️ Manual Intervention Required</h2>
+      <p class="mt-2 text-sm text-red-200">
+        Some updates require manual steps. These are <strong>always</strong>:
+      </p>
+      <ul class="mt-2 list-disc pl-5 text-sm text-red-200 space-y-1">
+        <li>Called out in the release notes (CHANGELOG.md)</li>
+        <li>Only in feature or major releases—never in patches</li>
+        <li>Listed under "Operator Action Required"</li>
+      </ul>
+      <p class="mt-3 text-sm text-red-200">
+        Common manual steps include:
+      </p>
+      <ul class="mt-1 list-disc pl-5 text-sm text-red-200 space-y-1">
+        <li>Adding new environment variables to <code class="bg-bg-900 px-1 rounded">.env</code></li>
+        <li>Updating configuration files (prometheus.yml, etc.)</li>
+        <li>Running explicit database migrations</li>
+      </ul>
+      <p class="mt-3 text-sm text-red-300 font-semibold">
+        Never skip manual steps—doing so may cause system failure.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
+      <h2 class="text-lg font-semibold text-slate-200">Using the pb CLI (Git Clone)</h2>
+      <p class="mt-2 text-sm text-slate-300">
+        If you cloned the repository, use the included CLI:
       </p>
       <div class="mt-3 bg-bg-900 rounded-lg p-4 font-mono text-sm text-slate-300 space-y-2">
         <div><span class="text-slate-500"># Check for updates</span></div>
         <div>./scripts/pb check-update</div>
         <div class="mt-2"><span class="text-slate-500"># Update to latest version</span></div>
         <div>./scripts/pb update</div>
-        <div class="mt-2"><span class="text-slate-500"># Rollback if something goes wrong</span></div>
+        <div class="mt-2"><span class="text-slate-500"># Rollback if needed</span></div>
         <div>./scripts/pb rollback</div>
-      </div>
-    </div>
-
-    <div class="rounded-2xl border border-slate-800 bg-bg-800 p-6">
-      <h2 class="text-lg font-semibold text-slate-200">What happens during an update?</h2>
-      <ol class="mt-3 list-decimal pl-5 text-sm text-slate-300 space-y-2">
-        <li><strong>Backup</strong> – Database is backed up to <code class="bg-bg-900 px-1 rounded">./backups/</code></li>
-        <li><strong>Pull images</strong> – New Docker images are downloaded</li>
-        <li><strong>Run migrations</strong> – Database schema is updated if needed</li>
-        <li><strong>Restart services</strong> – Services are restarted with new images</li>
-        <li><strong>Verify health</strong> – Health checks confirm everything is working</li>
-      </ol>
-      <div class="mt-3 rounded-lg border border-green-500/30 bg-green-500/10 p-3">
-        <p class="text-sm text-green-200">
-          ✓ Your data (blocklists, settings, query logs) is preserved during updates.
-        </p>
       </div>
     </div>
 

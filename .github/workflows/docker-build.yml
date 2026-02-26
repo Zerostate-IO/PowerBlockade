@@ -3,8 +3,7 @@ name: Build and Push Docker Images
 on:
   push:
     branches: [main, develop]
-    tags:
-      - 'v*'
+    # Tags are handled by release.yml to avoid double-publish
     paths:
       - 'admin-ui/**'
       - 'recursor/**'

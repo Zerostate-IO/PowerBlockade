@@ -1,5 +1,6 @@
 .env
 .opencode/
+.sisyphus/
 **/__pycache__/
 **/*.pyc
 **/.pytest_cache/
