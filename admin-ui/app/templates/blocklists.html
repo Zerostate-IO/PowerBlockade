@@ -178,7 +178,7 @@
             </td>
             <td class="px-4 py-3 text-xs text-slate-400">
               {% if b.last_updated %}
-                {{ b.last_updated.strftime('%Y-%m-%d %H:%M') }}
+                {{ b.last_updated|format_local_time(timezone) }}
               {% else %}
                 <span class="text-slate-500">Never</span>
               {% endif %}

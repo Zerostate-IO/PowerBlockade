@@ -29,7 +29,10 @@
 
       <div class="mt-6">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-slate-200">Query History</h3>
+          <div>
+            <h3 class="text-sm font-semibold text-slate-200">Query History</h3>
+            <div class="text-[11px] text-slate-500">Timezone: {{ timezone or 'UTC' }}</div>
+          </div>
           <div class="flex gap-1">
             <button data-window="1h" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">1h</button>
             <button data-window="6h" class="window-btn px-2 py-1 text-xs rounded bg-bg-900 text-slate-400 hover:text-slate-200">6h</button>
@@ -290,6 +293,7 @@
 
     (function() {
       const userId = '{{ user.id }}';
+      const userTimezone = '{{ timezone or "UTC" }}';
       const maxRows = 50;
       let ws = null;
       let queryCount = 0;
@@ -303,10 +307,17 @@
 
       const qtypeMap = {1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR', 15: 'MX', 16: 'TXT', 28: 'AAAA', 33: 'SRV', 65: 'HTTPS'};
       const rcodeMap = {0: 'NOERROR', 1: 'FORMERR', 2: 'SERVFAIL', 3: 'NXDOMAIN', 4: 'NOTIMP', 5: 'REFUSED'};
+      const timeFormatter = new Intl.DateTimeFormat(undefined, {
+        timeZone: userTimezone,
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
 
       function formatTime(isoStr) {
         const d = new Date(isoStr);
-        return d.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        return timeFormatter.format(d);
       }
 
       function setStatus(status, color) {

@@ -49,7 +49,7 @@
           </td>
           <td class="px-4 py-3 text-slate-400">
             {% if c.last_seen %}
-              {{ c.last_seen.strftime('%Y-%m-%d %H:%M') }}
+              {{ c.last_seen|format_local_time(timezone) }}
             {% else %}
               -
             {% endif %}
