@@ -29,8 +29,8 @@ addACL('fe80::/10')
 -- This provides HUGE performance gains for repeated queries
 -- dnsdist can answer from cache without hitting recursor
 -- ============================================================
--- newPacketCache(size, maxTTL, minTTL)
-pc = newPacketCache(100000, 86400, 60)
+-- newPacketCache(size, maxTTL) - dnsdist 1.9.x only takes 2 params
+pc = newPacketCache(100000, 86400)
 setPoolPacketCache(pc)
 
 -- ============================================================
