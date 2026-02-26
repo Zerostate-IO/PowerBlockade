@@ -1,30 +1,63 @@
-# Minimal PowerDNS Recursor config for PowerBlockade
-
-# Network
-local-address=0.0.0.0
-local-port=5300
-allow-from=172.30.0.0/16, ::1/128
-
-# Control socket (used for reloads)
-socket-dir=/var/run/pdns-recursor
-socket-mode=0666
-
-# Performance (tune per host)
-threads=2
-pdns-distributes-queries=yes
-
-# RPZ
-lua-config-file=/etc/pdns-recursor/rpz.lua
-
-# Forward zones
-forward-zones-file=/etc/pdns-recursor/forward-zones.conf
-
-# API
-webserver=yes
-webserver-address=0.0.0.0
-webserver-port=8082
-webserver-allow-from=0.0.0.0/0
-api-key=${RECURSOR_API_KEY}
-
-# Metrics
-# Recursor exposes Prometheus metrics on the webserver at /metrics.
+#MW|# PowerDNS Recursor config for PowerBlockade - OPTIMIZED FOR SPEED
+#KM|
+#MV|# Network
+#KW|local-address=0.0.0.0
+#XK|local-port=5300
+#TZ|allow-from=172.30.0.0/16, ::1/128
+#HN|
+#NT|# Control socket (used for reloads)
+#YS|socket-dir=/var/run/pdns-recursor
+#BR|socket-mode=0666
+#TJ|
+#XJ|# ============================================================
+#RV|# PERFORMANCE TUNING - OPTIMIZED FOR MAXIMUM SPEED
+#PN|# ============================================================
+#RJ|
+#BR|# Threading - Use more threads for parallel query handling
+#VM|# Auto-detect based on CPUs: threads = max(2, CPUs)
+#KS|threads=4
+#QB|pdns-distributes-queries=yes
+#TQ|
+#RJ|# Cache Configuration - Large caches for high hit rates
+#HP|# recordcache: stores full DNS records (A, AAAA, MX, etc.)
+#TT|# packetcache: stores complete response packets (faster)
+#KV|recordcache-max-entries=1000000
+#QM|max-packetcache-entries=100000
+#VM|# Current usage shows we have room to grow: 1.5M cache, 100K packet cache
+#YK|
+#HQ|# Cache TTL - How long to keep entries
+#NT|# Longer TTL = better hit rate but potentially stale data
+#MP|# Default DNS TTL is respected; these are upper bounds
+#YW|cache-ttl=86400
+#JK|max-cache-ttl=86400
+#PX|max-negative-ttl=3600
+#MV|# Negative cache: cache NXDOMAIN responses
+#KP|negquery-cache-ttl=3600
+#RQ|
+#KX|# Packet Cache TTL - Complete response packets
+#MV|packet-cache-ttl=3600
+#QV|
+#TR|# Prefetch - Refresh popular domains before they expire
+#KS|# This dramatically reduces latency for frequently accessed domains
+#PN|prefetch=true
+#QB|# Refresh when TTL drops below 10% of original value
+#VM|prefetch-expire-threshold=10
+#KS|# Prefetch up to 500 domains per second
+#TQ|prefetch-max-per-second=500
+#RJ|
+#BR|# RPZ
+#VM|lua-config-file=/etc/pdns-recursor/rpz.lua
+#KS|
+#QB|# Forward zones
+#TQ|forward-zones-file=/etc/pdns-recursor/forward-zones.conf
+#RJ|
+#HP|# API
+#TT|webserver=yes
+#KV|webserver-address=0.0.0.0
+#QM|webserver-port=8082
+#VM|webserver-allow-from=0.0.0.0/0
+#YK|api-key=${RECURSOR_API_KEY}
+#HQ|
+#NT|# Metrics
+#MP|# Recursor exposes Prometheus metrics on the webserver at /metrics.
+#YW|

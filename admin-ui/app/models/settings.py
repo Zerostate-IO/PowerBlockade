@@ -26,7 +26,7 @@ DEFAULTS = {
     "rollup_enabled": "true",
     "ptr_resolution_enabled": "true",
     "precache_enabled": "true",
-    "precache_domain_count": "1000",
+    "precache_domain_count": "5000",
     "precache_refresh_minutes": "30",
     "precache_ignore_ttl": "false",
     "precache_custom_refresh_minutes": "60",
