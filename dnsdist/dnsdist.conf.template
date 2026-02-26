@@ -29,16 +29,8 @@ addACL('fe80::/10')
 -- This provides HUGE performance gains for repeated queries
 -- dnsdist can answer from cache without hitting recursor
 -- ============================================================
-pc = newPacketCache(100000, {
-    maxTTL=86400,          -- Respect up to 24h TTL
-    minTTL=60,             -- Cache at least 60s
-    maxNegativeTTL=3600,   -- Cache NXDOMAIN for 1h
-    temporaryFailureTTL=60, -- Cache SERVFAIL briefly
-    staleTTL=60,           -- Serve stale while refreshing
-    dontAge=false,         -- Age entries normally
-    cookieHash=true,       -- Hash cookies for EDNS
-    cookieHashKey=''       -- Auto-generated if empty
-})
+-- newPacketCache(size, maxTTL, minTTL)
+pc = newPacketCache(100000, 86400, 60)
 setPoolPacketCache(pc)
 
 -- ============================================================
@@ -54,8 +46,8 @@ setUDPSocketBufferSizes(1048576, 1048576)
 newServer({
     address='${RECURSOR_IP}:5300',
     name='recursor',
-    sockets=4,             -- 4 parallel connections to recursor
-    useClientSubnet=true    -- Pass client IP to recursor for logging
+    sockets=4,
+    useClientSubnet=true
 })
 setServerPolicy(firstAvailable)
 
