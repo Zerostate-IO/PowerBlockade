@@ -155,3 +155,42 @@ Key variables in `.env`:
 - `dnsdist/` - DNS frontend configs
 - `grafana/` - Dashboard provisioning
 - `prometheus/` - Metrics config
+
+---
+
+## GHCR Authentication (Required for Private Packages)
+
+If the Docker images are stored in a private GitHub Container Registry, you must authenticate before pulling.
+
+### Step 1: Create a GitHub Token
+
+1. Go to https://github.com/settings/tokens
+2. Generate a **Personal access token (classic)**
+3. Select the `read:packages` scope
+4. Copy the token
+
+### Step 2: Login to GHCR on Each Server
+
+```bash
+# Replace YOUR_TOKEN with your GitHub token
+# Replace YOUR_USERNAME with your GitHub username
+echo "YOUR_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
+```
+
+### Step 3: Verify Access
+
+```bash
+docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:v0.5.5
+```
+
+If this succeeds, you're authenticated and can proceed with deployment.
+
+### Make Packages Public (Alternative)
+
+For open-source projects, you can make packages public:
+
+1. Go to https://github.com/orgs/Zerostate-IO/packages
+2. For each `powerblockade-*` package:
+   - Click the package → Package settings → Change visibility → **Public**
+
+Public packages can be pulled without authentication.

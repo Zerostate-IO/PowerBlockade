@@ -78,11 +78,32 @@ if [[ ! -f ".env" ]]; then
     echo ""
 fi
 
-# Set version
-export POWERBLOCKADE_VERSION="$VERSION"
-export POWERBLOCKADE_REPO="$REPO"
+# Check GHCR authentication
+check_ghcr_auth() {
+    if docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest 2>&1 | grep -q "403 Forbidden"; then
+        echo ""
+        echo "⚠️  GHCR Authentication Required"
+        echo "The Docker images are private. You must login to GHCR first:"
+        echo ""
+        echo "  1. Create a GitHub token with 'read:packages' scope:"
+        echo "     https://github.com/settings/tokens"
+        echo ""
+        echo "  2. Login to GHCR:"
+        echo "     echo \"YOUR_TOKEN\" | docker login ghcr.io -u YOUR_USERNAME --password-stdin"
+        echo ""
+        echo "  3. Re-run this script."
+        echo ""
+        echo "Alternative: Make packages public at:"
+        echo "  https://github.com/orgs/Zerostate-IO/packages"
+        echo ""
+        exit 1
+    fi
+}
 
-# Pull and start
+echo "Checking GHCR access..."
+check_ghcr_auth
+
+# Set version
 echo "Pulling images..."
 docker compose pull
 

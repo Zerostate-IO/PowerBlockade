@@ -38,6 +38,40 @@ Get a DNS filtering server running in under 5 minutes using **pre-built Docker i
 - **Port 53** available (DNS)
 - **Port 8080** available (Admin UI)
 
+## Step 0: GHCR Authentication (If Images Are Private)
+
+If the Docker images are stored in a **private** GitHub Container Registry, you must authenticate first.
+
+**Quick test:**
+```bash
+docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest
+```
+
+- **If this works:** Skip to Step 1 (images are public)
+- **If you get "403 Forbidden":** Images are private, authenticate below
+
+**Authenticate to GHCR:**
+
+1. Create a GitHub token with `read:packages` scope:
+   - Go to https://github.com/settings/tokens
+   - Generate new token (classic)
+   - Select `read:packages`
+   - Copy the token
+
+2. Login to GHCR:
+   ```bash
+   # Replace YOUR_TOKEN and YOUR_USERNAME
+   echo "YOUR_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
+   ```
+
+3. Verify access:
+   ```bash
+   docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest
+   ```
+
+**Alternative:** Ask your organization admin to make the packages public at:
+https://github.com/orgs/Zerostate-IO/packages
+
 ## Step 1: Create Directory and Download Files
 
 ```bash
