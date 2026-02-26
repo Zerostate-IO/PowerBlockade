@@ -24,7 +24,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: zerostate-io/powerblockade
 
 jobs:
   # Phase 1: Update versions in all files
@@ -127,16 +127,20 @@ jobs:
         if: github.event.inputs.dry_run != 'true'
         run: |
           VERSION="${{ steps.validate.outputs.version }}"
-          git tag -a "$VERSION" -m "Release $VERSION
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "✅ Tag $VERSION already exists locally"
+          else
+            git tag -a "$VERSION" -m "Release $VERSION
 
-          Automated release created via GitHub Actions
-          Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>"
-          
-          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            Automated release created via GitHub Actions
+            Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>"
+          fi
+
+          if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
+            echo "✅ Tag $VERSION already exists on origin"
+          else
             git push origin "$VERSION"
             echo "✅ Tag $VERSION pushed to origin"
-          else
-            echo "✅ Tag $VERSION created locally (dry run)"
           fi
 
   # Phase 2: Build and push Docker images
@@ -162,6 +166,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
