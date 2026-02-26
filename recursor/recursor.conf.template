@@ -18,7 +18,7 @@ threads=4
 pdns-distributes-queries=yes
 
 # Cache Configuration - Large caches for high hit rates
-recordcache-max-entries=1000000
+max-cache-entries=1000000
 max-packetcache-entries=100000
 
 # Cache TTL - How long to keep entries
