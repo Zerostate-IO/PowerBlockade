@@ -127,9 +127,10 @@ services:
   init-permissions:
     image: busybox:latest
     container_name: powerblockade-init-permissions
-    command: sh -c "chown -R 1000:1000 /shared/rpz && chmod -R 775 /shared/rpz && touch /shared/rpz/.gitkeep"
+    command: sh -c "chown -R 1000:1000 /shared/rpz && chmod -R 775 /shared/rpz && touch /shared/rpz/.gitkeep && chown 1000:1000 /shared/forward-zones.conf && chmod 664 /shared/forward-zones.conf"
     volumes:
       - ./recursor/rpz:/shared/rpz
+      - ./recursor/forward-zones.conf:/shared/forward-zones.conf
     restart: "no"
 
   admin-ui:
@@ -284,6 +285,8 @@ services:
       - ./recursor/rpz:/etc/pdns-recursor/rpz
       - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf
     depends_on:
+      init-permissions:
+        condition: service_completed_successfully
       admin-ui:
         condition: service_started
       recursor:

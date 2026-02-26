@@ -292,29 +292,97 @@ docker compose up -d --build
 
 For high availability, you can run secondary nodes that sync from the primary:
 
-### On the Secondary Node
+### Prerequisites
+
+- Two or more servers (Linux recommended)
+- Both servers must have network connectivity to each other
+- Primary node must be running and accessible
+
+### Step 1: Set Up the Primary Node
+
+1. Deploy PowerBlockade normally (follow Steps 1-5 above)
+2. Go to **Nodes** → **Add Node** in the admin UI
+3. Enter a name for your secondary node (e.g., `bowlister`)
+4. Click **Generate Deployment Package** - this creates a one-time setup command
+
+### Step 2: Set Up the Secondary Node
+
+On the secondary server:
 
 ```bash
-# Clone and configure
+# Clone the repository
 git clone https://github.com/Zerostate-IO/PowerBlockade.git
 cd PowerBlockade
-./scripts/init-env.sh
 
-# Start with sync-agent profile
+# Generate base environment file
+./scripts/init-env.sh
+```
+
+Now edit `.env` on the secondary to add the primary connection settings:
+
+```bash
+# Edit .env and add/update these values:
+NODE_NAME=bowlister                    # Name you registered in step 1
+PRIMARY_URL=http://PRIMARY_IP:8080    # URL of your primary node
+PRIMARY_API_KEY=your-api-key-here     # From the deployment package in step 1
+```
+
+Then start with the sync-agent profile:
+
+```bash
+# Build and start (sync-agent profile enabled)
 docker compose --profile sync-agent up -d --build
 ```
 
-### Register Secondary with Primary
+### Step 3: Verify Sync
 
-1. On the **primary** node, go to **Nodes** → **Add Node**
-2. Generate a deployment package
-3. Follow the instructions to configure the secondary
+1. Check the primary node's **Nodes** page - the secondary should appear as "Online"
+2. On the secondary, check logs: `docker compose logs sync-agent`
+3. You should see: `registered as <name>` and `heartbeat ok`
 
-Secondary nodes:
-- Pull blocklists and forward zones from primary
-- Send query logs back to primary for unified analytics
-- Operate independently if primary is unreachable
+### What Syncs Automatically
 
+Secondary nodes automatically sync from the primary:
+
+- **Blocklists** - All blocklist subscriptions and entries
+- **Forward Zones** - Split DNS configurations
+- **Whitelist/Blacklist** - Manual overrides
+
+### What Stays Local
+
+Each node maintains its own:
+
+- **Query logs** - Stored in local database
+- **Metrics** - Prometheus data stays local
+- **Cache** - DNS cache is per-node
+
+### Secondary Node Behavior
+
+- **Normal operation**: Syncs config every 5 minutes, sends heartbeats every 60 seconds
+- **Primary unreachable**: Continues operating independently with last-known config
+- **Primary restored**: Automatically reconnects and syncs any missed changes
+
+### Troubleshooting Multi-Node
+
+**Secondary shows "Offline" on primary:**
+```bash
+# On secondary, check sync-agent is running
+docker compose ps sync-agent
+docker compose logs sync-agent
+```
+
+**"Permission denied" errors in sync-agent:**
+```bash
+# The init-permissions service should handle this automatically
+# If you see permission errors, restart the stack:
+docker compose --profile sync-agent down
+docker compose --profile sync-agent up -d
+```
+
+**Secondary not syncing blocklists:**
+- Verify `PRIMARY_URL` is correct and accessible from secondary
+- Verify `PRIMARY_API_KEY` matches the one shown in the primary's Nodes page
+- Check primary's API is accessible: `curl http://PRIMARY_IP:8080/health`
 ## Getting Help
 
 - **In-app Help**: Click "Help" in the navigation for contextual documentation
