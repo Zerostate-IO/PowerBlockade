@@ -248,7 +248,7 @@ def scrape_local_recursor_metrics() -> None:
             nxdomain_answers=metrics.get("nxdomain_answers", 0),
             questions=metrics.get("questions", 0),
             all_outqueries=metrics.get("all_outqueries", 0),
-            uptime_seconds=metrics.get("uptime_seconds", 0),
+            uptime_seconds=metrics.get("uptime", 0),
         )
         local_node.last_seen = datetime.now(timezone.utc)
         db.add(nm)

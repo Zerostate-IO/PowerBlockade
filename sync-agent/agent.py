@@ -105,7 +105,7 @@ def scrape_recursor_metrics(recursor_url: str) -> dict:
             "nxdomain_answers": metrics.get("nxdomain_answers", 0),
             "questions": metrics.get("questions", 0),
             "all_outqueries": metrics.get("all_outqueries", 0),
-            "uptime_seconds": metrics.get("uptime_seconds", 0),
+            "uptime_seconds": metrics.get("uptime", 0),
         }
     except Exception as e:
         print(f"metrics scrape error: {e}")

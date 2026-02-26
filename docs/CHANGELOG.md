@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Version alignment across admin-ui and main project
 
+## [0.5.5] - 2026-02-26
+
+### Fixed
+- Uptime metrics now correctly collected (was looking for 'uptime_seconds' instead of 'uptime' in pdns_recursor metrics)
+- Long-term Grafana dashboard rewritten to avoid problematic Grafana macros
+- Added uptime panel to long-term dashboard
+
 ## [0.5.4] - 2026-02-26
 
 ### Fixed
@@ -74,7 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards
 - Prometheus metrics
 
-[Unreleased]: https://github.com/Zerostate-IO/PowerBlockade/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/Zerostate-IO/PowerBlockade/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/Zerostate-IO/PowerBlockade/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Zerostate-IO/PowerBlockade/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Zerostate-IO/PowerBlockade/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Zerostate-IO/PowerBlockade/compare/v0.5.1...v0.5.2
