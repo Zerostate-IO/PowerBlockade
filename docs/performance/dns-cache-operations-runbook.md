@@ -1389,3 +1389,497 @@ exit 1
 |                                                                     |
 +---------------------------------------------------------------------+
 ```
+
+
+---
+
+# Rollback Command Packs
+
+Copy-paste executable rollback sequences for staged rollout. Each pack includes pre-rollback snapshots, rollback commands, and post-rollback validation.
+
+**CRITICAL**: Rollback secondary nodes FIRST before rolling back the primary.
+
+---
+
+## Pre-Rollback Snapshot (All Nodes)
+
+Capture system state BEFORE initiating rollback.
+
+```bash
+# Create snapshot directory
+SNAPSHOT_DIR=".sisyphus/rollback-snapshots/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$SNAPSHOT_DIR"
+
+# Record current version
+cat .powerblockade/state.json 2>/dev/null > "$SNAPSHOT_DIR/state.json" || echo 'No state.json' > "$SNAPSHOT_DIR/state.json"
+
+# Export retention settings (PRIMARY ONLY)
+docker compose exec postgres psql -U powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';" > "$SNAPSHOT_DIR/retention-settings.txt" 2>/dev/null || echo 'Not primary or postgres unavailable'
+
+# Record node status (PRIMARY ONLY)
+curl -s http://localhost:8080/api/nodes 2>/dev/null | jq '.' > "$SNAPSHOT_DIR/nodes-status.json" || echo 'Not primary or API unavailable'
+
+# Capture service status
+docker compose ps > "$SNAPSHOT_DIR/services-status.txt"
+
+# Record Prometheus metrics snapshot
+curl -s http://localhost:8080/metrics > "$SNAPSHOT_DIR/prometheus-metrics.txt" 2>/dev/null || echo 'Metrics unavailable'
+
+echo "Snapshot saved to: $SNAPSHOT_DIR"
+```
+
+---
+
+## Local Development Rollback
+
+For local/lab environments using docker compose.
+
+### Stop Conditions (DO NOT ROLLBACK if)
+
+- Database backup file is missing or corrupted
+- Previous version is unknown (no state.json)
+- Services are already down and won't restart
+
+### Rollback Commands
+
+```bash
+# Local Rollback Pack
+# Execute in project root
+
+set -e
+
+# 1. Capture snapshot
+SNAPSHOT_DIR=".sisyphus/rollback-snapshots/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$SNAPSHOT_DIR"
+docker compose ps > "$SNAPSHOT_DIR/pre-rollback-services.txt"
+
+# 2. Get previous version from state
+PREV_VERSION=$(jq -r '.previous_version // empty' .powerblockade/state.json 2>/dev/null)
+if [[ -z "$PREV_VERSION" || "$PREV_VERSION" == "null" ]]; then
+    echo "ERROR: No previous version in state.json"
+    echo "Check .powerblockade/state.json for rollback info"
+    exit 1
+fi
+
+# 3. Find latest database backup
+DB_BACKUP=$(ls -t backups/pre-upgrade-*.sql 2>/dev/null | head -1)
+if [[ -z "$DB_BACKUP" ]]; then
+    echo "WARN: No database backup found - using --fast mode"
+    FAST_MODE="--fast"
+else
+    echo "Found database backup: $DB_BACKUP"
+    FAST_MODE=""
+fi
+
+# 4. Execute rollback via pb script
+./scripts/pb rollback $FAST_MODE
+
+# 5. Record post-rollback state
+docker compose ps > "$SNAPSHOT_DIR/post-rollback-services.txt"
+echo "Rollback to $PREV_VERSION complete" > "$SNAPSHOT_DIR/rollback-log.txt"
+
+echo ""
+echo "=== Local Rollback Complete ==="
+echo "Previous version: $PREV_VERSION"
+echo "Snapshot: $SNAPSHOT_DIR"
+```
+
+### Post-Rollback Health Checks
+
+```bash
+# Local Health Check Pack
+
+echo "=== Post-Rollback Health Check ==="
+
+# 1. Service status
+docker compose ps
+
+# 2. Admin UI health
+curl -sf http://localhost:8080/health && echo "Admin UI: OK" || echo "Admin UI: FAILED"
+
+# 3. DNS resolution test
+dig @127.0.0.1 google.com +short > /dev/null && echo "DNS: OK" || echo "DNS: FAILED"
+
+# 4. Version check
+curl -s http://localhost:8080/api/version | jq '.version'
+
+# 5. Retention settings intact (if applicable)
+docker compose exec postgres psql -U powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';" 2>/dev/null || echo 'Not applicable'
+
+# 6. No Prometheus alerts
+ALERTS=$(curl -s http://localhost:9090/api/v1/alerts 2>/dev/null | jq '.data.alerts | length')
+if [[ "$ALERTS" -gt 0 ]]; then
+    echo "WARN: $ALERTS Prometheus alerts firing"
+    curl -s http://localhost:9090/api/v1/alerts | jq -r '.data.alerts[] | "  - \(.labels.alertname): \(.state)"'
+else
+    echo "Prometheus: No alerts"
+fi
+
+echo ""
+echo "=== Health Check Complete ==="
+```
+
+---
+
+## bowlister Rollback (Secondary Node)
+
+For secondary node deployed at `/opt/powerblockade`.
+
+### Pre-Conditions
+
+- SSH access to bowlister
+- Previous version recorded in `.powerblockade/state.json`
+- Secondary node profile (`--profile secondary`)
+
+### Stop Conditions (DO NOT ROLLBACK if)
+
+- Primary (celsate) is unreachable - secondary cannot resync
+- Database backup is required (secondaries typically skip DB restore)
+- Services are in crash loop
+
+### Rollback Commands
+
+```bash
+# bowlister Rollback Pack
+# SSH to bowlister and execute
+
+set -e
+
+# 1. SSH to bowlister
+# ssh user@bowlister
+
+# 2. Navigate to deployment directory
+cd /opt/powerblockade
+
+# 3. Create snapshot
+SNAPSHOT_DIR=".sisyphus/rollback-snapshots/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$SNAPSHOT_DIR"
+docker compose ps > "$SNAPSHOT_DIR/pre-rollback-services.txt"
+
+# 4. Get previous version
+PREV_VERSION=$(jq -r '.previous_version // empty' .powerblockade/state.json 2>/dev/null)
+CURRENT_VERSION=$(jq -r '.current_version // "unknown"' .powerblockade/state.json 2>/dev/null)
+
+if [[ -z "$PREV_VERSION" || "$PREV_VERSION" == "null" ]]; then
+    echo "ERROR: No previous version found"
+    echo "Attempting manual version restore from .env"
+    PREV_VERSION=$(grep '^POWERBLOCKADE_VERSION=' .env 2>/dev/null | cut -d= -f2 || true)
+    if [[ -z "$PREV_VERSION" ]]; then
+        echo "ERROR: Cannot determine previous version - aborting"
+        exit 1
+    fi
+fi
+
+echo "Current version: $CURRENT_VERSION"
+echo "Rolling back to: $PREV_VERSION"
+
+# 5. Stop services
+docker compose --profile secondary down
+
+# 6. Pull previous version images
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
+
+# 7. Start with previous version
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile secondary up -d
+
+# 8. Wait for health
+echo "Waiting for services..."
+sleep 10
+
+# 9. Verify services
+docker compose ps
+
+# 10. Update state
+echo "Rollback complete. Version: $PREV_VERSION" > "$SNAPSHOT_DIR/rollback-log.txt"
+
+echo ""
+echo "=== bowlister Rollback Complete ==="
+echo "Version: $PREV_VERSION"
+```
+
+### Post-Rollback Health Checks
+
+```bash
+# bowlister Health Check Pack
+
+echo "=== bowlister Post-Rollback Health ==="
+
+# 1. Service status
+docker compose ps
+
+# 2. DNS resolution (local)
+dig @127.0.0.1 google.com +short > /dev/null && echo "DNS (local): OK" || echo "DNS (local): FAILED"
+
+# 3. Sync-agent connectivity to primary
+docker compose logs sync-agent --tail 20 2>/dev/null | grep -E '(sync|error|fail)' || echo "Sync-agent: No recent sync messages"
+
+# 4. Test connectivity to primary
+PRIMARY_URL=$(grep '^PRIMARY_URL=' .env | cut -d= -f2)
+if [[ -n "$PRIMARY_URL" ]]; then
+    curl -sf "$PRIMARY_URL/health" > /dev/null && echo "Primary connectivity: OK" || echo "Primary connectivity: FAILED"
+fi
+
+# 5. No container restarts
+RESTARTS=$(docker compose ps --format '{{.Name}}: {{.Status}}' | grep -c 'Restarting' || echo 0)
+if [[ "$RESTARTS" -gt 0 ]]; then
+    echo "WARN: $RESTARTS containers restarting"
+else
+    echo "Containers: Stable"
+fi
+
+echo ""
+echo "=== Health Check Complete ==="
+```
+
+---
+
+## celsate Rollback (Primary Node)
+
+For primary node deployed at `/opt/powerblockade` with full stack (Admin UI, database, Grafana).
+
+### Pre-Conditions
+
+- SSH access to celsate
+- Database backup exists in `backups/`
+- Previous version recorded in `.powerblockade/state.json`
+- Primary node profile (`--profile primary`)
+
+### Stop Conditions (DO NOT ROLLBACK if)
+
+- Database backup file is missing or corrupted (check with `head backups/pre-upgrade-*.sql`)
+- Secondary nodes are already rolled back to a DIFFERENT version
+- Services are in crash loop (investigate first)
+- No known-good previous version
+
+### Rollback Commands
+
+```bash
+# celsate Rollback Pack
+# SSH to celsate and execute
+
+set -e
+
+# 1. SSH to celsate
+# ssh user@celsate
+
+# 2. Navigate to deployment directory
+cd /opt/powerblockade
+
+# 3. Create snapshot
+SNAPSHOT_DIR=".sisyphus/rollback-snapshots/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$SNAPSHOT_DIR"
+
+# Capture pre-rollback state
+docker compose ps > "$SNAPSHOT_DIR/pre-rollback-services.txt"
+docker compose exec postgres psql -U powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';" > "$SNAPSHOT_DIR/retention-pre.txt" 2>/dev/null
+curl -s http://localhost:8080/api/nodes | jq '.' > "$SNAPSHOT_DIR/nodes-pre.txt" 2>/dev/null
+
+# 4. Get versions
+PREV_VERSION=$(jq -r '.previous_version // empty' .powerblockade/state.json 2>/dev/null)
+CURRENT_VERSION=$(jq -r '.current_version // "unknown"' .powerblockade/state.json 2>/dev/null)
+
+if [[ -z "$PREV_VERSION" || "$PREV_VERSION" == "null" ]]; then
+    echo "ERROR: No previous version found in state.json"
+    exit 1
+fi
+
+# 5. Find database backup
+DB_BACKUP=$(jq -r '.last_db_backup // empty' .powerblockade/state.json 2>/dev/null)
+if [[ -z "$DB_BACKUP" || "$DB_BACKUP" == "null" || ! -f "$DB_BACKUP" ]]; then
+    DB_BACKUP=$(ls -t backups/pre-upgrade-*.sql 2>/dev/null | head -1)
+fi
+
+echo "Current version: $CURRENT_VERSION"
+echo "Rolling back to: $PREV_VERSION"
+echo "Database backup: $DB_BACKUP"
+
+read -p "Proceed with rollback? [y/N] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Rollback cancelled."
+    exit 0
+fi
+
+# 6. Stop services
+docker compose --profile primary down
+
+# 7. Restore database (if backup exists)
+if [[ -n "$DB_BACKUP" && -f "$DB_BACKUP" ]]; then
+    echo "Restoring database from $DB_BACKUP..."
+    docker compose up -d postgres
+    sleep 5
+    
+    # Drop and recreate schema
+    docker compose exec -T postgres psql -U powerblockade -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" powerblockade 2>/dev/null || true
+    
+    # Restore from backup
+    docker compose exec -T postgres psql -U powerblockade powerblockade < "$DB_BACKUP"
+    echo "Database restored."
+fi
+
+# 8. Pull previous version images
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
+
+# 9. Start with previous version
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile primary up -d
+
+# 10. Wait for health
+echo "Waiting for services to become healthy..."
+for i in {1..60}; do
+    if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+        echo "Admin UI healthy after $i seconds"
+        break
+    fi
+    sleep 1
+done
+
+# 11. Update .env with rolled-back version
+sed -i "s/^POWERBLOCKADE_VERSION=.*/POWERBLOCKADE_VERSION=$PREV_VERSION/" .env 2>/dev/null || echo "POWERBLOCKADE_VERSION=$PREV_VERSION" >> .env
+
+# 12. Record completion
+echo "Rollback to $PREV_VERSION complete at $(date -Iseconds)" > "$SNAPSHOT_DIR/rollback-log.txt"
+
+echo ""
+echo "=== celsate Rollback Complete ==="
+echo "Version: $PREV_VERSION"
+echo "Snapshot: $SNAPSHOT_DIR"
+```
+
+### Post-Rollback Health Checks
+
+```bash
+# celsate Health Check Pack
+
+echo "=== celsate Post-Rollback Health ==="
+
+# 1. Service status
+docker compose ps
+
+# 2. Admin UI health
+curl -sf http://localhost:8080/health && echo "Admin UI: OK" || echo "Admin UI: FAILED"
+
+# 3. DNS resolution
+dig @127.0.0.1 google.com +short > /dev/null && echo "DNS: OK" || echo "DNS: FAILED"
+
+# 4. Version check
+curl -s http://localhost:8080/api/version | jq '.version'
+
+# 5. Retention settings verification
+docker compose exec postgres psql -U powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';"
+
+# 6. Node status - verify secondaries are still connected
+curl -s http://localhost:8080/api/nodes | jq '.[] | {name, status, last_seen}'
+
+# 7. Data integrity check
+docker compose exec postgres psql -U powerblockade -c "SELECT (SELECT COUNT(*) FROM query_logs) as query_logs, (SELECT COUNT(*) FROM node_metrics) as node_metrics, (SELECT COUNT(*) FROM audit_logs) as audit_logs;"
+
+# 8. Grafana accessibility
+curl -sf http://localhost:8080/grafana/ > /dev/null && echo "Grafana: OK" || echo "Grafana: FAILED"
+
+# 9. Prometheus alerts
+ALERTS=$(curl -s http://localhost:9090/api/v1/alerts 2>/dev/null | jq '.data.alerts | length')
+if [[ "$ALERTS" -gt 0 ]]; then
+    echo "WARN: $ALERTS Prometheus alerts firing"
+    curl -s http://localhost:9090/api/v1/alerts | jq -r '.data.alerts[] | "  - \(.labels.alertname): \(.state)"'
+else
+    echo "Prometheus: No alerts"
+fi
+
+# 10. Compare retention settings with snapshot
+if [[ -f "$SNAPSHOT_DIR/retention-pre.txt" ]]; then
+    docker compose exec postgres psql -U powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';" > "$SNAPSHOT_DIR/retention-post.txt"
+    if diff -q "$SNAPSHOT_DIR/retention-pre.txt" "$SNAPSHOT_DIR/retention-post.txt" > /dev/null; then
+        echo "Retention settings: UNCHANGED (OK)"
+    else
+        echo "WARN: Retention settings changed during rollback"
+        diff "$SNAPSHOT_DIR/retention-pre.txt" "$SNAPSHOT_DIR/retention-post.txt"
+    fi
+fi
+
+echo ""
+echo "=== Health Check Complete ==="
+```
+
+---
+
+## Rollback Decision Flow
+
+```
++---------------------------------------------------------------------+
+|                    ROLLBACK DECISION FLOW                           |
++---------------------------------------------------------------------+
+|                                                                     |
+|  TRIGGER: Regression gate failure, service failure, or operator     |
+|           decision to revert                                        |
+|                                                                     |
+|  1. CHECK PRE-CONDITIONS                                            |
+|     +- Previous version known? (state.json)                         |
+|     +- Database backup exists? (primary only)                       |
+|     +- Primary reachable? (secondary only)                          |
+|     |                                                               |
+|     +- NO to any -> INVESTIGATE FIRST, manual rollback may be needed|
+|                                                                     |
+|  2. ROLLBACK ORDER                                                  |
+|     +- SECONDARIES FIRST (bowlister, then other secondaries)        |
+|     |   - Use --fast mode (no DB restore needed)                     |
+|     |   - Verify connectivity to primary                             |
+|     |                                                               |
+|     +- PRIMARY LAST (celsate)                                       |
+|     |   - Full DB restore                                            |
+|     |   - Verify secondaries reconnect                               |
+|                                                                     |
+|  3. VERIFY EACH NODE                                                |
+|     +- Services running?                                            |
+|     +- DNS resolving?                                               |
+|     +- Health endpoint responding?                                  |
+|     |                                                               |
+|     +- NO to any -> Investigate, may need manual intervention       |
+|                                                                     |
+|  4. VALIDATE PRIMARY                                                |
+|     +- Retention settings preserved?                                |
+|     +- All secondaries online?                                      |
+|     +- Data integrity verified?                                     |
+|     |                                                               |
+|     +- NO to any -> Investigate before declaring success            |
+|                                                                     |
+|  5. ARCHIVE EVIDENCE                                                |
+|     +- Save rollback logs to .sisyphus/archives/                    |
+|     +- Document rollback reason                                     |
+|                                                                     |
++---------------------------------------------------------------------+
+```
+
+---
+
+## Quick Reference: Rollback Commands
+
+```
++---------------------------------------------------------------------+
+|                    ROLLBACK QUICK REFERENCE                         |
++---------------------------------------------------------------------+
+|                                                                     |
+|  LOCAL (lab/dev):                                                   |
+|  +-- ./scripts/pb rollback              # Standard (with DB)         |
+|  +-- ./scripts/pb rollback --fast       # Fast (no DB restore)       |
+|                                                                     |
+|  BOWLISTER (secondary):                                             |
+|  +-- cd /opt/powerblockade && \                                    |
+|  |   POWERBLOCKADE_VERSION=<prev> docker compose pull && \         |
+|  |   POWERBLOCKADE_VERSION=<prev> docker compose --profile secondary up -d
+|                                                                     |
+|  CELSATE (primary):                                                 |
+|  +-- cd /opt/powerblockade && \                                    
+|  |   docker compose --profile primary down && \                    
+|  |   # (restore DB if needed) && \                                 
+|  |   POWERBLOCKADE_VERSION=<prev> docker compose pull && \         
+|  |   POWERBLOCKADE_VERSION=<prev> docker compose --profile primary up -d
+|                                                                     
+|  HEALTH CHECKS:                                                     
+|  +-- curl -sf http://localhost:8080/health                         
+|  +-- dig @127.0.0.1 google.com +short                              
+|  +-- docker compose ps                                              
+|                                                                     
+|  ROLLBACK ORDER: Secondaries FIRST, then primary                   
+|                                                                     
++---------------------------------------------------------------------+
+```

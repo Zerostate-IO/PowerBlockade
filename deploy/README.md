@@ -156,6 +156,63 @@ Key variables in `.env`:
 - `grafana/` - Dashboard provisioning
 - `prometheus/` - Metrics config
 
+
+## Rollback Procedures
+
+For detailed rollback command packs with pre-rollback snapshots, exact command sequences, and post-rollback health checks, see:
+
+**[Rollback Command Packs](../docs/performance/dns-cache-operations-runbook.md#rollback-command-packs)**
+
+### Quick Rollback Reference
+
+#### Secondary Node (bowlister)
+```bash
+# SSH to bowlister
+cd /opt/powerblockade
+
+# Get previous version from state
+PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
+
+# Rollback
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile secondary up -d
+
+# Verify
+docker compose ps
+dig @127.0.0.1 google.com +short
+```
+
+#### Primary Node (celsate)
+```bash
+# SSH to celsate
+cd /opt/powerblockade
+
+# Get previous version and backup location
+PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
+DB_BACKUP=$(jq -r '.last_db_backup' .powerblockade/state.json)
+
+# Rollback with database restore
+docker compose --profile primary down
+docker compose up -d postgres
+sleep 5
+docker compose exec -T postgres psql -U powerblockade -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" powerblockade
+docker compose exec -T postgres psql -U powerblockade powerblockade < "$DB_BACKUP"
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile primary up -d
+
+# Verify
+curl -sf http://localhost:8080/health
+dig @127.0.0.1 google.com +short
+```
+
+### Rollback Order
+
+**Always rollback secondaries FIRST, then primary:**
+1. Rollback bowlister (secondary)
+2. Verify bowlister is online and syncing
+3. Rollback celsate (primary)
+4. Verify all nodes show as online
+
 ---
 
 ## GHCR Authentication (Required for Private Packages)

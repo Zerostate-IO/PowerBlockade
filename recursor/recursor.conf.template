@@ -10,14 +10,18 @@ socket-dir=/var/run/pdns-recursor
 socket-mode=0666
 
 # Performance (tune per host)
+# Rollback: restore previous values if cache issues arise:
+#   max-cache-entries: 500000, max-packetcache-entries: 100000
+#   packetcache-ttl: 3600, packetcache-negative-ttl: 30
+# See docs/performance/dns-caching-strategy.md#recursor-tuning-matrix
 threads=4
 pdns-distributes-queries=yes
 reuseport=yes
-max-cache-entries=2000000
-max-packetcache-entries=1000000
-packetcache-ttl=86400
-packetcache-negative-ttl=60
-packetcache-servfail-ttl=5
+max-cache-entries=2000000      # Record cache (rollback: 500000)
+max-packetcache-entries=1000000 # Packet cache (rollback: 100000)
+packetcache-ttl=86400          # 24h max (rollback: 3600)
+packetcache-negative-ttl=60    # NXDOMAIN/NODATA (rollback: 30)
+packetcache-servfail-ttl=5     # SERVFAIL (unchanged)
 
 # RPZ
 lua-config-file=/etc/pdns-recursor/rpz.lua
