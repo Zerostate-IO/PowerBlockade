@@ -49,10 +49,7 @@ def run_with_advisory_lock(job_name: str) -> Callable[[Callable[..., Any]], Call
             db = SessionLocal()
             try:
                 # Try to acquire lock (non-blocking)
-                result = db.execute(
-                    sa.text("SELECT pg_try_advisory_lock(:id)"),
-                    {"id": lock_id}
-                )
+                result = db.execute(sa.text("SELECT pg_try_advisory_lock(:id)"), {"id": lock_id})
                 acquired = result.scalar()
 
                 if not acquired:
@@ -63,10 +60,7 @@ def run_with_advisory_lock(job_name: str) -> Callable[[Callable[..., Any]], Call
                     return func(*args, **kwargs)
                 finally:
                     # Always release lock
-                    db.execute(
-                        sa.text("SELECT pg_advisory_unlock(:id)"),
-                        {"id": lock_id}
-                    )
+                    db.execute(sa.text("SELECT pg_advisory_unlock(:id)"), {"id": lock_id})
                     db.commit()
             except Exception as e:
                 log.error(f"Advisory lock error for '{job_name}': {e}")
@@ -74,8 +68,12 @@ def run_with_advisory_lock(job_name: str) -> Callable[[Callable[..., Any]], Call
                 return func(*args, **kwargs)
             finally:
                 db.close()
+
         return wrapper
+
     return decorator
+
+
 @run_with_advisory_lock("blocklist_update")
 def update_blocklists_job() -> None:
     db = SessionLocal()
@@ -186,6 +184,8 @@ def retention_job() -> None:
         log.error(f"Retention job failed: {e}")
     finally:
         db.close()
+
+
 def blocklist_schedule_job() -> None:
     """Check blocklist schedules and enable/disable based on time."""
     try:

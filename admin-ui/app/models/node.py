@@ -14,12 +14,13 @@ if TYPE_CHECKING:
 
 class NodeStatus(str, Enum):
     """Lifecycle states for secondary nodes."""
-    PENDING = "pending"      # Registered, awaiting first sync
-    ACTIVE = "active"        # Syncing normally
-    STALE = "stale"          # Heartbeat late but within threshold
-    OFFLINE = "offline"      # No heartbeat for extended period
+
+    PENDING = "pending"  # Registered, awaiting first sync
+    ACTIVE = "active"  # Syncing normally
+    STALE = "stale"  # Heartbeat late but within threshold
+    OFFLINE = "offline"  # No heartbeat for extended period
     QUARANTINE = "quarantine"  # Returned after long absence, pending validation
-    ERROR = "error"          # Sync failure, requires intervention
+    ERROR = "error"  # Sync failure, requires intervention
 
 
 class Node(Base):
