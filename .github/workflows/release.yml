@@ -38,6 +38,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Refresh remote tags
+        run: git fetch --tags --force origin
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -200,7 +203,14 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     needs: [update-versions, build-and-push]
-    if: github.event.inputs.dry_run != 'true'
+    if: >-
+      always() &&
+      github.event.inputs.dry_run != 'true' &&
+      needs.update-versions.result == 'success' &&
+      (
+        github.event.inputs.skip_docker == 'true' ||
+        needs.build-and-push.result == 'success'
+      )
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -212,19 +222,25 @@ jobs:
         run: |
           VERSION="${{ needs.update-versions.outputs.version }}"
           PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            RANGE_END="${VERSION}"
+          else
+            RANGE_END="HEAD"
+          fi
+          DELIM="CHANGELOG_EOF_$(date +%s)_$RANDOM"
           
           if [ -z "$PREVIOUS_TAG" ]; then
             # First release or no previous tag
-            echo "changes<<EOF" >> $GITHUB_OUTPUT
+            echo "changes<<${DELIM}" >> $GITHUB_OUTPUT
             echo "### Changes" >> $GITHUB_OUTPUT
             echo "Initial release or first tagged version" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            echo "${DELIM}" >> $GITHUB_OUTPUT
           else
-            echo "changes<<EOF" >> $GITHUB_OUTPUT
+            echo "changes<<${DELIM}" >> $GITHUB_OUTPUT
             echo "### Changes since $PREVIOUS_TAG" >> $GITHUB_OUTPUT
             echo "" >> $GITHUB_OUTPUT
-            git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${VERSION}" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${RANGE_END}" >> $GITHUB_OUTPUT || echo "- No commits found between tags" >> $GITHUB_OUTPUT
+            echo "${DELIM}" >> $GITHUB_OUTPUT
           fi
 
       - name: Create GitHub Release
