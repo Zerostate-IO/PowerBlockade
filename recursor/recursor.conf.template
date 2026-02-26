@@ -20,18 +20,13 @@ pdns-distributes-queries=yes
 # Cache Configuration - Large caches for high hit rates
 max-cache-entries=1000000
 max-packetcache-entries=100000
-
-# Cache TTL - How long to keep entries
-cache-ttl=86400
 max-cache-ttl=86400
 max-negative-ttl=3600
 negquery-cache-ttl=3600
-
-# Packet Cache TTL
 packet-cache-ttl=3600
 
 # Prefetch - Refresh popular domains before they expire
-prefetch=true
+prefetch=yes
 prefetch-expire-threshold=10
 prefetch-max-per-second=500
 
