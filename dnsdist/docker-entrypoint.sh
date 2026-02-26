@@ -8,10 +8,10 @@ DNSTAP_PORT="${DNSTAP_PORT:-6000}"
 CHECK_INTERVAL="${DNSTAP_CHECK_INTERVAL:-10}"
 
 # Generate dnsdist.conf from template with IP substitution
-mkdir -p /etc/dnsdist
+# Write to /tmp since /etc/dnsdist is read-only mounted
 sed -e "s/\${RECURSOR_IP}/$RECURSOR_IP/g" \
     -e "s/\${DNSTAP_PROCESSOR_IP}/$DNSTAP_PROCESSOR_IP/g" \
-    /etc/dnsdist/dnsdist.conf.template > /etc/dnsdist/dnsdist.conf
+    /etc/dnsdist/dnsdist.conf.template > /tmp/dnsdist.conf
 
 echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP"
 
@@ -27,7 +27,7 @@ done
 echo "dnstap-processor is ready"
 
 # Start dnsdist in background
-dnsdist --supervised -C /etc/dnsdist/dnsdist.conf &
+dnsdist --supervised -C /tmp/dnsdist.conf &
 DNSDIST_PID=$!
 
 # Track the last known state of dnstap-processor
@@ -42,7 +42,7 @@ while kill -0 $DNSDIST_PID 2>/dev/null; do
             echo "dnstap-processor is back up, restarting dnsdist to reconnect..."
             kill $DNSDIST_PID
             wait $DNSDIST_PID 2>/dev/null
-            dnsdist --supervised -C /etc/dnsdist/dnsdist.conf &
+            dnsdist --supervised -C /tmp/dnsdist.conf &
             DNSDIST_PID=$!
         fi
         LAST_STATE="up"
