@@ -1,7 +1,7 @@
 -- PowerBlockade dnsdist frontend
 -- Binds host :53 and forwards to the internal recursor.
--- Emits dnstap (FrameStream over AF_UNIX) to the shared /var/run/dnstap/dnstap.sock,
--- which the dnstap-processor consumes.
+-- Emits dnstap (FrameStream over TCP) to dnstap-processor,
+-- which forwards queries to the admin API.
 
 -- Listen on all interfaces on port 53
 setLocal('0.0.0.0:53')
@@ -20,12 +20,13 @@ addACL('fe80::/10')
 
 -- Backend: PowerDNS Recursor (internal-only)
 -- dnsdist's newServer() expects an IP literal (not a hostname).
-newServer({ address='172.30.0.10:5300', name='recursor' })
+-- RECURSOR_IP and DNSTAP_PROCESSOR_IP are set via environment variables.
+newServer({ address='${RECURSOR_IP}:5300', name='recursor' })
 setServerPolicy(firstAvailable)
 
 -- dnstap logging (client attribution happens here, at the edge)
--- Using TCP logger to dnstap-processor on 172.30.0.20:6000
-local fs = newFrameStreamTcpLogger('172.30.0.20:6000', {
+-- Using TCP logger to dnstap-processor
+local fs = newFrameStreamTcpLogger('${DNSTAP_PROCESSOR_IP}:6000', {
     bufferHint = 65536,
     flushTimeout = 1,
     outputQueueSize = 64,

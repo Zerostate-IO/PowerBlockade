@@ -56,6 +56,17 @@ set_kv_if_missing "ACME_EMAIL" ""
 # Grafana admin password
 set_kv_if_missing "GRAFANA_ADMIN_PASSWORD" "$(rand_b64 18)"
 
+# Docker network configuration (change if subnet conflicts)
+# Defaults to 172.30.0.0/24 - change if this conflicts with your existing network
+set_kv_if_missing "DOCKER_SUBNET" "172.30.0.0/24"
+set_kv_if_missing "RECURSOR_IP" "172.30.0.10"
+set_kv_if_missing "DNSTAP_PROCESSOR_IP" "172.30.0.20"
+
 echo "Wrote/updated: $ENV_FILE"
 echo "- ADMIN_PASSWORD was generated if missing"
 echo "- Set DOMAIN and ACME_EMAIL for TLS (Let's Encrypt)"
+echo ""
+echo "Network configuration:"
+echo "- DOCKER_SUBNET=${DOCKER_SUBNET:-172.30.0.0/24}"
+echo "- If this conflicts with your network, edit .env and change DOCKER_SUBNET,"
+echo "  RECURSOR_IP, and DNSTAP_PROCESSOR_IP to an unused /24 subnet."

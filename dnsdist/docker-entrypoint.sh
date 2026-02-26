@@ -1,16 +1,26 @@
 #!/bin/bash
 set -e
 
-DNSTAP_HOST="${DNSTAP_HOST:-172.30.0.20}"
+# Network configuration (from environment or defaults)
+RECURSOR_IP="${RECURSOR_IP:-172.30.0.10}"
+DNSTAP_PROCESSOR_IP="${DNSTAP_PROCESSOR_IP:-172.30.0.20}"
 DNSTAP_PORT="${DNSTAP_PORT:-6000}"
 CHECK_INTERVAL="${DNSTAP_CHECK_INTERVAL:-10}"
 
+# Generate dnsdist.conf from template with IP substitution
+mkdir -p /etc/dnsdist
+sed -e "s/\${RECURSOR_IP}/$RECURSOR_IP/g" \
+    -e "s/\${DNSTAP_PROCESSOR_IP}/$DNSTAP_PROCESSOR_IP/g" \
+    /etc/dnsdist/dnsdist.conf.template > /etc/dnsdist/dnsdist.conf
+
+echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP"
+
 check_dnstap() {
-    timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_HOST/$DNSTAP_PORT" 2>/dev/null
+    timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_PROCESSOR_IP/$DNSTAP_PORT" 2>/dev/null
 }
 
 # Wait for dnstap-processor to be ready before starting dnsdist
-echo "Waiting for dnstap-processor at $DNSTAP_HOST:$DNSTAP_PORT..."
+echo "Waiting for dnstap-processor at $DNSTAP_PROCESSOR_IP:$DNSTAP_PORT..."
 while ! check_dnstap; do
     sleep 1
 done

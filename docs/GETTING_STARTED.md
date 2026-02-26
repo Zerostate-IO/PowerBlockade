@@ -242,6 +242,31 @@ Common culprits:
 - **dnsmasq**: Stop with `sudo systemctl stop dnsmasq`
 - **Another DNS server**: Stop or reconfigure it
 
+### Docker Network Conflicts
+
+PowerBlockade uses a dedicated Docker network (`172.30.0.0/24` by default). If this conflicts with your existing network infrastructure:
+
+1. Check if the subnet is in use:
+```bash
+ip route | grep 172.30
+```
+
+2. If there's a conflict, edit `.env` and change the network settings:
+```bash
+# Choose an unused /24 subnet (e.g., 172.31.0.0/24)
+DOCKER_SUBNET=172.31.0.0/24
+RECURSOR_IP=172.31.0.10
+DNSTAP_PROCESSOR_IP=172.31.0.20
+```
+
+3. Restart the stack:
+```bash
+docker compose down
+docker compose up -d
+```
+
+> **Important**: All three values must be consistent - the IPs must be within the subnet range. The recursor and dnstap-processor need fixed IPs for dnstap logging.
+
 ### Container Won't Start
 
 Check logs for the failing container:
