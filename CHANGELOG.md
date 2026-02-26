@@ -28,9 +28,36 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 > - Keep `recursor/recursor.conf.template.bak.pre-migration` until post-upgrade validation is complete.
 > - Upgrade secondaries first, then primary.
 
----
+## [0.7.1] - 2026-02-26
 
-## [0.6.0] - 2025-02-25
+> **Release Type**: Patch Release
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+
+### Added
+
+- DNS53 benchmark script (`scripts/benchmark-dns53.sh`) with cold/warm/saturation test phases and configurable target QPS
+- Rollback command pack documentation for staged deployments (`docs/ROLLBACK_COMMAND_PACKS.md`)
+- Local gate runner script (`scripts/run-local-gates.sh`) for pre-deployment validation
+
+### Changed
+
+- DNS cache tuning configuration with explicit dnsdist `newPacketCache` parameters and recursor `refresh-on-ttl-perc` tuning
+- Cache configuration includes inline rollback comments for quick restoration to defaults
+
+### Validation
+
+- Staged rollout completed: bowlister (secondary) validated for 30-minute soak, then celsate (primary) validated
+- Rollback rehearsals passed on both nodes
+- All local gate checks passed before promotion
+
+### Upgrade Instructions
+
+```bash
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
 
 > **Release Type**: Feature Release
 > **Upgrade Safety**: See Operator Action Required below
