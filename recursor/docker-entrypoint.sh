@@ -12,6 +12,13 @@ if [ -f "$TEMPLATE" ]; then
     exit 1
   fi
   sed "s|\${RECURSOR_API_KEY}|${RECURSOR_API_KEY}|g" "$TEMPLATE" > "$OUT"
+
+  if command -v migrate-recursor-settings >/dev/null 2>&1; then
+    migrate-recursor-settings "$OUT" "$OUT" || {
+      echo "failed to migrate recursor settings" >&2
+      exit 1
+    }
+  fi
 fi
 
 # Ensure runtime dirs exist

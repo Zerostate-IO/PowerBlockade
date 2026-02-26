@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.7.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="$PROJECT_DIR/.powerblockade"
@@ -151,6 +151,30 @@ run_migrations() {
     fi
 }
 
+migrate_recursor_settings() {
+    local migrate_script="$PROJECT_DIR/recursor/migrate-settings.sh"
+    local template_path="$PROJECT_DIR/recursor/recursor.conf.template"
+
+    if [[ ! -f "$template_path" ]]; then
+        log_warn "Recursor template not found; skipping settings migration"
+        return 0
+    fi
+
+    if [[ ! -x "$migrate_script" ]]; then
+        log_warn "Recursor migration script missing or not executable; skipping"
+        return 0
+    fi
+
+    log_info "Migrating recursor settings for compatibility..."
+    if "$migrate_script" "$template_path" "$template_path"; then
+        log_success "Recursor settings migration complete"
+        return 0
+    fi
+
+    log_error "Recursor settings migration failed"
+    return 1
+}
+
 verify_health() {
     log_info "Verifying service health..."
     
@@ -294,6 +318,12 @@ cmd_update() {
         log_error "Migration failed. Aborting update."
         log_error "Your services have NOT been restarted."
         log_error "Database backup: $db_backup"
+        exit 1
+    fi
+    echo ""
+
+    if ! migrate_recursor_settings; then
+        log_error "Recursor settings migration failed. Aborting update."
         exit 1
     fi
     echo ""

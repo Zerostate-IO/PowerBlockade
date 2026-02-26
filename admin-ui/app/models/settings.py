@@ -78,7 +78,7 @@ def get_precache_enabled(db) -> bool:
 
 
 def get_precache_domain_count(db) -> int:
-    return int(get_setting(db, "precache_domain_count") or "1000")
+    return int(get_setting(db, "precache_domain_count") or "5000")
 
 
 def get_precache_refresh_minutes(db) -> int:

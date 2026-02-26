@@ -12,6 +12,12 @@ socket-mode=0666
 # Performance (tune per host)
 threads=4
 pdns-distributes-queries=yes
+reuseport=yes
+max-cache-entries=2000000
+max-packetcache-entries=1000000
+packetcache-ttl=86400
+packetcache-negative-ttl=60
+packetcache-servfail-ttl=5
 
 # RPZ
 lua-config-file=/etc/pdns-recursor/rpz.lua

@@ -29,22 +29,12 @@ def generate_secondary_package_zip(
         CONFIG_SYNC_INTERVAL_SECONDS=300
         """
     )
-        f"""\
-        NODE_NAME={safe_node}
-        PRIMARY_URL={primary_url}
-        PRIMARY_API_KEY={node_api_key}
-        RECURSOR_API_KEY={recursor_api_key or "change-me"}
-        DNSDIST_LISTEN_ADDRESS={dnsdist_listen_address}
-        HEARTBEAT_INTERVAL_SECONDS=60
-        CONFIG_SYNC_INTERVAL_SECONDS=300
-        """
-    )
 
     compose = textwrap.dedent(
-        f"""\
+        """\
         services:
           dnsdist:
-            image: powerdns/dnsdist-19:latest
+            image: powerdns/dnsdist-20:latest
             restart: unless-stopped
             ports:
               - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
@@ -60,6 +50,7 @@ def generate_secondary_package_zip(
           recursor:
             image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor:${POWERBLOCKADE_VERSION:-latest}
             restart: unless-stopped
+            command: ["pdns_recursor", "--daemon=no", "--config-dir=/etc/pdns-recursor", "--enable-old-settings"]
             environment:
               TZ: ${TIMEZONE:-America/Los_Angeles}
               RECURSOR_API_KEY: ${RECURSOR_API_KEY}
@@ -74,7 +65,7 @@ def generate_secondary_package_zip(
               - recursor-control-socket:/var/run/pdns-recursor
 
           recursor-reloader:
-            image: powerdns/pdns-recursor-51:latest
+            image: powerdns/pdns-recursor-53:latest
             restart: unless-stopped
             entrypoint:
               - sh
@@ -100,6 +91,7 @@ def generate_secondary_package_zip(
               DNSTAP_SOCKET: /var/run/dnstap/dnstap.sock
               PRIMARY_URL: ${PRIMARY_URL}
               PRIMARY_API_KEY: ${PRIMARY_API_KEY}
+              DNSTAP_LISTEN: "0.0.0.0:6000"
             volumes:
               - dnstap-socket:/var/run/dnstap
             depends_on:
@@ -107,94 +99,6 @@ def generate_secondary_package_zip(
 
           sync-agent:
             image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-sync-agent:${POWERBLOCKADE_VERSION:-latest}
-            restart: unless-stopped
-            environment:
-              NODE_NAME: ${NODE_NAME}
-              PRIMARY_URL: ${PRIMARY_URL}
-              PRIMARY_API_KEY: ${PRIMARY_API_KEY}
-              RECURSOR_API_KEY: ${RECURSOR_API_KEY}
-              RECURSOR_API_URL: http://recursor:8082
-              HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
-              CONFIG_SYNC_INTERVAL_SECONDS: ${CONFIG_SYNC_INTERVAL_SECONDS:-300}
-              RPZ_DIR: /rpz
-              FORWARD_ZONES_PATH: /config/forward-zones.conf
-            volumes:
-              - ./config:/config
-              - ./rpz:/rpz
-            depends_on:
-              - recursor
-
-        volumes:
-          dnstap-socket:
-          recursor-control-socket:
-        """
-    )
-        """\
-        services:
-          dnsdist:
-            image: powerdns/dnsdist-19:latest
-            restart: unless-stopped
-            ports:
-              - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
-              - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
-            volumes:
-              - ./config/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
-              - dnstap-socket:/var/run/dnstap
-            cap_add:
-              - NET_BIND_SERVICE
-            depends_on:
-              - recursor
-
-          recursor:
-            image: powerdns/pdns-recursor-51:latest
-            restart: unless-stopped
-            environment:
-              TZ: ${TIMEZONE:-America/Los_Angeles}
-              RECURSOR_API_KEY: ${RECURSOR_API_KEY}
-            expose:
-              - "5300"
-              - "8082"
-            volumes:
-              - ./config/recursor.conf:/etc/pdns-recursor/recursor.conf:ro
-              - ./config/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
-              - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
-              - ./rpz:/etc/pdns-recursor/rpz
-              - recursor-control-socket:/var/run/pdns-recursor
-
-          recursor-reloader:
-            image: powerdns/pdns-recursor-51:latest
-            restart: unless-stopped
-            entrypoint:
-              - sh
-              - -c
-              - >-
-                while true; do
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
-                  sleep 5;
-                done
-            volumes:
-              - recursor-control-socket:/var/run/pdns-recursor
-              - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
-            depends_on:
-              - recursor
-
-          dnstap-processor:
-            image: powerblockade/dnstap-processor:latest
-            restart: unless-stopped
-            environment:
-              NODE_NAME: ${NODE_NAME}
-              DNSTAP_SOCKET: /var/run/dnstap/dnstap.sock
-              PRIMARY_URL: ${PRIMARY_URL}
-              PRIMARY_API_KEY: ${PRIMARY_API_KEY}
-            volumes:
-              - dnstap-socket:/var/run/dnstap
-            depends_on:
-              - dnsdist
-
-          sync-agent:
-            image: powerblockade/sync-agent:latest
             restart: unless-stopped
             environment:
               NODE_NAME: ${NODE_NAME}
@@ -252,33 +156,54 @@ def generate_secondary_package_zip(
     )
 
     recursor_conf = textwrap.dedent(
-        """\
+        f"""\
         local-address=0.0.0.0
         local-port=5300
         allow-from=0.0.0.0/0, ::/0
-        threads=2
+        threads=4
         pdns-distributes-queries=yes
+        reuseport=yes
+        max-cache-entries=2000000
+        max-packetcache-entries=1000000
+        packetcache-ttl=86400
+        packetcache-negative-ttl=60
+        packetcache-servfail-ttl=5
         lua-config-file=/etc/pdns-recursor/rpz.lua
         forward-zones-file=/etc/pdns-recursor/forward-zones.conf
         webserver=yes
         webserver-address=0.0.0.0
         webserver-port=8082
         webserver-allow-from=0.0.0.0/0
-        api-key=$RECURSOR_API_KEY
+        api-key={recursor_api_key or "change-me"}
         """
     )
 
     dnsdist_conf = textwrap.dedent(
         """\
         -- Secondary node dnsdist config
-        -- dnstap for client IP attribution
-        newServer({address="recursor:5300", name="recursor"})
+        setLocal("0.0.0.0:53", { reusePort=true })
+        newServer({address="recursor:5300", name="recursor", sockets=4, useClientSubnet=true})
+        setServerPolicy(firstAvailable)
 
-        -- dnstap logging (CLIENT_RESPONSE only to avoid duplicates)
-        dnstapFrameStreamServer("/var/run/dnstap/dnstap.sock", {logClientResponses=true})
+        local pc = newPacketCache(500000, {
+          maxTTL=86400,
+          minTTL=1,
+          temporaryFailureTTL=5,
+          staleTTL=60,
+          dontAge=false,
+          shuffle=true
+        })
+        getPool(""):setCache(pc)
+        setStaleCacheEntriesTTL(60)
 
-        -- Listen on all interfaces (port binding via Docker)
-        setLocal("0.0.0.0:53")
+        local fs = newFrameStreamTcpLogger("dnstap-processor:6000", {
+          bufferHint=65536,
+          flushTimeout=1,
+          outputQueueSize=64,
+          queueNotifyThreshold=32,
+          reopenInterval=5
+        })
+        addResponseAction(AllRule(), DnstapLogResponseAction("powerblockade-dnsdist", fs))
         """
     )
 

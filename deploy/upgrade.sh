@@ -1,20 +1,38 @@
 #!/bin/bash
 # PowerBlockade Upgrade Script
 # Usage: ./upgrade.sh [version]
-# Example: ./upgrade.sh v0.6.1
 
 set -e
 
 NEW_VERSION="${1:-}"
-DEPLOY_DIR="/opt/powerblockade"
+DEFAULT_DEPLOY_DIR="/opt/powerblockade"
+ALT_DEPLOY_DIR="/opt/PowerBlockade"
+
+if [[ -d "$DEFAULT_DEPLOY_DIR" ]]; then
+    DEPLOY_DIR="$DEFAULT_DEPLOY_DIR"
+elif [[ -d "$ALT_DEPLOY_DIR" ]]; then
+    DEPLOY_DIR="$ALT_DEPLOY_DIR"
+else
+    echo "Could not find deployment directory at $DEFAULT_DEPLOY_DIR or $ALT_DEPLOY_DIR"
+    exit 1
+fi
 
 if [[ -z "$NEW_VERSION" ]]; then
     echo "Usage: $0 [version]"
-    echo "Example: $0 v0.6.1"
+    echo "Example: $0 v0.7.0"
     exit 1
 fi
 
 cd "$DEPLOY_DIR"
+
+COMPOSE_FILE="$DEPLOY_DIR/docker-compose.ghcr.yml"
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+    COMPOSE_FILE="$DEPLOY_DIR/compose.yaml"
+fi
+COMPOSE_CMD=(docker compose -f "$COMPOSE_FILE")
+
+CURRENT_VERSION="$(grep '^POWERBLOCKADE_VERSION=' .env 2>/dev/null | cut -d= -f2 || true)"
+CURRENT_VERSION="${CURRENT_VERSION:-latest}"
 
 # Detect if this is a secondary node
 IS_SECONDARY="false"
@@ -32,6 +50,7 @@ echo ""
 
 # Check current version
 echo "Current version: $CURRENT_VERSION"
+echo "Compose file: $COMPOSE_FILE"
 echo ""
 
 # Check GHCR authentication
@@ -56,39 +75,90 @@ check_ghcr_auth() {
     fi
 }
 
+migrate_recursor_template() {
+    local template_path="recursor/recursor.conf.template"
+
+if [[ ! -f "$template_path" ]]; then
+        echo "⚠ recursor template not found, skipping migration"
+        return 0
+    fi
+
+    cp "$template_path" "${template_path}.bak.pre-migration"
+
+    awk '
+BEGIN {
+  map["recordcache-max-entries"] = "max-cache-entries"
+  map["cache-ttl"] = "packetcache-ttl"
+  map["negquery-cache-ttl"] = "packetcache-negative-ttl"
+  map["negcache-ttl"] = "packetcache-negative-ttl"
+  map["reuse-port"] = "reuseport"
+}
+
+function ltrim(s) { sub(/^[ \t]+/, "", s); return s }
+function rtrim(s) { sub(/[ \t]+$/, "", s); return s }
+function trim(s) { return rtrim(ltrim(s)) }
+
+{
+  raw = $0
+
+  if (raw ~ /^[[:space:]]*#/ || raw ~ /^[[:space:]]*$/ || index(raw, "=") == 0) {
+    print raw
+    next
+  }
+
+  eq = index(raw, "=")
+  key = trim(substr(raw, 1, eq - 1))
+  value = substr(raw, eq + 1)
+  newkey = (key in map) ? map[key] : key
+
+  if (newkey in seen) {
+    next
+  }
+
+  seen[newkey] = 1
+  print newkey "=" value
+}
+' "$template_path" > "${template_path}.migrated"
+
+    mv "${template_path}.migrated" "$template_path"
+    echo "✓ Recursor settings migration complete"
+}
+
 echo "Checking GHCR access..."
 check_ghcr_auth
 
+echo "Running recursor settings migration..."
+migrate_recursor_template
+
 # Backup database
-echo "Backing up database..."
-mkdir -p backups
-docker compose exec -T postgres pg_dump -U powerblockade powerblockade > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
-echo "✓ Database backed up"
+if [ "$IS_SECONDARY" = "true" ]; then
+    echo "Skipping database backup on secondary node"
+else
+    echo "Backing up database..."
+    mkdir -p backups
+    "${COMPOSE_CMD[@]}" exec -T postgres pg_dump -U powerblockade powerblockade > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
+    echo "✓ Database backed up"
+fi
 
 # Pull new images
 echo ""
 echo "Pulling new images (version: $NEW_VERSION)..."
 export POWERBLOCKADE_VERSION="$NEW_VERSION"
-docker compose pull
+"${COMPOSE_CMD[@]}" pull
 echo "✓ Images pulled"
 
 # Stop services
 echo ""
 echo "Stopping services..."
-docker compose down
+"${COMPOSE_CMD[@]}" down
 echo "✓ Services stopped"
 
-if [ "$IS_SECONDARY" = "true" ]; then
-    docker compose --profile secondary up -d
-else
-    docker compose --profile primary up -d
-fi
 echo ""
 echo "Starting services with version $NEW_VERSION..."
 if [ "$IS_SECONDARY" = "true" ]; then
-    docker compose --profile sync-agent up -d
+    "${COMPOSE_CMD[@]}" --profile secondary up -d
 else
-    docker compose up -d
+    "${COMPOSE_CMD[@]}" --profile primary up -d
 fi
 echo "✓ Services started"
 
@@ -100,7 +170,7 @@ sleep 10
 # Verify
 echo ""
 echo "Verifying deployment..."
-if docker compose ps | grep -q "Up"; then
+if "${COMPOSE_CMD[@]}" ps | grep -q "Up"; then
     echo "✓ All services running"
 else
     echo "⚠ Some services may not be running - check 'docker compose ps'"

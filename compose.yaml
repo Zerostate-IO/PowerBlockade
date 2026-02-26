@@ -26,7 +26,7 @@ services:
       - "traefik.http.routers.traefik-dashboard.tls=true"
 
   dnsdist:
-    image: powerdns/dnsdist-19:latest
+    image: powerdns/dnsdist-20:latest
     container_name: powerblockade-dnsdist
     restart: unless-stopped
     entrypoint: ["/docker-entrypoint.sh"]
@@ -177,7 +177,7 @@ services:
       - "traefik.http.services.admin-ui.loadbalancer.server.port=8080"
 
   recursor-reloader:
-    image: powerdns/pdns-recursor-51:latest
+    image: powerdns/pdns-recursor-53:latest
     container_name: powerblockade-recursor-reloader
     restart: unless-stopped
     entrypoint:

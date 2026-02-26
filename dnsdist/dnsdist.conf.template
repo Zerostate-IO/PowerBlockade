@@ -36,6 +36,18 @@ newServer({
 })
 setServerPolicy(firstAvailable)
 
+-- Packet cache tuned for low-latency repeat lookups
+local pc = newPacketCache(500000, {
+    maxTTL=86400,
+    minTTL=1,
+    temporaryFailureTTL=5,
+    staleTTL=60,
+    dontAge=false,
+    shuffle=true
+})
+getPool(''):setCache(pc)
+setStaleCacheEntriesTTL(60)
+
 -- ============================================================
 -- DNSTAP LOGGING
 -- ============================================================
