@@ -97,7 +97,7 @@ pdns_recursor_cache_hits 12345
 pdns_recursor_cache_misses 6789
 pdns_recursor_cache_entries 1000
 pdns_recursor_questions 50000
-pdns_recursor_uptime_seconds 3600
+pdns_recursor_uptime 3600
 pdns_recursor_answers0_1 100
 pdns_recursor_answers1_10 200
 pdns_recursor_answers10_100 50
