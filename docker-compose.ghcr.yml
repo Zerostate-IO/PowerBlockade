@@ -99,6 +99,24 @@ services:
     environment:
       NODE_NAME: ${NODE_NAME:-primary}
       DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
+      # DNSTAP_LISTEN enables TCP listener for dnsdist framestream
+      DNSTAP_LISTEN: "${DNSTAP_LISTEN:-0.0.0.0:6000}"
+      PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
+      # PRIMARY_URL points to primary's admin-ui for event ingestion
+      PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
+      PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-}
+      DEBUG_DNSTAP: ${DEBUG_DNSTAP:-false}
+      GELF_ENABLED: ${GELF_ENABLED:-false}
+      GELF_ENDPOINT: ${GELF_ENDPOINT:-}
+      BUFFER_PATH: ${BUFFER_PATH:-/var/lib/dnstap-processor/buffer.db}
+      BUFFER_MAX_BYTES: ${BUFFER_MAX_BYTES:-100MB}
+      BUFFER_MAX_AGE: ${BUFFER_MAX_AGE:-86400}
+    expose:
+      - "6000"
+      - "50001"
+      NODE_NAME: ${NODE_NAME:-primary}
+      DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
       PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
       # PRIMARY_URL points to primary's admin-ui for event ingestion
       PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
