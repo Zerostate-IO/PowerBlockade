@@ -87,8 +87,9 @@ docker compose cp prometheus:/tmp/prometheus-backup.tar.gz backups/prometheus-$(
 2. ✅ Backs up config (`.env`, `shared/rpz/`, `shared/forward-zones/`)
 3. ✅ Pulls new images
 4. ✅ Runs migrations
-5. ✅ Restarts services
-6. ✅ Verifies health
+5. ✅ Migrates Recursor legacy settings to current equivalents
+6. ✅ Restarts services
+7. ✅ Verifies health
 
 ### 3.2 Upgrade to Specific Version
 
@@ -180,6 +181,20 @@ curl -sf http://localhost:8080/
 # Test Grafana proxy
 curl -sf http://localhost:8080/grafana/
 ```
+
+### 4.7 Recursor Migration Verification (v0.7.0+)
+
+```bash
+# Ensure migration ran
+docker compose logs recursor | grep migrate-recursor-settings
+
+# Ensure backup exists
+ls -la recursor/recursor.conf.template.bak.pre-migration
+```
+
+**Expected**:
+- Recursor logs contain at least one `migrate-recursor-settings:` line.
+- Backup file exists while upgrade validation is in progress.
 
 ---
 

@@ -73,15 +73,15 @@ This directory contains scripts for deploying PowerBlockade to production server
 ### Primary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=v0.6.1 docker compose pull
-POWERBLOCKADE_VERSION=v0.6.1 docker compose --profile primary up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
+POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile primary up -d
 ```
 
 ### Secondary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=v0.6.1 docker compose pull
-POWERBLOCKADE_VERSION=v0.6.1 docker compose --profile secondary up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
+POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile secondary up -d
 ```
 
 ### Recommended: Upgrade Secondaries First
@@ -96,11 +96,11 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to specific version
-export POWERBLOCKADE_VERSION=v0.6.0
-POWERBLOCKADE_VERSION=v0.6.0 docker compose --profile primary up -d
+export POWERBLOCKADE_VERSION=v0.7.0
+POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile primary up -d
 
 # Or inline
-POWERBLOCKADE_VERSION=v0.6.0 docker compose --profile primary up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile primary up -d
 ```
 
 ## Troubleshooting

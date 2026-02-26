@@ -1,7 +1,6 @@
 #!/bin/bash
 # PowerBlockade Deployment Script for Secondary Node
 # Usage: ./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]
-# Example: ./deploy-secondary.sh v0.6.0 http://192.168.1.10:8080 abc123... bowlister
 
 set -e
 
@@ -140,5 +139,5 @@ echo "Verify on primary:"
 echo "  Go to Admin UI -> Nodes -> $NODE_NAME should show 'Online'"
 echo ""
 echo "To upgrade:"
-echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose pull"
-echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose --profile secondary up -d"
+echo "  POWERBLOCKADE_VERSION=v0.7.0 docker compose pull"
+echo "  POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile secondary up -d"

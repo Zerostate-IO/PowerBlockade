@@ -32,10 +32,20 @@
 | **Compose Env Changed** | MINOR | Yes | Review defaults |
 | **Network Config Changed** | MINOR | Yes* | Review subnet config |
 | **Docker Image Tag Changed** | PATCH | Yes | Pull new image |
+| **PowerDNS Component Version Bump** | MINOR | Yes* | Verify recursor settings migration output on first restart |
+| **Recursor Legacy-Key Migration Enabled** | MINOR | Yes* | Keep `.bak.pre-migration` backup until validation completes |
 | **Health Check Changed** | MINOR | Yes | Update monitoring if needed |
 | **Port Mapping Changed** | MAJOR | No | Update load balancer/firewall |
 
 \* Requires review if behavior differs from previous default.
+
+### PowerDNS Component Upgrade
+
+- **Release Class**: MINOR
+- **Backward Compatible**: Yes (with migration safeguards)
+- **Operator Action**:
+  - Verify `migrate-recursor-settings:` appears in Recursor logs after upgrade.
+  - Confirm `recursor/recursor.conf.template.bak.pre-migration` exists during validation window.
 
 ---
 

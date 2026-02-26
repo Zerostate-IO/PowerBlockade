@@ -24,7 +24,7 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to a specific release
-export POWERBLOCKADE_VERSION=v0.6.1
+export POWERBLOCKADE_VERSION=v0.7.0
 
 # Pull and restart
 docker compose -f docker-compose.ghcr.yml pull
@@ -34,8 +34,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 Or in a single command:
 
 ```bash
-POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml pull && \
-POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull && \
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Before You Upgrade
@@ -80,7 +80,7 @@ If running secondary nodes, verify they're healthy:
 **Always safe** - no manual steps required.
 
 ```bash
-# Example: v0.6.0 → v0.6.1
+# Example: v0.7.0 → v0.7.1
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
@@ -96,7 +96,7 @@ Patch releases contain only:
 **Usually safe** - check release notes for any required steps.
 
 ```bash
-# Example: v0.6.1 → v0.7.0
+# Example: v0.6.9 → v0.7.0
 # 1. Read release notes first!
 # 2. Check for new .env variables
 # 3. Pull and restart
@@ -119,6 +119,30 @@ Major releases are reserved for:
 - Breaking API changes
 - Configuration format changes
 - Database migration requirements
+
+## PowerDNS Component Upgrade Notes (v0.7.0+)
+
+When upgrading PowerDNS components (Recursor/dnsdist), the stack now includes built-in settings migration for Recursor old keys.
+
+### Automatic migration behavior
+
+- `scripts/pb update` migrates `recursor/recursor.conf.template` after DB migrations and before restart.
+- `deploy/upgrade.sh` migrates `recursor/recursor.conf.template` before image pull/restart.
+- `recursor/docker-entrypoint.sh` runs migration at startup as a fallback safety net.
+- In-place migration writes a backup at `recursor/recursor.conf.template.bak.pre-migration`.
+
+### Code updates required when bumping PowerDNS components
+
+- Update upstream image lines in `compose.yaml` and `docker-compose.ghcr.yml` for `dnsdist` and `recursor-reloader`.
+- Update Recursor base image in `recursor/Dockerfile`.
+- Keep generated secondary package in sync via `admin-ui/app/services/node_generator.py`.
+- Validate tuned settings in `recursor/recursor.conf.template` and `dnsdist/dnsdist.conf.template` against target versions.
+
+### Documentation updates required when bumping PowerDNS components
+
+- Add release notes in `CHANGELOG.md` (including operator actions if needed).
+- Update upgrade examples in `docs/UPGRADE.md`, `QUICK_START.md`, and `deploy/README.md` for the new target version.
+- If compatibility expectations changed, update `docs/COMPATIBILITY_MATRIX.md`.
 
 ## After You Upgrade
 
@@ -167,7 +191,7 @@ If something goes wrong after an upgrade:
 
 ```bash
 # Roll back to previous version
-export POWERBLOCKADE_VERSION=v0.6.0  # Your previous version
+export POWERBLOCKADE_VERSION=v0.6.9  # Your previous version
 
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
@@ -224,15 +248,15 @@ For multi-node deployments, upgrade secondaries **before** the primary to minimi
 
 ```bash
 # On each secondary
-POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
 
 # Verify sync-agent is running
 docker compose -f docker-compose.ghcr.yml logs sync-agent
 
 # Then on primary
-POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=v0.6.1 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Manual Intervention Required
@@ -320,7 +344,7 @@ docker compose -f docker-compose.ghcr.yml restart sync-agent
 
 1. Stop everything: `docker compose -f docker-compose.ghcr.yml down`
 2. Restore database from backup (see Database Rollback above)
-3. Start with old version: `POWERBLOCKADE_VERSION=v0.5.0 docker compose -f docker-compose.ghcr.yml up -d`
+3. Start with old version: `POWERBLOCKADE_VERSION=v0.6.9 docker compose -f docker-compose.ghcr.yml up -d`
 
 ## Best Practices
 

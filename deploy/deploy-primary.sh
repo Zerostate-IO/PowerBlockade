@@ -1,7 +1,6 @@
 #!/bin/bash
 # PowerBlockade Deployment Script for Primary Node
 # Usage: ./deploy-primary.sh [version]
-# Example: ./deploy-primary.sh v0.6.0
 
 set -e
 
@@ -122,5 +121,5 @@ echo "  docker compose logs -f     - Follow logs"
 echo "  docker compose down        - Stop services"
 echo ""
 echo "To upgrade:"
-echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose pull"
-echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose up -d"
+echo "  POWERBLOCKADE_VERSION=v0.7.0 docker compose pull"
+echo "  POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d"

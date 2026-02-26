@@ -10,13 +10,23 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 ## [Unreleased]
 
 ### Added
-- Nothing yet
+- Built-in Recursor settings migration tooling (`recursor/migrate-settings.sh`) to rewrite legacy keys to current equivalents during upgrades.
+- Upgrade flow hook in `scripts/pb` to run Recursor settings migration before service restart.
 
 ### Changed
-- Nothing yet
+- PowerDNS stack upgraded to stable lines: dnsdist 2.0 (`powerdns/dnsdist-20`) and Recursor 5.3 (`powerdns/pdns-recursor-53`).
+- Recursor container startup now runs with `--enable-old-settings` while migration support is active.
+- Default release references and user-facing version metadata moved to `v0.7.0` for the next feature release train.
 
 ### Fixed
-- Nothing yet
+- Secondary node package generator now emits a clean compose/env payload without duplicated template blocks.
+
+### Operator Action Required
+
+> ⚠️ **For upgrades to v0.7.0+**: review Recursor settings migration output on first restart.
+> - Confirm `migrate-recursor-settings:` appears in Recursor logs during startup.
+> - Keep `recursor/recursor.conf.template.bak.pre-migration` until post-upgrade validation is complete.
+> - Upgrade secondaries first, then primary.
 
 ---
 

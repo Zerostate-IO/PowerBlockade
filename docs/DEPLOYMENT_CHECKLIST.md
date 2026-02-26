@@ -71,7 +71,7 @@ On each server (celsate, bowlister):
 
 3. **Run deployment:**
    ```bash
-   ./deploy-primary.sh v0.5.5
+   ./deploy-primary.sh v0.7.0
    ```
 
 4. **Save the admin password** from the output.
@@ -119,7 +119,7 @@ On each server (celsate, bowlister):
 
 4. **Run deployment:**
    ```bash
-   ./deploy-secondary.sh v0.5.5 http://CELSTATE_IP:8080 API_KEY bowlister
+   ./deploy-secondary.sh v0.7.0 http://CELSATE_IP:8080 API_KEY bowlister
    ```
 
 5. **Verify on celsate:**
@@ -159,8 +159,8 @@ On each server (celsate, bowlister):
 1. **Upgrade bowlister:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=v0.6.0 docker compose pull
-   POWERBLOCKADE_VERSION=v0.6.0 docker compose --profile sync-agent up -d
+   POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
+   POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile sync-agent up -d
    ```
 
 2. **Verify bowlister is online** in primary's Admin UI
@@ -168,16 +168,22 @@ On each server (celsate, bowlister):
 3. **Upgrade celsate:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=v0.6.0 docker compose pull
-   POWERBLOCKADE_VERSION=v0.6.0 docker compose up -d
+   POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
+   POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+   ```
+
+4. **Validate Recursor settings migration output:**
+   ```bash
+   docker compose logs recursor | grep migrate-recursor-settings
+   ls -la recursor/recursor.conf.template.bak.pre-migration
    ```
 
 ### Rollback (if needed)
 
 ```bash
 # Revert to previous version
-POWERBLOCKADE_VERSION=v0.5.5 docker compose pull
-POWERBLOCKADE_VERSION=v0.5.5 docker compose up -d
+POWERBLOCKADE_VERSION=v0.6.9 docker compose pull
+POWERBLOCKADE_VERSION=v0.6.9 docker compose up -d
 ```
 
 ---
@@ -226,6 +232,7 @@ cat backups/backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v0.7.0 | 2026-02-26 | PowerDNS stable-line upgrade and built-in recursor settings migration |
 | v0.5.5 | 2026-02-26 | Documentation overhaul, GHCR deployment |
 | v0.5.4 | 2026-02-26 | Pre-release testing |
 | v0.4.1 | 2026-02-03 | UI improvements |

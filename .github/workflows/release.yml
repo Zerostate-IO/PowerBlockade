@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., v0.6.0)'
+        description: 'Version to release (e.g., v0.7.0)'
         required: true
         type: string
       dry_run:
@@ -17,6 +17,10 @@ on:
         required: false
         type: boolean
         default: false
+
+permissions:
+  contents: write
+  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -34,13 +38,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Validate version
         id: validate
         run: |
           VERSION="${{ github.event.inputs.version }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Invalid version format: $VERSION"
-            echo "Expected format: vX.Y.Z (e.g., v0.6.0)"
+            echo "Expected format: vX.Y.Z (e.g., v0.7.0)"
             exit 1
           fi
           echo "✅ Version format valid: $VERSION"
@@ -64,13 +75,13 @@ jobs:
         run: |
           VERSION="${{ steps.validate.outputs.version }}"
           # Update admin-ui Dockerfile
-          sed -i "s/^ARG PB_VERSION=\".*\"/ARG PB_VERSION=\"$VERSION\"/" admin-ui/Dockerfile
+          sed -i "s/^ARG PB_VERSION=.*/ARG PB_VERSION=$VERSION/" admin-ui/Dockerfile
           
           # Update dnstap-processor Dockerfile
-          sed -i "s/^ARG PB_VERSION=\".*\"/ARG PB_VERSION=\"$VERSION\"/" dnstap-processor/Dockerfile
+          sed -i "s/^ARG PB_VERSION=.*/ARG PB_VERSION=$VERSION/" dnstap-processor/Dockerfile
           
           # Update sync-agent Dockerfile
-          sed -i "s/^ARG PB_VERSION=\".*\"/ARG PB_VERSION=\"$VERSION\"/" sync-agent/Dockerfile
+          sed -i "s/^ARG PB_VERSION=.*/ARG PB_VERSION=$VERSION/" sync-agent/Dockerfile
           
           echo "✅ Updated all Dockerfiles to $VERSION"
 
@@ -161,18 +172,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image }}:latest
           build-args: |
             PB_VERSION=${{ needs.update-versions.outputs.version }}
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          push: ${{ github.event.inputs.dry_run != 'true' }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image }}:${{ needs.update-versions.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image }}:latest
-          build-args: |
-            PB_VERSION=${{ needs.update-versions.outputs.version }}
-
       - name: Image build summary
         run: |
           echo "✅ Built and pushed ${{ matrix.image }}:${{ needs.update-versions.outputs.version }}"

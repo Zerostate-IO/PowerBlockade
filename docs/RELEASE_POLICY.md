@@ -1,6 +1,6 @@
 # Release Policy
 
-> **Canonical Source**: This document defines the release compatibility policy for PowerBlockade. All releases and documentation, and and upgrade procedures must reference this policy.
+> **Canonical Source**: This document defines the release compatibility policy for PowerBlockade. All releases, documentation, and upgrade procedures must reference this policy.
 
 ---
 
@@ -10,25 +10,25 @@ PowerBlockade uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 
 ### Version Format
 
-- **MAJOR** (`X.0.0`): Breaking changes — may require manual operator intervention
-- **MINOR** (`0.x.0`): New features, backward compatible
-- **PATCH** (`1.0.x`): Bug fixes, backward compatible
+- **MAJOR** (`X.0.0`): Breaking changes requiring explicit migration
+- **MINOR** (`X.Y.0`): New features, backward compatible by policy
+- **PATCH** (`X.Y.Z`): Bug fixes and safe improvements
 
 ### Examples
 
 | Version | Type | Reason |
 |---------|------|--------|
-| `1.0.0` | PATCH | Bug fix, security patch, | `1.0.1` | PATCH | Performance improvement |
-| `2.0.0` | MINOR | New blocklist source support | `2.1.0` | PATCH | Fix blocklist sync bug |
-| `3.0.0` | MAJOR | Database schema migration required |
+| `0.7.0` | MINOR | New upgrade-safe DNS feature set |
+| `0.7.1` | PATCH | Bug fix or performance tuning |
+| `1.0.0` | MAJOR | Breaking architecture or API change |
 
 ---
 
 ## Release Classes
 
-### PATCH Release (0.0.X)
+### PATCH Release (0.X.Y -> 0.X.Z)
 
-**Definition**: Bug fixes and security patches, and performance improvements
+**Definition**: Bug fixes, security patches, and performance improvements
 
 **Requirements**:
 - No new environment variables required
@@ -39,8 +39,8 @@ PowerBlockade uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 - No manual operator intervention required
 
 **Upgrade Safety**:
-- **M guarantee**d safe**: `1.0.x` can be upgraded to `1.1.x` without any manual steps
-- Rollback to `1.0.x` must straightforward: `docker compose pull && docker compose up -d`
+- **Guaranteed safe**: `0.X.Y` can be upgraded to `0.X.Z` without manual steps
+- Rollback to previous patch should be straightforward: `docker compose pull && docker compose up -d`
 
 **PASS/FAIL Criteria**:
 - [ ] No new env keys in `.env.example`
@@ -52,7 +52,7 @@ PowerBlockade uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 
 ---
 
-### MINOR Release (0.X.0)
+### MINOR Release (0.X.0 -> 0.Y.0)
 
 **Definition**: New features, enhancements
 
@@ -64,11 +64,12 @@ PowerBlockade uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 - Optional manual operator intervention for new features
 
 **Upgrade Safety**:
-- **Not guaranteed safe**: `1.x.x` → `2.0.0` may require reviewing release notes
-- Manual steps may be required for new features
+- Usually safe, but operators must review release notes
+- Manual steps may be required for newly introduced capabilities
 
 **PASS/FAIL Criteria**:
-- [ ] All PATCH criteria met- [ ] New env keys have `.env.example` with defaults
+- [ ] All PATCH criteria met
+- [ ] New env keys are documented in `.env.example` with defaults
 - [ ] New API endpoints are versioned (`/api/v2/...`)
 - [ ] Additive-only DB migrations (no column drops/renames)
 
@@ -77,12 +78,13 @@ PowerBlockade uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 # Check for new environment variables
 grep -E "^NEW_VAR=" .env.example || echo "Set NEW_VAR in .env"
 
-# Review new features in./scripts/pb check--help
+# Review new feature docs and CLI help
+./scripts/pb --help
 ```
 
 ---
 
-### MAJOR Release (0.0.0)
+### MAJOR Release (X.0.0)
 
 **Definition**: Breaking changes requiring manual intervention
 
@@ -212,9 +214,8 @@ docker compose exec admin-ui alembic upgrade head
 ### All Releases
 - [ ] Version number follows SemVer
 - [ ] CHANGELOG.md updated
-- [ ] All Dockerfiles have have correct `PB_VERSION`
-- [ ] docker-compose.ghcr.yml tags
- updated (if not `:latest`)
+- [ ] All Dockerfiles have correct `PB_VERSION`
+- [ ] `docker-compose.ghcr.yml` tags updated (if not using `:latest`)
 - [ ] Tests pass
 - [ ] Manual testing completed
 
@@ -225,8 +226,7 @@ docker compose exec admin-ui alembic upgrade head
 - [ ] Upgrade tested on clean install
 
 ### MINOR Releases
-- [ ] New env vars
- documented in `.env.example`
+- [ ] New env vars documented in `.env.example`
 - [ ] New features documented in README/GETTING_STARTED
 - [ ] Backward compatibility verified
 
@@ -242,7 +242,7 @@ docker compose exec admin-ui alembic upgrade head
 ## Compatibility Guarantee
 
 ### Within Same MAJOR Version
-- **Guaranteed**: Patch and and minor releases work with same MAJOR version
+- **Guaranteed**: Patch and minor releases work within the same MAJOR version under this policy
 - **Not guaranteed**: MAJOR version upgrades
 
 ### Upgrade Path

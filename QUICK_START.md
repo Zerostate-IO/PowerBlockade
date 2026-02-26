@@ -140,7 +140,7 @@ To pin to a specific version instead of `latest`:
 
 ```bash
 # Pin to a specific release
-POWERBLOCKADE_VERSION=v0.6.0 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
 ```
 
 ## Step 4: Access the Admin UI
@@ -233,8 +233,8 @@ docker compose up -d
 ### Update to a specific version
 
 ```bash
-POWERBLOCKADE_VERSION=v0.6.1 docker compose pull
-POWERBLOCKADE_VERSION=v0.6.1 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
+POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
 ```
 
 ### Check status
