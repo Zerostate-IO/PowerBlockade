@@ -113,12 +113,13 @@ services:
     expose:
       - "50001"
       - "6000"
-    networks:
-      default:
-        ipv4_address: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}
+    volumes:
       - dnstap-socket:/var/run/dnstap
       - ./recursor/rpz:/shared/rpz:ro
       - dnstap-buffer:/var/lib/dnstap-processor
+    networks:
+      default:
+        ipv4_address: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}
     depends_on:
       recursor:
         condition: service_started
