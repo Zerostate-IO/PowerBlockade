@@ -25,21 +25,6 @@ addACL('fc00::/7')
 addACL('fe80::/10')
 
 -- ============================================================
--- PACKET CACHE - Cache complete DNS responses
--- This provides HUGE performance gains for repeated queries
--- dnsdist can answer from cache without hitting recursor
--- ============================================================
--- newPacketCache(size, maxTTL) - dnsdist 1.9.x only takes 2 params
-pc = newPacketCache(100000, 86400)
-setPoolPacketCache(pc)
-
--- ============================================================
--- UDP BUFFER SIZES - Larger buffers for high traffic
--- ============================================================
--- Increase kernel socket buffers for UDP
-setUDPSocketBufferSizes(1048576, 1048576)
-
--- ============================================================
 -- BACKEND: PowerDNS Recursor
 -- ============================================================
 -- Multiple sockets to backend for parallel queries

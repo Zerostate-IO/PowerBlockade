@@ -14,35 +14,25 @@ socket-mode=0666
 # ============================================================
 
 # Threading - Use more threads for parallel query handling
-# Auto-detect based on CPUs: threads = max(2, CPUs)
 threads=4
 pdns-distributes-queries=yes
 
 # Cache Configuration - Large caches for high hit rates
-# recordcache: stores full DNS records (A, AAAA, MX, etc.)
-# packetcache: stores complete response packets (faster)
 recordcache-max-entries=1000000
 max-packetcache-entries=100000
-# Current usage shows we have room to grow: 1.5M cache, 100K packet cache
 
 # Cache TTL - How long to keep entries
-# Longer TTL = better hit rate but potentially stale data
-# Default DNS TTL is respected; these are upper bounds
 cache-ttl=86400
 max-cache-ttl=86400
 max-negative-ttl=3600
-# Negative cache: cache NXDOMAIN responses
 negquery-cache-ttl=3600
 
-# Packet Cache TTL - Complete response packets
+# Packet Cache TTL
 packet-cache-ttl=3600
 
 # Prefetch - Refresh popular domains before they expire
-# This dramatically reduces latency for frequently accessed domains
 prefetch=true
-# Refresh when TTL drops below 10% of original value
 prefetch-expire-threshold=10
-# Prefetch up to 500 domains per second
 prefetch-max-per-second=500
 
 # RPZ
