@@ -107,10 +107,16 @@ jobs:
           echo "Checking heartbeat interval consistency..."
           
           # Default heartbeat is 60 seconds in code
-          EXPECTED="60"
+          # Check for patterns that claim 30s is the current value (not historical fixes)
           
-          # Check all docs mention 60s, not 30s
-          if grep -r "heartbeat.*30" docs/ admin-ui/app/templates/help/ 2>/dev/null; then
+          # Pattern 1: "heartbeats every 30s" or "heartbeat every 30s"
+          if grep -rE "heartbeat(s)?.*every.*30" docs/ admin-ui/app/templates/help/ 2>/dev/null | grep -v "30s.*60s" | grep -v "30s→60s" | grep -v "30s -> 60s"; then
+            echo "❌ Found incorrect heartbeat interval (30s instead of 60s)"
+            exit 1
+          fi
+          
+          # Pattern 2: "sends heartbeats every 30s" (current value claim)
+          if grep -r "sends heartbeats every 30" docs/ admin-ui/app/templates/help/ 2>/dev/null; then
             echo "❌ Found incorrect heartbeat interval (30s instead of 60s)"
             exit 1
           fi

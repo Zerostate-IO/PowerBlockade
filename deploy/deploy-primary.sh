@@ -1,0 +1,105 @@
+#!/bin/bash
+# PowerBlockade Deployment Script for Primary Node
+# Usage: ./deploy-primary.sh [version]
+# Example: ./deploy-primary.sh v0.6.0
+
+set -e
+
+VERSION="${1:-latest}"
+REPO="${POWERBLOCKADE_REPO:-zerostate-io}"
+DEPLOY_DIR="/opt/powerblockade"
+
+echo "=== PowerBlockade Primary Node Deployment ==="
+echo "Version: $VERSION"
+echo "Repository: $REPO"
+echo "Deploy directory: $DEPLOY_DIR"
+echo ""
+
+# Create deployment directory
+if [[ ! -d "$DEPLOY_DIR" ]]; then
+    echo "Creating deployment directory..."
+    sudo mkdir -p "$DEPLOY_DIR"
+    sudo chown $USER:$USER "$DEPLOY_DIR"
+fi
+
+cd "$DEPLOY_DIR"
+
+# Download required files if not present
+if [[ ! -f "docker-compose.yml" ]]; then
+    echo "Downloading docker-compose.ghcr.yml..."
+    curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/docker-compose.ghcr.yml -o docker-compose.yml
+fi
+
+# Download config files
+echo "Ensuring config files exist..."
+mkdir -p recursor/rpz dnsdist grafana/provisioning/datasources grafana/provisioning/dashboards grafana/dashboards prometheus
+
+for file in \
+    "recursor/recursor.conf.template:recursor/recursor.conf.template" \
+    "recursor/rpz.lua:recursor/rpz.lua" \
+    "recursor/forward-zones.conf:recursor/forward-zones.conf" \
+    "dnsdist/dnsdist.conf.template:dnsdist/dnsdist.conf.template" \
+    "dnsdist/docker-entrypoint.sh:dnsdist/docker-entrypoint.sh" \
+    "prometheus/prometheus.yml:prometheus/prometheus.yml" \
+    "grafana/provisioning/datasources/prometheus.yml:grafana/provisioning/datasources/prometheus.yml" \
+    "grafana/provisioning/dashboards/dashboards.yml:grafana/provisioning/dashboards/dashboards.yml" \
+    "grafana/dashboards/dns-overview.json:grafana/dashboards/dns-overview.json"
+do
+    remote="${file%%:*}"
+    local="${file#*:}"
+    if [[ ! -f "$local" ]]; then
+        echo "  Downloading $local..."
+        curl -fsSL "https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/$remote" -o "$local"
+    fi
+done
+
+# Generate .env if not present
+if [[ ! -f ".env" ]]; then
+    echo "Generating .env file..."
+    curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/.env.example -o .env
+    
+    # Generate secure passwords
+    generate_password() { openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_'; }
+    
+    sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(generate_password)/" .env
+    sed -i "s/^ADMIN_SECRET_KEY=.*/ADMIN_SECRET_KEY=$(generate_password)$(generate_password)/" .env
+    sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(generate_password)/" .env
+    sed -i "s/^RECURSOR_API_KEY=.*/RECURSOR_API_KEY=$(generate_password)/" .env
+    sed -i "s/^PRIMARY_API_KEY=.*/PRIMARY_API_KEY=$(generate_password)/" .env
+    sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(generate_password)/" .env
+    
+    # Fix DATABASE_URL
+    PGPASS=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
+    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://powerblockade:${PGPASS}@postgres:5432/powerblockade|" .env
+    
+    echo ""
+    echo "⚠️  IMPORTANT: Save these credentials!"
+    echo "Admin password: $(grep '^ADMIN_PASSWORD=' .env | cut -d= -f2)"
+    echo ""
+fi
+
+# Set version
+export POWERBLOCKADE_VERSION="$VERSION"
+export POWERBLOCKADE_REPO="$REPO"
+
+# Pull and start
+echo "Pulling images..."
+docker compose pull
+
+echo "Starting services..."
+docker compose up -d
+
+echo ""
+echo "=== Deployment Complete ==="
+echo "Admin UI: http://$(hostname -I | awk '{print $1}'):8080"
+echo "Username: admin"
+echo "Password: (see .env file)"
+echo ""
+echo "Useful commands:"
+echo "  docker compose ps          - Check service status"
+echo "  docker compose logs -f     - Follow logs"
+echo "  docker compose down        - Stop services"
+echo ""
+echo "To upgrade:"
+echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose pull"
+echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose up -d"
