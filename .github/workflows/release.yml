@@ -218,7 +218,6 @@ jobs:
           fetch-depth: 0
 
       - name: Generate changelog
-        id: changelog
         run: |
           VERSION="${{ needs.update-versions.outputs.version }}"
           PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
@@ -227,28 +226,27 @@ jobs:
           else
             RANGE_END="HEAD"
           fi
-          DELIM="CHANGELOG_EOF_$(date +%s)_$RANDOM"
-          
+
           if [ -z "$PREVIOUS_TAG" ]; then
-            # First release or no previous tag
-            echo "changes<<${DELIM}" >> $GITHUB_OUTPUT
-            echo "### Changes" >> $GITHUB_OUTPUT
-            echo "Initial release or first tagged version" >> $GITHUB_OUTPUT
-            echo "${DELIM}" >> $GITHUB_OUTPUT
+            {
+              echo "### Changes"
+              echo "Initial release or first tagged version"
+            } > release-notes.md
           else
-            echo "changes<<${DELIM}" >> $GITHUB_OUTPUT
-            echo "### Changes since $PREVIOUS_TAG" >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${RANGE_END}" >> $GITHUB_OUTPUT || echo "- No commits found between tags" >> $GITHUB_OUTPUT
-            echo "${DELIM}" >> $GITHUB_OUTPUT
+            {
+              echo "### Changes since $PREVIOUS_TAG"
+              echo ""
+              git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${RANGE_END}" || echo "- No commits found between tags"
+            } > release-notes.md
           fi
 
       - name: Create GitHub Release
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const version = '${{ needs.update-versions.outputs.version }}';
-            const changelog = `${{ toJSON(steps.changelog.outputs.changes) }}`;
+            const changelog = fs.readFileSync('release-notes.md', 'utf8');
             
             await github.rest.repos.createRelease({
               owner: context.repo.owner,
