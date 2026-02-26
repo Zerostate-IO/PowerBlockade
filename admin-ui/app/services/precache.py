@@ -78,7 +78,15 @@ def _resolve_dns_server(dns_server: str) -> str:
         return dns_server
 
 
-def warm_domain(domain: str, dns_server: str = "127.0.0.1", port: int = 53) -> int | None:
+def warm_domain(domain: str, dns_server: str = "127.0.0.1", port: int = 5300) -> int | None:
+    """Resolve a domain to warm the recursor cache.
+    
+    Default port is 5300 (recursor internal port, not dnsdist :53).
+    This warms the recursor cache directly, bypassing dnsdist's packet cache
+    to ensure cache entries are populated at the resolution layer.
+    
+    See docs/performance/dns-caching-strategy.md#precache-dns-port for details.
+    """
     try:
         import dns.resolver
 
@@ -99,9 +107,14 @@ def warm_domain(domain: str, dns_server: str = "127.0.0.1", port: int = 53) -> i
 def warm_cache(
     domains: list[str],
     dns_server: str = "127.0.0.1",
-    port: int = 53,
+    port: int = 5300,
     batch_size: int = BATCH_SIZE,
 ) -> WarmingResult:
+    """Warm cache for multiple domains.
+    
+    Default port is 5300 (recursor internal port, not dnsdist :53).
+    See warm_domain() for rationale.
+    """
     start_time = time.monotonic()
     success = 0
     failed = 0
