@@ -1,4 +1,4 @@
-FROM golang:1.23-bookworm AS build
+FROM golang:1.26-bookworm AS build
 
 ARG PB_VERSION=v0.7.1
 ARG PB_GIT_SHA=unknown
