@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Request
@@ -17,7 +18,7 @@ from app.models.dns_query_event import DNSQueryEvent
 from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
-from app.models.settings import get_blocking_state
+from app.models.settings import get_blocking_state, get_timezone
 from app.routers.auth import get_current_user
 from app.routers.system import compute_health_warnings, load_health_thresholds
 from app.template_utils import get_templates
@@ -46,6 +47,14 @@ RCODE_NAMES = {
     4: "NOTIMP",
     5: "REFUSED",
 }
+
+
+def _resolve_user_timezone(db: Session) -> tuple[str, ZoneInfo]:
+    tz_name = get_timezone(db)
+    try:
+        return tz_name, ZoneInfo(tz_name)
+    except Exception:
+        return "UTC", ZoneInfo("UTC")
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -128,6 +137,7 @@ def index_page(request: Request, db: Session = Depends(get_db)):
     warning_count = sum(1 for w in warnings if w.severity == "warning")
 
     blocking_state = get_blocking_state(db)
+    user_timezone, _ = _resolve_user_timezone(db)
 
     return templates.TemplateResponse(
         "index.html",
@@ -142,6 +152,7 @@ def index_page(request: Request, db: Session = Depends(get_db)):
             "critical_count": critical_count,
             "warning_count": warning_count,
             "blocking_state": blocking_state,
+            "timezone": user_timezone,
         },
     )
 
@@ -223,6 +234,7 @@ def logs_page(
 
     hours = WINDOW_HOURS[window]
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    user_timezone, user_tz = _resolve_user_timezone(db)
 
     # Handle view-based filtering
     if view == "blocked":
@@ -293,6 +305,7 @@ def logs_page(
                 "client_options": client_options,
                 "blocklist_options": blocklist_options,
                 "window_options": list(WINDOW_HOURS.keys()),
+                "timezone": user_timezone,
             },
         )
 
@@ -334,9 +347,13 @@ def logs_page(
 
     events = []
     for e in events_raw:
+        ts_local = "-"
+        if e.ts:
+            ts_utc = e.ts if e.ts.tzinfo is not None else e.ts.replace(tzinfo=timezone.utc)
+            ts_local = ts_utc.astimezone(user_tz).strftime("%Y-%m-%d %H:%M:%S")
         events.append(
             {
-                "ts": e.ts.strftime("%Y-%m-%d %H:%M:%S") if e.ts else "-",
+                "ts": ts_local,
                 "client_ip": e.client_ip,
                 "client_label": labels.get(e.client_ip, e.client_ip),
                 "qname": e.qname,
@@ -389,6 +406,7 @@ def logs_page(
             "qtype_options": list(QTYPE_NAMES.values()),
             "blocklist_options": blocklist_options,
             "window_options": list(WINDOW_HOURS.keys()),
+            "timezone": user_timezone,
         },
     )
 
@@ -488,6 +506,7 @@ def analytics_history(
 
     hours = WINDOW_HOURS[window]
     bucket_minutes = _get_bucket_minutes(window)
+    user_timezone, user_tz = _resolve_user_timezone(db)
     now = datetime.now(timezone.utc)
     since = now - timedelta(hours=hours)
 
@@ -531,10 +550,11 @@ def analytics_history(
     cached_series: list[int] = []
 
     for bucket in buckets:
+        label_dt = bucket.astimezone(user_tz)
         if hours <= 24:
-            label = bucket.strftime("%H:%M")
+            label = label_dt.strftime("%H:%M")
         else:
-            label = bucket.strftime("%m/%d %H:%M")
+            label = label_dt.strftime("%m/%d %H:%M")
         labels.append(label)
 
         stats = stats_by_bucket.get(bucket, {"total": 0, "blocked": 0, "cached": 0})
@@ -551,5 +571,6 @@ def analytics_history(
                 "cached": cached_series,
             },
             "window": window,
+            "timezone": user_timezone,
         }
     )

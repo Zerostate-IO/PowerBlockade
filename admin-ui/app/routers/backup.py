@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 import tarfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.settings import get_timezone
 from app.routers.auth import get_current_user
 from app.template_utils import get_templates
 
@@ -36,7 +37,7 @@ def _get_backups() -> list[dict]:
                     "name": f.name,
                     "size": stat.st_size,
                     "size_human": _human_size(stat.st_size),
-                    "mtime": datetime.fromtimestamp(stat.st_mtime),
+                    "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
                     "type": "database" if f.suffix == ".sql" else "config",
                 }
             )
@@ -61,6 +62,7 @@ def backup_page(request: Request, db: Session = Depends(get_db)):
     backups = _get_backups()
     message = request.query_params.get("message")
     error = request.query_params.get("error")
+    timezone_name = get_timezone(db)
 
     return templates.TemplateResponse(
         "backup.html",
@@ -68,6 +70,7 @@ def backup_page(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "user": user,
             "backups": backups,
+            "timezone": timezone_name,
             "message": message,
             "error": error,
         },

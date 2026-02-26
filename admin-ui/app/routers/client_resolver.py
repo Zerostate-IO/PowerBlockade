@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.client_resolver_rule import ClientResolverRule
+from app.models.settings import get_timezone
 from app.routers.auth import get_current_user
 from app.services.ptr_resolver import resolve_client_hostname
 from app.template_utils import get_templates
@@ -103,6 +104,7 @@ def clients_page(request: Request, db: Session = Depends(get_db)):
 
     clients = db.query(Client).order_by(Client.last_seen.desc().nullslast()).all()
     groups = db.query(ClientGroup).order_by(ClientGroup.name).all()
+    timezone_name = get_timezone(db)
 
     return templates.TemplateResponse(
         "clients.html",
@@ -111,6 +113,7 @@ def clients_page(request: Request, db: Session = Depends(get_db)):
             "user": user,
             "clients": clients,
             "groups": groups,
+            "timezone": timezone_name,
             "message": None,
         },
     )

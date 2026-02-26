@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
@@ -41,6 +42,22 @@ def format_number(value: int | float | None) -> str:
     return f"{value:,}"
 
 
+def format_local_time(
+    dt: datetime | None, tz_name: str | None = None, fmt: str = "%Y-%m-%d %H:%M"
+) -> str:
+    if dt is None:
+        return "-"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    try:
+        tz = ZoneInfo(tz_name or "UTC")
+    except Exception:
+        tz = timezone.utc
+
+    return dt.astimezone(tz).strftime(fmt)
+
+
 def csrf_input(request: Request) -> Markup:
     token = getattr(request.state, "csrf_token", "")
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
@@ -53,6 +70,7 @@ def get_templates() -> Jinja2Templates:
     templates = Jinja2Templates(directory="app/templates")
     templates.env.filters["timeago"] = timeago
     templates.env.filters["format_number"] = format_number
+    templates.env.filters["format_local_time"] = format_local_time
     templates.env.globals["csrf_input"] = csrf_input
     templates.env.globals["version"] = settings.pb_version
     return templates

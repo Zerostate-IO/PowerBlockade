@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models.blocklist import Blocklist
 from app.models.config_change import ConfigChange
 from app.models.forward_zone import ForwardZone
+from app.models.settings import get_timezone
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.services.config_audit import model_to_dict, record_change
@@ -53,6 +54,7 @@ def audit_page(
     entity_types = [e[0] for e in entity_types]
 
     total_pages = (total + page_size - 1) // page_size
+    timezone = get_timezone(db)
 
     return templates.TemplateResponse(
         "audit.html",
@@ -66,6 +68,7 @@ def audit_page(
             "page": page,
             "total_pages": total_pages,
             "total": total,
+            "timezone": timezone,
             "rollback_types": ROLLBACK_SUPPORTED_TYPES,
             "rollback_message": request.query_params.get("rollback"),
         },

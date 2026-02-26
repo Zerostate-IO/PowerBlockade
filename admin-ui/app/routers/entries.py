@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.manual_entry import ManualEntry
+from app.models.settings import get_timezone
 from app.routers.auth import get_current_user
 from app.services.config_audit import model_to_dict, record_change
 from app.template_utils import get_templates
@@ -30,6 +31,7 @@ def entries_page(
         query = query.filter(ManualEntry.entry_type == type)
 
     entries = query.all()
+    timezone = get_timezone(db)
 
     return templates.TemplateResponse(
         "entries.html",
@@ -38,6 +40,7 @@ def entries_page(
             "user": user,
             "entries": entries,
             "filter_type": type,
+            "timezone": timezone,
             "message": None,
         },
     )
