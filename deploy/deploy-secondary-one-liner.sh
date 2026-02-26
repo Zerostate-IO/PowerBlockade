@@ -96,7 +96,8 @@ echo "Pulling Docker images..."
 docker compose pull
 echo "✓ Images pulled"
 
-# Start services with sync-agent profile
+echo "Starting services (with secondary profile)..."
+docker compose --profile secondary up -d
 echo ""
 echo "Starting services (with sync-agent profile)..."
 docker compose --profile sync-agent up -d

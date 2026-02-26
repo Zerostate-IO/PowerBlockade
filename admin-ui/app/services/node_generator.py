@@ -18,6 +18,18 @@ def generate_secondary_package_zip(
 
     env = textwrap.dedent(
         f"""\
+        POWERBLOCKADE_REPO=zerostate-io
+        POWERBLOCKADE_VERSION=latest
+        NODE_NAME={safe_node}
+        PRIMARY_URL={primary_url}
+        PRIMARY_API_KEY={node_api_key}
+        RECURSOR_API_KEY={recursor_api_key or "change-me"}
+        DNSDIST_LISTEN_ADDRESS={dnsdist_listen_address}
+        HEARTBEAT_INTERVAL_SECONDS=60
+        CONFIG_SYNC_INTERVAL_SECONDS=300
+        """
+    )
+        f"""\
         NODE_NAME={safe_node}
         PRIMARY_URL={primary_url}
         PRIMARY_API_KEY={node_api_key}
@@ -29,6 +41,94 @@ def generate_secondary_package_zip(
     )
 
     compose = textwrap.dedent(
+        f"""\
+        services:
+          dnsdist:
+            image: powerdns/dnsdist-19:latest
+            restart: unless-stopped
+            ports:
+              - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
+              - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
+            volumes:
+              - ./config/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
+              - dnstap-socket:/var/run/dnstap
+            cap_add:
+              - NET_BIND_SERVICE
+            depends_on:
+              - recursor
+
+          recursor:
+            image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor:${POWERBLOCKADE_VERSION:-latest}
+            restart: unless-stopped
+            environment:
+              TZ: ${TIMEZONE:-America/Los_Angeles}
+              RECURSOR_API_KEY: ${RECURSOR_API_KEY}
+            expose:
+              - "5300"
+              - "8082"
+            volumes:
+              - ./config/recursor.conf:/etc/pdns-recursor/recursor.conf:ro
+              - ./config/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
+              - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+              - ./rpz:/etc/pdns-recursor/rpz
+              - recursor-control-socket:/var/run/pdns-recursor
+
+          recursor-reloader:
+            image: powerdns/pdns-recursor-51:latest
+            restart: unless-stopped
+            entrypoint:
+              - sh
+              - -c
+              - >-
+                while true; do
+                  rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
+                  rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
+                  rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
+                  sleep 5;
+                done
+            volumes:
+              - recursor-control-socket:/var/run/pdns-recursor
+              - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+            depends_on:
+              - recursor
+
+          dnstap-processor:
+            image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-dnstap-processor:${POWERBLOCKADE_VERSION:-latest}
+            restart: unless-stopped
+            environment:
+              NODE_NAME: ${NODE_NAME}
+              DNSTAP_SOCKET: /var/run/dnstap/dnstap.sock
+              PRIMARY_URL: ${PRIMARY_URL}
+              PRIMARY_API_KEY: ${PRIMARY_API_KEY}
+            volumes:
+              - dnstap-socket:/var/run/dnstap
+            depends_on:
+              - dnsdist
+
+          sync-agent:
+            image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-sync-agent:${POWERBLOCKADE_VERSION:-latest}
+            restart: unless-stopped
+            environment:
+              NODE_NAME: ${NODE_NAME}
+              PRIMARY_URL: ${PRIMARY_URL}
+              PRIMARY_API_KEY: ${PRIMARY_API_KEY}
+              RECURSOR_API_KEY: ${RECURSOR_API_KEY}
+              RECURSOR_API_URL: http://recursor:8082
+              HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
+              CONFIG_SYNC_INTERVAL_SECONDS: ${CONFIG_SYNC_INTERVAL_SECONDS:-300}
+              RPZ_DIR: /rpz
+              FORWARD_ZONES_PATH: /config/forward-zones.conf
+            volumes:
+              - ./config:/config
+              - ./rpz:/rpz
+            depends_on:
+              - recursor
+
+        volumes:
+          dnstap-socket:
+          recursor-control-socket:
+        """
+    )
         """\
         services:
           dnsdist:

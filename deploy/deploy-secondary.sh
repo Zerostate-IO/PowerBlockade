@@ -124,7 +124,8 @@ check_ghcr_auth
 echo "Pulling images..."
 docker compose pull
 
-echo "Starting services (with sync-agent profile)..."
+echo "Starting services (with secondary profile)..."
+docker compose --profile secondary up -d
 docker compose --profile sync-agent up -d
 
 echo ""
@@ -140,4 +141,4 @@ echo "  Go to Admin UI -> Nodes -> $NODE_NAME should show 'Online'"
 echo ""
 echo "To upgrade:"
 echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose pull"
-echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose --profile sync-agent up -d"
+echo "  POWERBLOCKADE_VERSION=v0.6.1 docker compose --profile secondary up -d"

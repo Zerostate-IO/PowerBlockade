@@ -1,7 +1,8 @@
 # Docker Compose configuration for pre-built images from GitHub Container Registry (GHCR)
 #
 # Usage:
-#   docker compose -f docker-compose.ghcr.yml up -d
+#   Primary node: docker compose -f docker-compose.ghcr.yml up -d
+#   Secondary:   docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 #
 # Version pinning (recommended for production):
 #   POWERBLOCKADE_VERSION=v0.6.0 docker compose -f docker-compose.ghcr.yml up -d
@@ -10,6 +11,10 @@
 #   POWERBLOCKADE_REPO=myorg docker compose -f docker-compose.ghcr.yml up -d
 
 services:
+  # ============================================
+  # CORE SERVICES (run on both primary and secondary)
+  # ============================================
+
   dnsdist:
     image: powerdns/dnsdist-19:latest
     container_name: powerblockade-dnsdist
@@ -34,22 +39,6 @@ services:
         condition: service_started
       dnstap-processor:
         condition: service_started
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: powerblockade-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-powerblockade}
-      POSTGRES_USER: ${POSTGRES_USER:-powerblockade}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-powerblockade} -d ${POSTGRES_DB:-powerblockade}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
 
   init-permissions:
     image: busybox:latest
@@ -82,6 +71,27 @@ services:
       default:
         ipv4_address: ${RECURSOR_IP:-172.30.0.10}
 
+  recursor-reloader:
+    image: powerdns/pdns-recursor-51:latest
+    container_name: powerblockade-recursor-reloader
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        while true; do
+          rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
+          rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
+          rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
+          sleep ${RECURSOR_RELOAD_INTERVAL_SECONDS:-5};
+        done
+    volumes:
+      - recursor-control-socket:/var/run/pdns-recursor
+      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+    depends_on:
+      recursor:
+        condition: service_started
+
   dnstap-processor:
     image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-dnstap-processor:${POWERBLOCKADE_VERSION:-latest}
     container_name: powerblockade-dnstap-processor
@@ -90,6 +100,7 @@ services:
       NODE_NAME: ${NODE_NAME:-primary}
       DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
       PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
+      # PRIMARY_URL points to primary's admin-ui for event ingestion
       PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
       PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-}
@@ -111,13 +122,70 @@ services:
     depends_on:
       recursor:
         condition: service_started
-      admin-ui:
+      # No admin-ui dependency - sends to PRIMARY over network
+
+  # ============================================
+  # SECONDARY-ONLY SERVICES
+  # ============================================
+
+  sync-agent:
+    image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-sync-agent:${POWERBLOCKADE_VERSION:-latest}
+    container_name: powerblockade-sync-agent
+    restart: unless-stopped
+    profiles:
+      - secondary
+    environment:
+      NODE_NAME: ${NODE_NAME:-secondary}
+      # PRIMARY_URL points to primary's admin-ui for config sync and heartbeats
+      PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
+      PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
+      RECURSOR_API_KEY: ${RECURSOR_API_KEY:-}
+      HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
+      CONFIG_SYNC_INTERVAL_SECONDS: ${CONFIG_SYNC_INTERVAL_SECONDS:-300}
+      RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
+      RPZ_DIR: /etc/pdns-recursor/rpz
+      FORWARD_ZONES_PATH: /etc/pdns-recursor/forward-zones.conf
+      METRICS_BUFFER_PATH: ${METRICS_BUFFER_PATH:-/var/lib/powerblockade/metrics.db}
+      METRICS_BUFFER_MAX_AGE: ${METRICS_BUFFER_MAX_AGE:-604800}
+      DNS_SERVER: ${DNS_SERVER:-dnsdist}
+    volumes:
+      - ./recursor/rpz:/etc/pdns-recursor/rpz
+      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+      recursor:
         condition: service_started
+      # No admin-ui dependency - connects to PRIMARY over network
+
+  # ============================================
+  # PRIMARY-ONLY SERVICES
+  # ============================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: powerblockade-postgres
+    restart: unless-stopped
+    profiles:
+      - primary
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-powerblockade}
+      POSTGRES_USER: ${POSTGRES_USER:-powerblockade}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-powerblockade} -d ${POSTGRES_DB:-powerblockade}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   admin-ui:
     image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-admin-ui:${POWERBLOCKADE_VERSION:-latest}
     container_name: powerblockade-admin-ui
     restart: unless-stopped
+    profiles:
+      - primary
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://powerblockade:change-me@postgres:5432/powerblockade}
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me-32+-chars}
@@ -146,31 +214,12 @@ services:
       - ./recursor/rpz:/shared/rpz
       - ./recursor/forward-zones.conf:/shared/forward-zones.conf
 
-  recursor-reloader:
-    image: powerdns/pdns-recursor-51:latest
-    container_name: powerblockade-recursor-reloader
-    restart: unless-stopped
-    entrypoint:
-      - sh
-      - -c
-      - >-
-        while true; do
-          rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
-          rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
-          rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
-          sleep ${RECURSOR_RELOAD_INTERVAL_SECONDS:-5};
-        done
-    volumes:
-      - recursor-control-socket:/var/run/pdns-recursor
-      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
-    depends_on:
-      recursor:
-        condition: service_started
-
   prometheus:
     image: prom/prometheus:latest
     container_name: powerblockade-prometheus
     restart: unless-stopped
+    profiles:
+      - primary
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -185,6 +234,8 @@ services:
     image: grafana/grafana:latest
     container_name: powerblockade-grafana
     restart: unless-stopped
+    profiles:
+      - primary
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -210,36 +261,6 @@ services:
       postgres:
         condition: service_healthy
       prometheus:
-        condition: service_started
-
-  sync-agent:
-    image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-sync-agent:${POWERBLOCKADE_VERSION:-latest}
-    container_name: powerblockade-sync-agent
-    restart: unless-stopped
-    profiles:
-      - sync-agent
-    environment:
-      NODE_NAME: ${NODE_NAME:-primary}
-      PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
-      PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}
-      RECURSOR_API_KEY: ${RECURSOR_API_KEY:-}
-      HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
-      CONFIG_SYNC_INTERVAL_SECONDS: ${CONFIG_SYNC_INTERVAL_SECONDS:-300}
-      RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
-      RPZ_DIR: /etc/pdns-recursor/rpz
-      FORWARD_ZONES_PATH: /etc/pdns-recursor/forward-zones.conf
-      METRICS_BUFFER_PATH: ${METRICS_BUFFER_PATH:-/var/lib/powerblockade/metrics.db}
-      METRICS_BUFFER_MAX_AGE: ${METRICS_BUFFER_MAX_AGE:-604800}
-      DNS_SERVER: ${DNS_SERVER:-dnsdist}
-    volumes:
-      - ./recursor/rpz:/etc/pdns-recursor/rpz
-      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf
-    depends_on:
-      init-permissions:
-        condition: service_completed_successfully
-      admin-ui:
-        condition: service_started
-      recursor:
         condition: service_started
 
 volumes:

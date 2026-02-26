@@ -78,7 +78,11 @@ echo "Stopping services..."
 docker compose down
 echo "✓ Services stopped"
 
-# Start with new images
+if [ "$IS_SECONDARY" = "true" ]; then
+    docker compose --profile secondary up -d
+else
+    docker compose --profile primary up -d
+fi
 echo ""
 echo "Starting services with version $NEW_VERSION..."
 if [ "$IS_SECONDARY" = "true" ]; then
