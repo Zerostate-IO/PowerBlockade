@@ -31,9 +31,33 @@ echo "Node type: $(if [ "$IS_SECONDARY" = "true" ]; then echo "secondary"; else 
 echo ""
 
 # Check current version
-CURRENT_VERSION=$(grep "^POWERBLOCKADE_VERSION=" .env 2>/dev/null | cut -d= -f2 || echo "latest")
 echo "Current version: $CURRENT_VERSION"
 echo ""
+
+# Check GHCR authentication
+check_ghcr_auth() {
+    if docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest 2>&1 | grep -q "403 Forbidden"; then
+        echo ""
+        echo "⚠️  GHCR Authentication Required"
+        echo "The Docker images are private. You must login to GHCR first:"
+        echo ""
+        echo "  1. Create a GitHub token with 'read:packages' scope:"
+        echo "     https://github.com/settings/tokens"
+        echo ""
+        echo "  2. Login to GHCR:"
+        echo "     echo \"YOUR_TOKEN\" | docker login ghcr.io -u YOUR_USERNAME --password-stdin"
+        echo ""
+        echo "  3. Re-run this script."
+        echo ""
+        echo "Alternative: Make packages public at:"
+        echo "  https://github.com/orgs/Zerostate-IO/packages"
+        echo ""
+        exit 1
+    fi
+}
+
+echo "Checking GHCR access..."
+check_ghcr_auth
 
 # Backup database
 echo "Backing up database..."
