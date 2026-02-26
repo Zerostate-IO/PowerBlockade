@@ -1,0 +1,139 @@
+# PowerBlockade DNS Benchmark Control Set v1.0
+# Fixed domains for repeatable benchmark comparison
+# DO NOT MODIFY - changes break historical comparisons
+# Format: domain query_type
+
+# Major tech companies (stable, CDN-backed)
+google.com A
+cloudflare.com A
+github.com A
+amazon.com A
+microsoft.com A
+apple.com A
+facebook.com A
+twitter.com A
+x.com A
+linkedin.com A
+netflix.com A
+spotify.com A
+adobe.com A
+salesforce.com A
+oracle.com A
+ibm.com A
+intel.com A
+nvidia.com A
+amd.com A
+cisco.com A
+
+# CDNs and infrastructure
+fastly.com A
+akamai.com A
+edgecast.com A
+cloudfront.net A
+azure.com A
+aws.amazon.com A
+gcp.cloud.com A
+
+# Popular services
+reddit.com A
+wikipedia.org A
+youtube.com A
+instagram.com A
+tiktok.com A
+discord.com A
+slack.com A
+zoom.us A
+dropbox.com A
+box.com A
+atlassian.com A
+notion.so A
+figma.com A
+canva.com A
+
+# News and media
+cnn.com A
+bbc.com A
+nytimes.com A
+washingtonpost.com A
+reuters.com A
+theguardian.com A
+wsj.com A
+bloomberg.com A
+forbes.com A
+
+# E-commerce
+ebay.com A
+walmart.com A
+target.com A
+bestbuy.com A
+etsy.com A
+shopify.com A
+stripe.com A
+paypal.com A
+venmo.com A
+
+# Social and community
+pinterest.com A
+tumblr.com A
+snapchat.com A
+whatsapp.com A
+telegram.org A
+signal.org A
+
+# Developer tools
+stackoverflow.com A
+gitlab.com A
+bitbucket.org A
+docker.com A
+kubernetes.io A
+nginx.com A
+apache.org A
+nodejs.org A
+python.org A
+golang.org A
+rust-lang.org A
+
+# Major ccTLDs (international stability)
+bbc.co.uk A
+google.co.jp A
+amazon.de A
+lemonde.fr A
+reuters.cn A
+gov.au A
+canada.ca A
+google.com.br A
+
+# DNS infrastructure operators
+quad9.net A
+nextdns.io A
+opendns.com A
+dyn.com A
+no-ip.com A
+
+# University and research
+mit.edu A
+stanford.edu A
+berkeley.edu A
+harvard.edu A
+ox.ac.uk A
+cam.ac.uk A
+
+# Government and organizations
+ietf.org A
+icann.org A
+iana.org A
+iso.org A
+w3.org A
+
+# Additional stable high-TTL domains
+mozilla.org A
+wordpress.org A
+drupal.org A
+joomla.org A
+archive.org A
+eff.org A
+
+# Version marker (update when adding/removing domains)
+# control-set-version: 1.0
+# domain-count: 120
+# last-updated: 2026-02-26
