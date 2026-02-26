@@ -1,4 +1,4 @@
-# PowerDNS Recursor config for PowerBlockade - OPTIMIZED FOR SPEED
+# Minimal PowerDNS Recursor config for PowerBlockade
 
 # Network
 local-address=0.0.0.0
@@ -9,26 +9,9 @@ allow-from=172.30.0.0/16, ::1/128
 socket-dir=/var/run/pdns-recursor
 socket-mode=0666
 
-# ============================================================
-# PERFORMANCE TUNING - OPTIMIZED FOR MAXIMUM SPEED
-# ============================================================
-
-# Threading - Use more threads for parallel query handling
+# Performance (tune per host)
 threads=4
 pdns-distributes-queries=yes
-
-# Cache Configuration - Large caches for high hit rates
-max-cache-entries=1000000
-max-packetcache-entries=100000
-max-cache-ttl=86400
-max-negative-ttl=3600
-negquery-cache-ttl=3600
-packet-cache-ttl=3600
-
-# Prefetch - Refresh popular domains before they expire
-prefetch=yes
-prefetch-expire-threshold=10
-prefetch-max-per-second=500
 
 # RPZ
 lua-config-file=/etc/pdns-recursor/rpz.lua
