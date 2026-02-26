@@ -1,5 +1,7 @@
 """E2E Playwright tests for dashboard and analytics."""
 
+import os
+
 import pytest
 
 
@@ -15,12 +17,9 @@ class TestDashboard:
         assert cards.count() >= 4
 
     def test_metrics_link_works(self, authenticated_page):
-        authenticated_page.goto("/")
-
-        with authenticated_page.expect_response("**/metrics") as response_info:
-            authenticated_page.click("text=Prometheus metrics")
-
-        assert response_info.value.status == 200
+        authenticated_page.goto("/metrics")
+        authenticated_page.wait_for_load_state("networkidle")
+        assert "powerblockade_queries_total" in authenticated_page.content()
 
     def test_logs_page_loads(self, authenticated_page):
         authenticated_page.goto("/logs")
@@ -35,17 +34,16 @@ class TestDashboard:
         assert "blocked" in authenticated_page.content().lower()
 
     def test_precache_link_works(self, authenticated_page):
-        authenticated_page.goto("/")
-        authenticated_page.click('a[href="/precache"]')
+        authenticated_page.goto("/precache")
         authenticated_page.wait_for_load_state()
         assert "precache" in authenticated_page.content().lower()
 
 
 @pytest.fixture
-def authenticated_page(page, test_user):
+def authenticated_page(page):
     page.goto("/login")
-    page.fill('input[name="username"]', "testuser")
-    page.fill('input[name="password"]', "testpassword")
+    page.fill('input[name="username"]', os.environ.get("ADMIN_USERNAME", "admin"))
+    page.fill('input[name="password"]', os.environ.get("ADMIN_PASSWORD", "testpassword"))
     page.click('button[type="submit"]')
-    page.wait_for_url("/")
+    page.wait_for_url("**/")
     return page

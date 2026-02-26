@@ -1,5 +1,7 @@
 """E2E Playwright tests for forward zones management."""
 
+import os
+
 import pytest
 
 
@@ -10,14 +12,12 @@ class TestForwardZonesManagement:
 
     def test_create_forward_zone(self, authenticated_page):
         authenticated_page.goto("/forwardzones")
+        authenticated_page.fill('input[name="domain"]', "test.local")
+        authenticated_page.fill('input[name="servers"]', "10.0.1.1")
+        authenticated_page.locator('form[action="/forwardzones/add"] button[type="submit"]').click()
 
-        authenticated_page.click("text=Add Forward Zone")
-
-        authenticated_page.fill('input[name="name"]', "test.local")
-        authenticated_page.fill('input[name="nameservers"]', "10.0.1.1")
-        authenticated_page.click('button[type="submit"]')
-
-        authenticated_page.wait_for_url("**/forwardzones")
+        authenticated_page.wait_for_load_state("networkidle")
+        assert authenticated_page.locator("text=test.local").first.is_visible()
 
     def test_apply_button_exists(self, authenticated_page):
         authenticated_page.goto("/forwardzones")
@@ -27,10 +27,10 @@ class TestForwardZonesManagement:
 
 
 @pytest.fixture
-def authenticated_page(page, test_user):
+def authenticated_page(page):
     page.goto("/login")
-    page.fill('input[name="username"]', "testuser")
-    page.fill('input[name="password"]', "testpassword")
+    page.fill('input[name="username"]', os.environ.get("ADMIN_USERNAME", "admin"))
+    page.fill('input[name="password"]', os.environ.get("ADMIN_PASSWORD", "testpassword"))
     page.click('button[type="submit"]')
-    page.wait_for_url("/")
+    page.wait_for_url("**/")
     return page

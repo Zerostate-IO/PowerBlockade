@@ -44,11 +44,12 @@ def _get_backups() -> list[dict]:
 
 
 def _human_size(size: int) -> str:
+    size_float = float(size)
     for unit in ["B", "KB", "MB", "GB"]:
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
+        if size_float < 1024:
+            return f"{size_float:.1f} {unit}"
+        size_float /= 1024
+    return f"{size_float:.1f} TB"
 
 
 @router.get("/backup", response_class=HTMLResponse)

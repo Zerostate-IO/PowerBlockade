@@ -18,6 +18,7 @@ class TestAnalyticsRoutes:
                 client_ip="192.168.1.100",
                 qname=f"example{i}.com",
                 qtype=1,
+                rcode=0,
                 blocked=i % 2 == 0,
                 latency_ms=3 + i,
             )

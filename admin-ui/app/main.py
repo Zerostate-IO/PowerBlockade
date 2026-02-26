@@ -146,6 +146,10 @@ def bootstrap_primary_node() -> None:
 async def lifespan(_: FastAPI):
     from app.services.scheduler import start_scheduler, stop_scheduler
 
+    if os.environ.get("POWERBLOCKADE_TESTING", "").lower() == "true":
+        yield
+        return
+
     validate_security_settings()
     bootstrap_admin()
     bootstrap_primary_node()

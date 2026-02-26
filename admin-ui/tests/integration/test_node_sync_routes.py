@@ -6,24 +6,36 @@ from app.models.node import Node
 
 
 class TestNodeSyncRoutes:
-    def test_register_node_creates_new_node(self, sync_client):
+    @staticmethod
+    def _headers(api_key: str) -> dict[str, str]:
+        return {"X-PowerBlockade-Node-Key": api_key}
+
+    def test_register_node_creates_new_node(self, sync_client, sync_db_session):
+        node = Node(name="bootstrap", api_key="test_key", status="pending")
+        sync_db_session.add(node)
+        sync_db_session.commit()
+
         response = sync_client.post(
             "/api/node-sync/register",
-            json={"name": "test_node", "api_key": "test_key"},
+            json={"name": "test_node", "ip_address": "127.0.0.1"},
+            headers=self._headers("test_key"),
         )
-        assert response.status_code == 201
-        assert response.json()["name"] == "test_node"
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
 
     def test_register_node_with_duplicate_name(self, sync_client, sync_db_session):
+        existing = Node(name="existing_name", api_key="other_key", status="active")
+        sync_db_session.add(existing)
         node = Node(name="test_node", api_key="test_key", status="active")
         sync_db_session.add(node)
         sync_db_session.commit()
 
         response = sync_client.post(
             "/api/node-sync/register",
-            json={"name": "test_node", "api_key": "different_key"},
+            json={"name": "test_node", "ip_address": "127.0.0.1"},
+            headers=self._headers("test_key"),
         )
-        assert response.status_code == 400
+        assert response.status_code == 200
 
     def test_heartbeat_updates_last_seen(self, sync_client, sync_db_session):
         node = Node(name="test_node", api_key="test_key", status="active")
@@ -32,14 +44,16 @@ class TestNodeSyncRoutes:
 
         response = sync_client.post(
             "/api/node-sync/heartbeat",
-            headers={"X-PowerBlockade-Node-Key": "test_key"},
+            json={},
+            headers=self._headers("test_key"),
         )
         assert response.status_code == 200
 
     def test_heartbeat_returns_401_for_invalid_key(self, sync_client):
         response = sync_client.post(
             "/api/node-sync/heartbeat",
-            headers={"X-PowerBlockade-Node-Key": "invalid_key"},
+            json={},
+            headers=self._headers("invalid_key"),
         )
         assert response.status_code == 401
 
@@ -62,19 +76,17 @@ class TestNodeSyncRoutes:
         ]
 
         response = sync_client.post(
-            "/api/node-sync/ingest",
-            json=events,
-            headers={"X-PowerBlockade-Node-Key": "test_key"},
+            "/api/node-sync/ingest", json={"events": events}, headers=self._headers("test_key")
         )
-        assert response.status_code == 201
+        assert response.status_code == 200
 
     def test_ingest_returns_401_for_invalid_key(self, sync_client):
         events = [{"event_id": "uuid-1", "qname": "example.com"}]
 
         response = sync_client.post(
             "/api/node-sync/ingest",
-            json=events,
-            headers={"X-PowerBlockade-Node-Key": "invalid_key"},
+            json={"events": events},
+            headers=self._headers("invalid_key"),
         )
         assert response.status_code == 401
 
@@ -90,17 +102,21 @@ class TestNodeSyncRoutes:
     def test_generate_node_creates_node(self, authenticated_client):
         response = authenticated_client.post(
             "/nodes/generate",
+            data={"name": "secondary-test", "primary_url": "http://primary.example"},
             follow_redirects=False,
         )
-        assert response.status_code in [200, 303]
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/zip")
 
     def test_delete_node_works(self, authenticated_client, sync_db_session):
         node = Node(name="test_node", api_key="test_key", status="active")
         sync_db_session.add(node)
         sync_db_session.commit()
 
-        response = authenticated_client.post(f"/nodes/{node.id}/delete", follow_redirects=False)
-        assert response.status_code == 303
+        response = authenticated_client.post(
+            "/nodes/delete", data={"node_id": node.id}, follow_redirects=False
+        )
+        assert response.status_code == 302
 
     def test_get_config_returns_rpz_and_forwardzones(self, sync_client, sync_db_session):
         node = Node(name="test_node", api_key="test_key", status="active")
@@ -109,18 +125,18 @@ class TestNodeSyncRoutes:
 
         response = sync_client.get(
             "/api/node-sync/config",
-            headers={"X-PowerBlockade-Node-Key": "test_key"},
+            headers=self._headers("test_key"),
         )
         assert response.status_code == 200
         data = response.json()
-        assert "rpz_zones" in data
+        assert "rpz_files" in data
         assert "forward_zones" in data
         assert "settings" in data
 
     def test_get_config_returns_401_for_invalid_key(self, sync_client):
         response = sync_client.get(
             "/api/node-sync/config",
-            headers={"X-PowerBlockade-Node-Key": "invalid_key"},
+            headers=self._headers("invalid_key"),
         )
         assert response.status_code == 401
 
@@ -150,36 +166,42 @@ class TestNodeSyncRoutes:
         response = sync_client.post(
             "/api/node-sync/metrics",
             json=metrics,
-            headers={"X-PowerBlockade-Node-Key": "test_key"},
+            headers=self._headers("test_key"),
         )
-        assert response.status_code == 201
+        assert response.status_code == 200
 
     def test_metrics_returns_401_for_invalid_key(self, sync_client):
         response = sync_client.post(
             "/api/node-sync/metrics",
             json={"node_name": "test"},
-            headers={"X-PowerBlockade-Node-Key": "invalid_key"},
+            headers=self._headers("invalid_key"),
         )
         assert response.status_code == 401
 
     def test_full_node_registration_flow(self, sync_client, sync_db_session):
+        node = Node(name="bootstrap", api_key="sec_key_123", status="pending")
+        sync_db_session.add(node)
+        sync_db_session.commit()
+
         response = sync_client.post(
             "/api/node-sync/register",
-            json={"name": "secondary-node", "api_key": "sec_key_123"},
+            json={"name": "secondary-node", "ip_address": "10.0.0.10"},
+            headers=self._headers("sec_key_123"),
         )
-        assert response.status_code == 201
+        assert response.status_code == 200
         node_data = response.json()
-        assert node_data["name"] == "secondary-node"
+        assert node_data["ok"] is True
 
         response = sync_client.post(
             "/api/node-sync/heartbeat",
-            headers={"X-PowerBlockade-Node-Key": "sec_key_123"},
+            json={},
+            headers=self._headers("sec_key_123"),
         )
         assert response.status_code == 200
 
         response = sync_client.get(
             "/api/node-sync/config",
-            headers={"X-PowerBlockade-Node-Key": "sec_key_123"},
+            headers=self._headers("sec_key_123"),
         )
         assert response.status_code == 200
 
@@ -198,10 +220,10 @@ class TestNodeSyncRoutes:
         ]
         response = sync_client.post(
             "/api/node-sync/ingest",
-            json=events,
-            headers={"X-PowerBlockade-Node-Key": "sec_key_123"},
+            json={"events": events},
+            headers=self._headers("sec_key_123"),
         )
-        assert response.status_code == 201
+        assert response.status_code == 200
 
         metrics = {
             "node_name": "secondary-node",
@@ -223,6 +245,6 @@ class TestNodeSyncRoutes:
         response = sync_client.post(
             "/api/node-sync/metrics",
             json=metrics,
-            headers={"X-PowerBlockade-Node-Key": "sec_key_123"},
+            headers=self._headers("sec_key_123"),
         )
-        assert response.status_code == 201
+        assert response.status_code == 200

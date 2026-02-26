@@ -40,6 +40,13 @@ cd admin-ui
 uv run pytest tests/integration/ -v -m integration
 ```
 
+If your local PostgreSQL credentials differ from CI defaults, set `TEST_DATABASE_URL`:
+
+```bash
+cd admin-ui
+TEST_DATABASE_URL='postgresql+psycopg://powerblockade:powerblockade@localhost:5432/test_powerblockade' uv run pytest tests/integration/ -v -m integration
+```
+
 ### All Tests
 ```bash
 cd admin-ui

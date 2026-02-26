@@ -15,10 +15,12 @@ from typing import Generator
 import pytest
 
 os.environ.setdefault("POWERBLOCKADE_ALLOW_INSECURE", "true")
+os.environ.setdefault("POWERBLOCKADE_TESTING", "true")
 os.environ.setdefault("ADMIN_PASSWORD", "test-password-for-ci")
 os.environ.setdefault("ADMIN_SECRET_KEY", "test-secret-key-for-ci-testing-only")
+os.environ.setdefault("POWERBLOCKADE_SHARED_DIR", "/tmp/powerblockade-shared-test")
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
@@ -31,18 +33,42 @@ def _sqlite_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _setup_sqlite_now(dbapi_conn, connection_record):
+def _setup_sqlite_now(dbapi_conn, _connection_record):
     dbapi_conn.create_function("NOW", 0, _sqlite_now)
 
 
-# Test database URL (PostgreSQL for integration tests)
-TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/test_powerblockade"
+DEFAULT_TEST_DATABASE_URL = (
+    "postgresql+psycopg://postgres:postgres@localhost:5432/test_powerblockade"
+)
+TEST_DATABASE_URL = (
+    os.environ.get("TEST_DATABASE_URL")
+    or os.environ.get("DATABASE_URL")
+    or DEFAULT_TEST_DATABASE_URL
+)
+
+
+def _is_sqlite_url(database_url: str) -> bool:
+    return database_url.startswith("sqlite")
+
+
+def _create_test_engine(database_url: str):
+    connect_args = {"check_same_thread": False} if _is_sqlite_url(database_url) else {}
+    engine = create_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
+    if _is_sqlite_url(database_url):
+        event.listen(engine, "connect", _setup_sqlite_now)
+    return engine
+
+
+def _reset_postgres_tables(session: Session) -> None:
+    for table in reversed(Base.metadata.sorted_tables):
+        session.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))
+    session.commit()
 
 
 @pytest.fixture(scope="session")
 def pg_engine():
     """Create PostgreSQL engine for integration tests."""
-    engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+    engine = _create_test_engine(TEST_DATABASE_URL)
     Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
@@ -53,6 +79,9 @@ def pg_session(pg_engine) -> Generator[Session, None, None]:
     """Create a PostgreSQL session for integration tests."""
     TestSession = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False)
     session = TestSession()
+
+    _reset_postgres_tables(session)
+
     yield session
     session.rollback()
     session.close()
@@ -72,9 +101,24 @@ def pg_client(pg_session) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture
-def sync_db_session() -> Generator[Session, None, None]:
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
-    event.listen(engine, "connect", _setup_sqlite_now)
+def sync_db_session(request) -> Generator[Session, None, None]:
+    is_integration = "tests/integration/" in str(request.node.fspath)
+
+    if is_integration:
+        pg_engine = _create_test_engine(TEST_DATABASE_URL)
+        Base.metadata.create_all(pg_engine)
+        TestSession = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False)
+        session = TestSession()
+        _reset_postgres_tables(session)
+
+        yield session
+
+        session.rollback()
+        session.close()
+        pg_engine.dispose()
+        return
+
+    engine = _create_test_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
 
     TestSession = sessionmaker(bind=engine)
@@ -122,16 +166,21 @@ def authenticated_client(sync_client, test_user):
 
     # Extract CSRF token from the response HTML
     import re
+
     match = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
     csrf_token = match.group(1) if match else ""
 
     # POST login with CSRF token
-    sync_client.post(
+    login_response = sync_client.post(
         "/login",
         data={"username": "testuser", "password": "testpassword", "csrf_token": csrf_token},
         follow_redirects=False,
     )
+
+    assert login_response.status_code in {302, 303}
+    sync_client.headers.update({"X-CSRF-Token": csrf_token})
     return sync_client
+
 
 @pytest.fixture
 def sample_blocklist_data():

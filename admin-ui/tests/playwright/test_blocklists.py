@@ -1,5 +1,7 @@
 """E2E Playwright tests for blocklist management."""
 
+import os
+
 import pytest
 
 
@@ -10,15 +12,13 @@ class TestBlocklistManagement:
 
     def test_create_blocklist(self, authenticated_page):
         authenticated_page.goto("/blocklists")
-
-        authenticated_page.click("text=Add Blocklist")
-
         authenticated_page.fill('input[name="url"]', "https://example.com/test.txt")
         authenticated_page.fill('input[name="name"]', "Test List")
         authenticated_page.select_option('select[name="list_type"]', "block")
-        authenticated_page.click('button[type="submit"]')
+        authenticated_page.locator('form[action="/blocklists/add"] button[type="submit"]').click()
 
-        authenticated_page.wait_for_url("**/blocklists")
+        authenticated_page.wait_for_load_state("networkidle")
+        assert authenticated_page.locator("text=Test List").first.is_visible()
 
     def test_apply_button_exists(self, authenticated_page):
         authenticated_page.goto("/blocklists")
@@ -34,10 +34,10 @@ class TestBlocklistManagement:
 
 
 @pytest.fixture
-def authenticated_page(page, test_user):
+def authenticated_page(page):
     page.goto("/login")
-    page.fill('input[name="username"]', "testuser")
-    page.fill('input[name="password"]', "testpassword")
+    page.fill('input[name="username"]', os.environ.get("ADMIN_USERNAME", "admin"))
+    page.fill('input[name="password"]', os.environ.get("ADMIN_PASSWORD", "testpassword"))
     page.click('button[type="submit"]')
-    page.wait_for_url("/")
+    page.wait_for_url("**/")
     return page

@@ -28,11 +28,15 @@ def generate_forward_zones_config(db: Session) -> str:
     return "\n".join(lines)
 
 
-def write_forward_zones_config(db: Session, out_path: str = "/shared/forward-zones.conf") -> str:
+def write_forward_zones_config(db: Session, out_path: str | None = None) -> str:
     """Write forward-zones config to file."""
     content = generate_forward_zones_config(db)
 
     import os
+
+    if out_path is None:
+        shared_dir = os.environ.get("POWERBLOCKADE_SHARED_DIR", "/shared")
+        out_path = os.path.join(shared_dir, "forward-zones.conf")
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:

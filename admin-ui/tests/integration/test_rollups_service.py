@@ -201,7 +201,6 @@ class TestComputeDailyRollup:
 
         for hour in range(24):
             rollup = QueryRollup(
-                id=hour + 1,
                 bucket_start=day_start + timedelta(hours=hour),
                 granularity="hourly",
                 total_queries=100,

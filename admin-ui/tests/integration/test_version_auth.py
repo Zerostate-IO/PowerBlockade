@@ -7,11 +7,8 @@ class TestVersionEndpointAuth:
         assert response.status_code == 401
         assert "Authentication required" in response.text
 
-    def test_version_returns_data_when_authenticated(self, sync_client):
-        # Login to get authenticated session
-        sync_client.post("/login", data={"username": "testuser", "password": "testpassword"})
-
-        response = sync_client.get("/api/version")
+    def test_version_returns_data_when_authenticated(self, authenticated_client):
+        response = authenticated_client.get("/api/version")
         assert response.status_code == 200
 
         data = response.json()

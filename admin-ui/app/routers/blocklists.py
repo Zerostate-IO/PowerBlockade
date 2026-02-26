@@ -366,7 +366,8 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
             bl.last_error = str(ex)
             bl.last_updated = now
 
-    out_dir = "/shared/rpz"
+    shared_dir = os.environ.get("POWERBLOCKADE_SHARED_DIR", "/shared")
+    out_dir = os.path.join(shared_dir, "rpz")
     os.makedirs(out_dir, exist_ok=True)
 
     effective_blocked = blocked_domains - allow_domains
