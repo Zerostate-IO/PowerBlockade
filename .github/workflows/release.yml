@@ -211,7 +211,7 @@ jobs:
         id: changelog
         run: |
           VERSION="${{ needs.update-versions.outputs.version }}"
-          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -A 1 "^${VERSION}$" | tail -n 1)
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
           
           if [ -z "$PREVIOUS_TAG" ]; then
             # First release or no previous tag
