@@ -4,31 +4,23 @@ PowerBlockade provides pre-built Docker images hosted on GitHub Container Regist
 
 ## Quick Start with Pre-Built Images
 
-### 1. Set your GitHub username
-
-```bash
-export POWERBLOCKADE_REPO=powerblockade  # Replace with actual GHCR hosting repo
-```
-
-**Important:** Set this to the GitHub repository where PowerBlockade images are hosted. If you're using the official images, this is `powerblockade`.
-
-### 2. Generate environment file
+### 1. Generate environment file
 
 ```bash
 ./scripts/init-env.sh
 ```
 
-This creates `.env` with secure random values.
+This creates `.env` with secure random values and sets `POWERBLOCKADE_REPO=zerostate-io` (the official image registry).
 
-### 3. Start with pre-built images
-
+### 2. Start with pre-built images
 ```bash
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 The `-f docker-compose.ghcr.yml` flag tells Docker Compose to use the configuration file with pre-built images.
 
-### 4. (Optional) Secondary Node Setup
+### 3. (Optional) Secondary Node Setup
+
 
 For secondary nodes in a multi-node deployment, use the `--profile secondary` flag:
 
@@ -39,11 +31,43 @@ docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 Secondary nodes only run the DNS services (dnsdist, recursor, dnstap-processor) and sync-agent. They do not run postgres, admin-ui, prometheus, or grafana - those run only on the primary node.
 
 See [GETTING_STARTED.md](GETTING_STARTED.md#multi-node-setup-optional) for complete multi-node setup instructions.
+
+## Repository Configuration
+
+PowerBlockade uses GitHub Container Registry (GHCR) for pre-built images. The `POWERBLOCKADE_REPO` variable controls which registry to pull from.
+
+### Default: Official Images
+
+By default, `init-env.sh` sets:
+
+```bash
+POWERBLOCKADE_REPO=zerostate-io
+```
+
+This pulls images from `ghcr.io/zerostate-io/powerblockade-*:latest`.
+
+### Override: Custom Registry
+
+To use images from your own fork or registry, set the variable before running:
+
+```bash
+export POWERBLOCKADE_REPO=your-github-org
+./scripts/init-env.sh
+```
+
+Or edit `.env` after running init-env.sh:
+
+```bash
+./scripts/init-env.sh
+# Edit POWERBLOCKADE_REPO in .env if needed
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## Environment Variables Required for GHCR
 
-| Variable | Description | Example |
+| Variable | Description | Default |
 |----------|-------------|---------|
-| `POWERBLOCKADE_REPO` | Your GitHub username or org | `powerblockade` |
+| `POWERBLOCKADE_REPO` | GitHub org hosting images | `zerostate-io` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | (auto-generated) |
 | `ADMIN_PASSWORD` | Admin UI password | (auto-generated) |
 | `ADMIN_SECRET_KEY` | Session signing key | (auto-generated) |
@@ -85,7 +109,7 @@ Images are tagged as follows:
 docker compose up -d --build
 
 # Pull pre-built (faster, no build required)
-export POWERBLOCKADE_REPO=powerblockade
+./scripts/init-env.sh
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
@@ -95,14 +119,14 @@ If pulling pre-built images for the first time:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_ORG/powerblockade.git
+git clone https://github.com/zerostate-io/powerblockade.git
 cd powerblockade
 
-# 2. Set your repository
-export POWERBLOCKADE_REPO=YOUR_ORG
-
-# 3. Generate secrets
+# 2. Generate secrets (sets POWERBLOCKADE_REPO=zerostate-io by default)
 ./scripts/init-env.sh
+
+# 3. (Optional) Override registry if using custom images
+# export POWERBLOCKADE_REPO=your-org
 
 # 4. Start the stack
 docker compose -f docker-compose.ghcr.yml up -d
@@ -113,13 +137,13 @@ docker compose -f docker-compose.ghcr.yml up -d
 ### Images won't pull
 
 Make sure:
-1. The `POWERBLOCKADE_REPO` variable is set correctly
+1. The `POWERBLOCKADE_REPO` variable matches your registry (default: `zerostate-io`)
 2. You've set the image tag version in `docker-compose.ghcr.yml`
 3. Your GitHub repository is public (or you're authenticated)
 
 ```bash
-# Verify image is accessible
-docker pull ghcr.io/powerblockade/powerblockade-admin-ui:latest
+# Verify image is accessible (using default repo)
+docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest
 ```
 
 ### Wrong image tag
