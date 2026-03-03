@@ -28,6 +28,17 @@ docker compose -f docker-compose.ghcr.yml up -d
 
 The `-f docker-compose.ghcr.yml` flag tells Docker Compose to use the configuration file with pre-built images.
 
+### 4. (Optional) Secondary Node Setup
+
+For secondary nodes in a multi-node deployment, use the `--profile secondary` flag:
+
+```bash
+docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+```
+
+Secondary nodes only run the DNS services (dnsdist, recursor, dnstap-processor) and sync-agent. They do not run postgres, admin-ui, prometheus, or grafana - those run only on the primary node.
+
+See [GETTING_STARTED.md](GETTING_STARTED.md#multi-node-setup-optional) for complete multi-node setup instructions.
 ## Environment Variables Required for GHCR
 
 | Variable | Description | Example |

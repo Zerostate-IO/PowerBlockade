@@ -1642,7 +1642,7 @@ For primary node deployed at `/opt/powerblockade` with full stack (Admin UI, dat
 - SSH access to celsate
 - Database backup exists in `backups/`
 - Previous version recorded in `.powerblockade/state.json`
-- Primary node profile (`--profile primary`)
+- Primary node runs all services by default (no profile needed)
 
 ### Stop Conditions (DO NOT ROLLBACK if)
 
@@ -1701,7 +1701,7 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # 6. Stop services
-docker compose --profile primary down
+docker compose down
 
 # 7. Restore database (if backup exists)
 if [[ -n "$DB_BACKUP" && -f "$DB_BACKUP" ]]; then
@@ -1721,7 +1721,7 @@ fi
 POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
 
 # 9. Start with previous version
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile primary up -d
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose up -d
 
 # 10. Wait for health
 echo "Waiting for services to become healthy..."
@@ -1868,11 +1868,10 @@ echo "=== Health Check Complete ==="
 |  |   POWERBLOCKADE_VERSION=<prev> docker compose --profile secondary up -d
 |                                                                     |
 |  CELSATE (primary):                                                 |
-|  +-- cd /opt/powerblockade && \                                    
-|  |   docker compose --profile primary down && \                    
+  |   docker compose down && \                                    
 |  |   # (restore DB if needed) && \                                 
 |  |   POWERBLOCKADE_VERSION=<prev> docker compose pull && \         
-|  |   POWERBLOCKADE_VERSION=<prev> docker compose --profile primary up -d
+  |   POWERBLOCKADE_VERSION=<prev> docker compose up -d
 |                                                                     
 |  HEALTH CHECKS:                                                     
 |  +-- curl -sf http://localhost:8080/health                         

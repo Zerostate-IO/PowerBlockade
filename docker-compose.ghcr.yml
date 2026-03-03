@@ -10,8 +10,7 @@
 #   POWERBLOCKADE_REPO=myorg docker compose -f docker-compose.ghcr.yml up -d
 
 services:
-  # ============================================
-  # CORE SERVICES (run on both primary and secondary)
+  # CORE SERVICES (all run by default on primary node)
   # ============================================
 
   dnsdist:
@@ -160,16 +159,13 @@ services:
         condition: service_started
       # No admin-ui dependency - connects to PRIMARY over network
 
-  # ============================================
-  # PRIMARY-ONLY SERVICES
-  # ============================================
+  # Primary services (postgres, admin-ui, prometheus, grafana)
+  # These run by default - no profile needed
 
   postgres:
     image: postgres:16-alpine
     container_name: powerblockade-postgres
     restart: unless-stopped
-    profiles:
-      - primary
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-powerblockade}
       POSTGRES_USER: ${POSTGRES_USER:-powerblockade}
@@ -186,8 +182,6 @@ services:
     image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-admin-ui:${POWERBLOCKADE_VERSION:-latest}
     container_name: powerblockade-admin-ui
     restart: unless-stopped
-    profiles:
-      - primary
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://powerblockade:change-me@postgres:5432/powerblockade}
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me-32+-chars}
@@ -220,8 +214,6 @@ services:
     image: prom/prometheus:latest
     container_name: powerblockade-prometheus
     restart: unless-stopped
-    profiles:
-      - primary
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -236,8 +228,6 @@ services:
     image: grafana/grafana:latest
     container_name: powerblockade-grafana
     restart: unless-stopped
-    profiles:
-      - primary
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
