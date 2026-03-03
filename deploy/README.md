@@ -74,8 +74,8 @@ This directory contains scripts for deploying PowerBlockade to production server
 ```bash
 cd /opt/powerblockade
 POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile primary up -d
-```
+POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+
 
 ### Secondary Node
 ```bash
@@ -97,11 +97,10 @@ Always pin to a specific version in production:
 ```bash
 # Pin to specific version
 export POWERBLOCKADE_VERSION=v0.7.0
-POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile primary up -d
+docker compose up -d
 
 # Or inline
-POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile primary up -d
-```
+POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
 
 ## Troubleshooting
 
@@ -192,13 +191,13 @@ PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
 DB_BACKUP=$(jq -r '.last_db_backup' .powerblockade/state.json)
 
 # Rollback with database restore
-docker compose --profile primary down
+docker compose down
 docker compose up -d postgres
 sleep 5
 docker compose exec -T postgres psql -U powerblockade -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" powerblockade
 docker compose exec -T postgres psql -U powerblockade powerblockade < "$DB_BACKUP"
 POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile primary up -d
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose up -d
 
 # Verify
 curl -sf http://localhost:8080/health
