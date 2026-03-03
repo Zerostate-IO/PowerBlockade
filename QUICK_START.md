@@ -1,6 +1,6 @@
 # PowerBlockade Quick Start
 
-Get a DNS filtering server running in under 5 minutes using **pre-built Docker images**.
+Get a DNS filtering server running in under 5 minutes using pre-built Docker images.
 
 ## Network Topology Overview
 
@@ -35,12 +35,13 @@ Get a DNS filtering server running in under 5 minutes using **pre-built Docker i
 
 - **Docker & Docker Compose** (v2+)
 - **A Linux server** (Ubuntu 22.04+ recommended)
-- **Port 53** available (DNS)
-- **Port 8080** available (Admin UI)
+- **Port 53** available for DNS (or see port conflict handling below)
+- **Port 8080** available for Admin UI
+- **Git** for cloning the repository
 
 ## Step 0: GHCR Authentication (If Images Are Private)
 
-If the Docker images are stored in a **private** GitHub Container Registry, you must authenticate first.
+If the Docker images are stored in a private GitHub Container Registry, authenticate first.
 
 **Quick test:**
 ```bash
@@ -72,67 +73,70 @@ docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest
 **Alternative:** Ask your organization admin to make the packages public at:
 https://github.com/orgs/Zerostate-IO/packages
 
-## Step 1: Create Directory and Download Files
+## Step 1: Clone the Repository
 
 ```bash
-# Create directory and download required files
-mkdir -p powerblockade && cd powerblockade
-
-# Download compose file and example env
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/docker-compose.ghcr.yml -o docker-compose.yml
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/.env.example -o .env
-
-# Download required config files
-mkdir -p recursor/rpz dnsdist grafana/provisioning/datasources grafana/provisioning/dashboards grafana/dashboards prometheus
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/recursor/recursor.conf.template -o recursor/recursor.conf.template
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/recursor/rpz.lua -o recursor/rpz.lua
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/recursor/forward-zones.conf -o recursor/forward-zones.conf
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dnsdist/dnsdist.conf.template -o dnsdist/dnsdist.conf.template
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dnsdist/docker-entrypoint.sh -o dnsdist/docker-entrypoint.sh
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/prometheus/prometheus.yml -o prometheus/prometheus.yml
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/grafana/provisioning/datasources/prometheus.yml -o grafana/provisioning/datasources/prometheus.yml
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/grafana/provisioning/dashboards/dashboards.yml -o grafana/provisioning/dashboards/dashboards.yml
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/grafana/dashboards/dns-overview.json -o grafana/dashboards/dns-overview.json
+git clone https://github.com/Zerostate-IO/PowerBlockade.git
+cd PowerBlockade
 ```
 
-## Step 2: Configure Secrets
+## Step 2: Run Interactive Setup
 
-Generate secure passwords:
+Run the setup script to configure your environment:
 
 ```bash
-# Generate random passwords and update .env
-generate_password() { openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_'; }
-
-sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(generate_password)/" .env
-sed -i "s/^ADMIN_SECRET_KEY=.*/ADMIN_SECRET_KEY=$(generate_password)$(generate_password)/" .env
-sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(generate_password)/" .env
-sed -i "s/^RECURSOR_API_KEY=.*/RECURSOR_API_KEY=$(generate_password)/" .env
-sed -i "s/^PRIMARY_API_KEY=.*/PRIMARY_API_KEY=$(generate_password)/" .env
-sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(generate_password)/" .env
-
-# Fix DATABASE_URL to use the generated postgres password
-PGPASS=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
-sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://powerblockade:${PGPASS}@postgres:5432/powerblockade|" .env
-
-echo "Passwords generated! Your admin password:"
-grep '^ADMIN_PASSWORD=' .env
+./scripts/init-env.sh
 ```
 
-> ⚠️ **Save your admin password!** You'll need it to log in.
+The script will guide you through:
+
+### Port 53 Conflict Detection
+
+The script automatically detects common port 53 conflicts:
+- **systemd-resolved** (Ubuntu's default DNS stub resolver)
+- **Netbird** (VPN DNS resolver)
+- **Tailscale** (VPN DNS resolver)
+- **dnsmasq** (DNS forwarder)
+- **Pi-hole** (DNS server)
+
+If a conflict is found, you can:
+1. **Bind to a specific IP** (recommended) - DNS will only listen on that interface
+2. **Keep binding to all interfaces** - May fail if port is in use
+3. **Stop the conflicting service** - Script will attempt to stop it automatically
+
+### Node Name
+
+Enter a name for this node (default: `primary`). This is used for logging and multi-node setups.
+
+### Admin Credentials
+
+Choose how to set your admin password:
+1. **Auto-generate** (recommended) - Creates a secure random password
+2. **Custom password** - Enter your own (minimum 8 characters)
+
+The script displays your credentials at the end. **Save your admin password** - it won't be shown again.
 
 ## Step 3: Start PowerBlockade
 
-```bash
-docker compose up -d
-```
-
-Wait ~30 seconds for all services to start. Check status:
+Start all services with pre-built images:
 
 ```bash
-docker compose ps
+docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-All containers should show `Up` or `healthy`.
+Wait about 30 seconds for all services to initialize.
+
+### Verify the Stack
+
+```bash
+docker compose -f docker-compose.ghcr.yml ps
+```
+
+All containers should show `running` or `healthy`. If any are restarting:
+
+```bash
+docker compose -f docker-compose.ghcr.yml logs -f <service-name>
+```
 
 ### Version Pinning (Recommended for Production)
 
@@ -140,14 +144,19 @@ To pin to a specific version instead of `latest`:
 
 ```bash
 # Pin to a specific release
-POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Step 4: Access the Admin UI
 
 - **Admin UI**: http://your-server:8080
-- **Username**: `admin`
-- **Password**: (shown in Step 2, or check with `grep ADMIN_PASSWORD .env`)
+- **Username**: `admin` (or what you set during setup)
+- **Password**: (shown at the end of Step 2)
+
+You can also view your password:
+```bash
+grep '^ADMIN_PASSWORD=' .env
+```
 
 ## Step 5: Configure Your Network
 
@@ -195,6 +204,29 @@ dig @localhost google.com
 
 ---
 
+## Secondary Node Setup
+
+For redundancy, deploy additional nodes that sync configuration from your primary:
+
+```bash
+# On the secondary node, clone and run setup
+git clone https://github.com/Zerostate-IO/PowerBlockade.git
+cd PowerBlockade
+./scripts/init-env.sh
+
+# Start with the secondary profile
+docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+```
+
+The secondary node will:
+- Sync blocklists and configuration from the primary
+- Handle DNS queries locally
+- Buffer metrics if the primary is unavailable
+
+See [Multi-Node Architecture](docs/MULTI_NODE_ARCHITECTURE.md) for full details.
+
+---
+
 ## What's Running
 
 | Service | Purpose |
@@ -212,59 +244,65 @@ dig @localhost google.com
 ### View logs
 
 ```bash
-docker compose logs -f admin-ui
-docker compose logs -f dnsdist
-docker compose logs -f recursor
+docker compose -f docker-compose.ghcr.yml logs -f admin-ui
+docker compose -f docker-compose.ghcr.yml logs -f dnsdist
+docker compose -f docker-compose.ghcr.yml logs -f recursor
 ```
 
 ### Stop everything
 
 ```bash
-docker compose down
+docker compose -f docker-compose.ghcr.yml down
 ```
 
 ### Update to latest version
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ### Update to a specific version
 
 ```bash
-POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ### Check status
 
 ```bash
-docker compose ps
+docker compose -f docker-compose.ghcr.yml ps
 ```
 
 ## Troubleshooting
 
 ### Port 53 already in use
 
-Another service is using DNS. Common culprits:
+The init script handles this automatically. If you need to change the bind address after setup:
 
 ```bash
-# Check what's using port 53
-sudo lsof -i :53
+# Edit .env
+DNSDIST_LISTEN_ADDRESS=192.168.1.10  # Your server's LAN IP
 
-# On Ubuntu, disable systemd-resolved
-sudo systemctl disable --now systemd-resolved
+# Restart
+docker compose -f docker-compose.ghcr.yml down
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+To manually check what's using port 53:
+```bash
+sudo lsof -i :53
 ```
 
 ### Can't connect to Admin UI
 
 ```bash
 # Check if admin-ui is running
-docker compose ps admin-ui
+docker compose -f docker-compose.ghcr.yml ps admin-ui
 
 # Check logs for errors
-docker compose logs admin-ui
+docker compose -f docker-compose.ghcr.yml logs admin-ui
 
 # Check firewall allows port 8080
 sudo ufw allow 8080/tcp
@@ -277,10 +315,10 @@ sudo ufw allow 8080/tcp
 dig @localhost google.com
 
 # Check dnsdist logs
-docker compose logs dnsdist
+docker compose -f docker-compose.ghcr.yml logs dnsdist
 
 # Check recursor logs
-docker compose logs recursor
+docker compose -f docker-compose.ghcr.yml logs recursor
 ```
 
 ### Docker network conflicts
@@ -292,13 +330,7 @@ If the default subnet (`172.30.0.0/24`) conflicts with your network:
 ip route | grep 172.30
 
 # Edit .env to use a different subnet
-echo "DOCKER_SUBNET=172.31.0.0/24" >> .env
-echo "RECURSOR_IP=172.31.0.10" >> .env
-echo "DNSTAP_PROCESSOR_IP=172.31.0.20" >> .env
-
-# Restart
-docker compose down
-docker compose up -d
+# (The init script sets these, but you can override)
 ```
 
 ## Next Steps
