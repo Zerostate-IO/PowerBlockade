@@ -158,7 +158,7 @@ echo "Starting services with version $NEW_VERSION..."
 if [ "$IS_SECONDARY" = "true" ]; then
     "${COMPOSE_CMD[@]}" --profile secondary up -d
 else
-    "${COMPOSE_CMD[@]}" --profile primary up -d
+    "${COMPOSE_CMD[@]}" up -d
 fi
 echo "✓ Services started"
 

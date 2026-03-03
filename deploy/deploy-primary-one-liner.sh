@@ -71,8 +71,6 @@ echo "Pulling Docker images..."
 docker compose pull
 echo "✓ Images pulled"
 
-echo "Starting services (with primary profile)..."
-docker compose --profile primary up -d
 echo ""
 echo "Starting services..."
 docker compose up -d
