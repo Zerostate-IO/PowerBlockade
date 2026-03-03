@@ -2,6 +2,8 @@
 
 Get a DNS filtering server running in under 5 minutes using pre-built Docker images.
 
+> **Looking for more detail?** See [Getting Started](docs/GETTING_STARTED.md) for a complete walkthrough, or [Upgrade Guide](docs/UPGRADE.md) for updating an existing installation.
+
 ## Network Topology Overview
 
 ```

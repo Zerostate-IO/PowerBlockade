@@ -38,6 +38,61 @@ POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull && \
 POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
+## Migration Guide
+
+If you're upgrading from an older version of PowerBlockade, you may need to update your workflow. Here are the key changes:
+
+### Setup Commands
+
+The canonical setup path has been simplified:
+
+| Old Command | New Command | Notes |
+|-------------|-------------|-------|
+| `docker compose --profile primary up -d` | `docker compose -f docker-compose.ghcr.yml up -d` | No profile needed; primary is default |
+| `docker compose --profile primary pull` | `docker compose -f docker-compose.ghcr.yml pull` | Use ghcr compose file for pre-built images |
+
+### Environment Setup
+
+The manual secret generation workflow has been replaced with an interactive script:
+
+| Old Workflow | New Workflow | Notes |
+|--------------|--------------|-------|
+| Manual `generate_password()` in shell | `./scripts/init-env.sh` | Script handles all secrets |
+| Manual `sed` commands in .env | `./scripts/init-env.sh` | Interactive prompts |
+| Multiple setup paths | Single canonical path | Reduces confusion |
+
+**Old (deprecated) approach:**
+```bash
+# This manual workflow is deprecated
+ADMIN_PASSWORD=$(openssl rand -base64 24)
+sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$ADMIN_PASSWORD/" .env
+```
+
+**New (recommended) approach:**
+```bash
+./scripts/init-env.sh  # Handles all secrets interactively
+```
+
+### Automation / CI/CD
+
+For non-interactive setups (CI/CD, scripts):
+
+```bash
+./scripts/init-env.sh --non-interactive
+```
+
+This generates all secrets automatically without prompts, suitable for automated deployments.
+
+### Secondary Nodes
+
+Secondary node setup remains the same:
+
+```bash
+docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+```
+
+The `--profile secondary` flag is still required for secondary nodes.
+
 ## Before You Upgrade
 
 ### 1. Check the Release Notes

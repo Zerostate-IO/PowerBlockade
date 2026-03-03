@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Admin UI version bumped to 0.4.0 for consistency
-
+- Setup UX improvements: `--profile primary` removed (primary is now default)
+- Environment setup streamlined: `./scripts/init-env.sh` replaces manual secret generation
+- Added `--non-interactive` mode to init-env.sh for automation/CI
+- Documentation reorganized with canonical setup path and cross-links
 ### Fixed
 - Version alignment across admin-ui and main project
 

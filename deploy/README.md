@@ -214,6 +214,13 @@ dig @127.0.0.1 google.com +short
 
 ---
 
+## Related Documentation
+
+- [Upgrade Guide](../docs/UPGRADE.md) - Detailed upgrade procedures and migration notes
+- [Using Pre-built Images](../docs/USING_PREBUILT_IMAGES.md) - GHCR image configuration and troubleshooting
+
+---
+
 ## GHCR Authentication (Required for Private Packages)
 
 If the Docker images are stored in a private GitHub Container Registry, you must authenticate before pulling.

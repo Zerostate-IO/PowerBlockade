@@ -50,6 +50,12 @@ docker compose up -d --build
 
 [Read more about pre-built images](docs/USING_PREBUILT_IMAGES.md)
 
+## Documentation
+
+- [Quick Start Guide](QUICK_START.md) - Get running in 5 minutes
+- [Getting Started](docs/GETTING_STARTED.md) - Complete walkthrough with Docker setup
+- [Using Pre-built Images](docs/USING_PREBUILT_IMAGES.md) - GHCR image details
+
 ## Access
 
 - **Admin UI**: http://localhost:8080 (single entry point)
