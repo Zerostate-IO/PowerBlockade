@@ -6,43 +6,49 @@ Modern dark UI, multi-node support, Docker-first.
 
 > **New to PowerBlockade?** See the [Getting Started Guide](docs/GETTING_STARTED.md) for a complete walkthrough including Docker installation, initial setup, and understanding the interface.
 
-## Quick start (single-node)
+## Quick start
 
-### Option 1: Use pre-built images (faster, no build)
-
-1. Set your GitHub username or org where images are hosted:
-
-```bash
-export POWERBLOCKADE_REPO=powerblockade  # Replace with your GitHub hosting repo
-```
-
-2. Generate `.env`:
+The canonical setup path uses pre-built images from GitHub Container Registry:
 
 ```bash
 ./scripts/init-env.sh
-```
-
-3. Start the stack with pre-built images:
-
-```bash
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-[Read more about pre-built images](docs/USING_PREBUILT_IMAGES.md)
+That's it. Two commands.
 
-### Option 2: Build locally (for development)
+### What `init-env.sh` does
 
-1. Generate `.env`:
+The setup script is interactive and will prompt you for:
+
+1. **Port 53 handling** - Detects conflicts (systemd-resolved, Netbird, Tailscale, Pi-hole) and offers options
+2. **Node name** - Defaults to `primary`
+3. **Admin credentials** - Choose auto-generated or custom password
+
+After completion, it prints your admin password. Save it.
+
+### Verify the stack is running
+
+```bash
+docker compose -f docker-compose.ghcr.yml ps
+```
+
+All services should show `running` or `healthy`. If any are restarting, check logs:
+
+```bash
+docker compose -f docker-compose.ghcr.yml logs -f <service-name>
+```
+
+### Alternative: Build locally
+
+For development or customization:
 
 ```bash
 ./scripts/init-env.sh
-```
-
-2. Start the stack and build images:
-
-```bash
 docker compose up -d --build
 ```
+
+[Read more about pre-built images](docs/USING_PREBUILT_IMAGES.md)
 
 ## Access
 
