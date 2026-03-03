@@ -55,25 +55,17 @@ done
 # Generate .env if not present
 if [[ ! -f ".env" ]]; then
     echo "Generating .env file..."
-    curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/.env.example -o .env
     
-    # Generate secure passwords
-    generate_password() { openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_'; }
+    # Download init-env.sh if not present
+    if [[ ! -f "scripts/init-env.sh" ]]; then
+        mkdir -p scripts
+        curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/scripts/init-env.sh -o scripts/init-env.sh
+        chmod +x scripts/init-env.sh
+    fi
     
-    sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(generate_password)/" .env
-    sed -i "s/^ADMIN_SECRET_KEY=.*/ADMIN_SECRET_KEY=$(generate_password)$(generate_password)/" .env
-    sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(generate_password)/" .env
-    sed -i "s/^RECURSOR_API_KEY=.*/RECURSOR_API_KEY=$(generate_password)/" .env
-    sed -i "s/^PRIMARY_API_KEY=.*/PRIMARY_API_KEY=$(generate_password)/" .env
-    sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(generate_password)/" .env
+    # Use init-env.sh to bootstrap environment (non-interactive, auto-generates secrets)
+    ./scripts/init-env.sh --non-interactive
     
-    # Fix DATABASE_URL
-    PGPASS=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
-    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://powerblockade:${PGPASS}@postgres:5432/powerblockade|" .env
-    
-    echo ""
-    echo "⚠️  IMPORTANT: Save these credentials!"
-    echo "Admin password: $(grep '^ADMIN_PASSWORD=' .env | cut -d= -f2)"
     echo ""
 fi
 

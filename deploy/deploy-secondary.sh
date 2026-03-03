@@ -70,26 +70,23 @@ done
 # Generate .env if not present
 if [[ ! -f ".env" ]]; then
     echo "Generating .env file..."
-    curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/.env.example -o .env
     
-    # Generate secure passwords
-    generate_password() { openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_'; }
+    # Download init-env.sh if not present
+    if [[ ! -f "scripts/init-env.sh" ]]; then
+        mkdir -p scripts
+        curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/scripts/init-env.sh -o scripts/init-env.sh
+        chmod +x scripts/init-env.sh
+    fi
     
-    sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(generate_password)/" .env
-    sed -i "s/^ADMIN_SECRET_KEY=.*/ADMIN_SECRET_KEY=$(generate_password)$(generate_password)/" .env
-    sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(generate_password)/" .env
-    sed -i "s/^RECURSOR_API_KEY=.*/RECURSOR_API_KEY=$(generate_password)/" .env
-    sed -i "s/^PRIMARY_API_KEY=.*/PRIMARY_API_KEY=$(generate_password)/" .env
-    sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(generate_password)/" .env
+    # Use init-env.sh to bootstrap environment (non-interactive with node name)
+    ./scripts/init-env.sh --non-interactive --node-name "$NODE_NAME"
     
-    # Fix DATABASE_URL
-    PGPASS=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
-    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://powerblockade:${PGPASS}@postgres:5432/powerblockade|" .env
+    echo ""
 fi
 
 # Set secondary node configuration
-echo "Configuring secondary node settings..."
-sed -i "s/^NODE_NAME=.*/NODE_NAME=$NODE_NAME/" .env
+# Note: NODE_NAME is already set via init-env.sh --node-name
+# These are secondary-specific settings not handled by init-env.sh
 sed -i "s|^PRIMARY_URL=.*|PRIMARY_URL=$PRIMARY_URL|" .env
 sed -i "s/^PRIMARY_API_KEY=.*/PRIMARY_API_KEY=$PRIMARY_API_KEY/" .env
 sed -i "s/^LOCAL_NODE_API_KEY=.*/LOCAL_NODE_API_KEY=$(openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_')/" .env
