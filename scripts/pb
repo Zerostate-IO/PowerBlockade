@@ -203,6 +203,184 @@ verify_health() {
     fi
 }
 
+# Doctor command - Preflight and runtime health checks
+cmd_doctor() {
+    local failed=0
+    local preflight_only=false
+    
+    if [[ "${1:-}" == "--preflight" ]]; then
+        preflight_only=true
+    fi
+    
+    echo "PowerBlockade Doctor"
+    echo "===================="
+    echo ""
+    
+    # ============================================
+    # PREFLIGHT CHECKS (work when stack is down)
+    # ============================================
+    
+    echo "Preflight Checks:"
+    echo "-----------------"
+    
+    # Check 1: Docker available
+    if command -v docker &>/dev/null && docker --version &>/dev/null; then
+        log_success "Docker available: $(docker --version | cut -d' ' -f3 | tr -d ',')"
+    else
+        log_error "Docker not available"
+        failed=$((failed + 1))
+    fi
+    
+    # Check 2: Docker daemon running
+    if docker info &>/dev/null; then
+        log_success "Docker daemon running"
+    else
+        log_error "Docker daemon not running or insufficient permissions"
+        failed=$((failed + 1))
+    fi
+    
+    # Check 3: Compose file exists
+    local compose_file="$PROJECT_DIR/docker-compose.ghcr.yml"
+    if [[ -f "$compose_file" ]]; then
+        log_success "Compose file exists: docker-compose.ghcr.yml"
+    else
+        log_error "Compose file missing: docker-compose.ghcr.yml"
+        failed=$((failed + 1))
+    fi
+    
+    # Check 4: .env file exists
+    local env_file="$PROJECT_DIR/.env"
+    if [[ -f "$env_file" ]]; then
+        log_success "Env file exists: .env"
+        
+        # Check 4b: Required env keys
+        local required_keys=("ADMIN_USERNAME" "ADMIN_PASSWORD" "POSTGRES_PASSWORD" "RECURSOR_API_KEY" "ADMIN_SECRET_KEY")
+        local missing_keys=()
+        
+        for key in "${required_keys[@]}"; do
+            if ! grep -q "^${key}=." "$env_file" 2>/dev/null; then
+                missing_keys+=("$key")
+            fi
+        done
+        
+        if [[ ${#missing_keys[@]} -eq 0 ]]; then
+            log_success "Required env keys present"
+        else
+            log_error "Missing/empty env keys: ${missing_keys[*]}"
+        failed=$((failed + 1))
+        fi
+    else
+        log_error "Env file missing: .env"
+        failed=$((failed + 1))
+    fi
+    
+    # Check 5: Config directories exist
+    local config_dirs=("recursor/rpz" "dnsdist")
+    for dir in "${config_dirs[@]}"; do
+        if [[ -d "$PROJECT_DIR/$dir" ]]; then
+            log_success "Config directory exists: $dir"
+        else
+            log_warn "Config directory missing: $dir (may be created on first run)"
+        fi
+    done
+    
+    # Exit early if preflight-only mode
+    if [[ "$preflight_only" == true ]]; then
+        echo ""
+        if [[ $failed -eq 0 ]]; then
+            log_success "All preflight checks passed"
+            exit 0
+        else
+            log_error "$failed preflight check(s) failed"
+            exit 1
+        fi
+    fi
+    
+    echo ""
+    
+    # ============================================
+    # RUNTIME CHECKS (require stack running)
+    # ============================================
+    
+    echo "Runtime Checks:"
+    echo "---------------"
+    
+    cd "$PROJECT_DIR"
+    local compose_files
+    compose_files=$(get_compose_files)
+    
+    # Check 6: Containers running
+    local expected_containers=("powerblockade-dnsdist" "powerblockade-recursor" "powerblockade-postgres" "powerblockade-admin-ui")
+    local container_status
+    container_status=$($COMPOSE_CMD $compose_files ps --format "{{.Names}}:{{.Status}}" 2>/dev/null || echo "")
+    
+    if [[ -z "$container_status" ]]; then
+        log_warn "No containers running (stack may be down)"
+        log_info "Run 'docker compose -f docker-compose.ghcr.yml up -d' to start"
+        failed=$((failed + 1))
+    else
+        local running_count=0
+        for container in "${expected_containers[@]}"; do
+            if echo "$container_status" | grep -q "${container}.*[Uu]p\|${container}.*[Rr]unning\|${container}.*healthy"; then
+                ((running_count++))
+            fi
+        done
+        
+        if [[ $running_count -eq ${#expected_containers[@]} ]]; then
+            log_success "All core containers running ($running_count/${#expected_containers[@]})"
+        else
+            log_warn "Some containers not running ($running_count/${#expected_containers[@]})"
+            # Show status for debugging
+            echo "$container_status" | head -5
+        fi
+    fi
+    
+    # Check 7: Admin UI health endpoint
+    if curl -sf --max-time 5 "http://localhost:8080/health" &>/dev/null; then
+        log_success "Admin UI health: OK (http://localhost:8080/health)"
+    else
+        local health_code
+        health_code=$(curl -sf --max-time 5 -o /dev/null -w "%{http_code}" "http://localhost:8080/health" 2>/dev/null || echo "000")
+        if [[ "$health_code" == "200" ]]; then
+            log_success "Admin UI health: OK (http://localhost:8080/health)"
+        else
+            log_error "Admin UI health: FAILED (HTTP $health_code)"
+        failed=$((failed + 1))
+        fi
+    fi
+    
+    # Check 8: DNS resolution test
+    if command -v dig &>/dev/null; then
+        local dns_result
+        dns_result=$(dig @127.0.0.1 google.com +short +time=3 2>/dev/null || echo "")
+        if [[ -n "$dns_result" ]]; then
+            log_success "DNS resolution: OK (google.com resolved)"
+        else
+            log_warn "DNS resolution: FAILED (dnsdist may not be running on 127.0.0.1:53)"
+            # Don't count as failure - DNS may be bound to different interface
+        fi
+    else
+        log_warn "DNS resolution: SKIPPED (dig not installed)"
+    fi
+    
+    # Check 9: PostgreSQL connectivity (via admin-ui container)
+    if $COMPOSE_CMD $compose_files exec -T postgres pg_isready -U powerblockade &>/dev/null; then
+        log_success "PostgreSQL: accepting connections"
+    else
+        log_warn "PostgreSQL: not accepting connections (may be starting up)"
+    fi
+    
+    echo ""
+    echo "==========================================="
+    
+    if [[ $failed -eq 0 ]]; then
+        log_success "All checks passed"
+        exit 0
+    else
+        log_error "$failed check(s) failed"
+        exit 1
+    fi
+}
 cmd_version() {
     echo "pb version $VERSION"
     echo ""
@@ -471,6 +649,7 @@ Commands:
     rollback        Rollback to previous version
     backup          Create database and config backup
     test            Run E2E tests against deployment
+    doctor          Run health and preflight checks
     version         Show CLI version
     help            Show this help
 
@@ -485,6 +664,9 @@ Test Options:
     pb test [primary_ip] [secondary_ip]
     Default IPs: 10.5.5.2 (primary), 10.5.5.3 (secondary)
 
+Doctor Options:
+    pb doctor            Run preflight and runtime health checks
+    pb doctor --preflight Run only preflight checks (stack can be down)
 Examples:
     pb status
     pb check-update
@@ -521,6 +703,9 @@ main() {
             ;;
         test)
             cmd_test "$@"
+            ;;
+        doctor)
+            cmd_doctor "$@"
             ;;
         version|-v|--version)
             cmd_version

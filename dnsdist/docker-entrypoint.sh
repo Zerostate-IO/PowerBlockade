@@ -6,6 +6,7 @@ RECURSOR_IP="${RECURSOR_IP:-172.30.0.10}"
 DNSTAP_PROCESSOR_IP="${DNSTAP_PROCESSOR_IP:-172.30.0.20}"
 DNSTAP_PORT="${DNSTAP_PORT:-6000}"
 CHECK_INTERVAL="${DNSTAP_CHECK_INTERVAL:-10}"
+DNSTAP_WAIT_TIMEOUT_SECONDS="${DNSTAP_WAIT_TIMEOUT_SECONDS:-60}"
 
 # Generate dnsdist.conf from template with IP substitution
 # Write to /tmp since /etc/dnsdist is read-only mounted
@@ -19,19 +20,41 @@ check_dnstap() {
     timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_PROCESSOR_IP/$DNSTAP_PORT" 2>/dev/null
 }
 
-# Wait for dnstap-processor to be ready before starting dnsdist
-echo "Waiting for dnstap-processor at $DNSTAP_PROCESSOR_IP:$DNSTAP_PORT..."
-while ! check_dnstap; do
+# Wait for dnstap-processor with bounded timeout
+# DNS should work even when logging pipeline is unavailable
+WAIT_START=$(date +%s)
+TIMEOUT_SECS=$DNSTAP_WAIT_TIMEOUT_SECONDS
+echo "Waiting for dnstap-processor at $DNSTAP_PROCESSOR_IP:$DNSTAP_PORT (timeout: ${TIMEOUT_SECS}s)..."
+
+DNSTAP_READY=false
+while true; do
+    ELAPSED=$(($(date +%s) - WAIT_START))
+    if [ $ELAPSED -ge $TIMEOUT_SECS ]; then
+        echo "WARNING: dnstap-processor not ready after ${TIMEOUT_SECS}s, starting dnsdist without dnstap logging"
+        echo "DNS queries will be served but not logged until dnstap-processor becomes available"
+        break
+    fi
+    
+    if check_dnstap; then
+        echo "dnstap-processor is ready (${ELAPSED}s)"
+        DNSTAP_READY=true
+        break
+    fi
+    
     sleep 1
 done
-echo "dnstap-processor is ready"
+
 
 # Start dnsdist in background
 dnsdist --supervised -C /tmp/dnsdist.conf &
 DNSDIST_PID=$!
 
 # Track the last known state of dnstap-processor
-LAST_STATE="up"
+if [ "$DNSTAP_READY" = "true" ]; then
+    LAST_STATE="up"
+else
+    LAST_STATE="down"
+fi
 
 # Monitor loop - if dnstap-processor goes down and comes back up, restart dnsdist
 while kill -0 $DNSDIST_PID 2>/dev/null; do

@@ -288,6 +288,7 @@ services:
     volumes:
       - ./recursor/rpz:/etc/pdns-recursor/rpz
       - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf
+      - sync-agent-buffer:/var/lib/powerblockade
     depends_on:
       init-permissions:
         condition: service_completed_successfully
@@ -305,6 +306,7 @@ volumes:
   dnstap-buffer:
   traefik-letsencrypt:
   alertmanager-data:
+  sync-agent-buffer:
 
 networks:
   default:

@@ -78,11 +78,12 @@ def validate_security_settings() -> None:
 
 
 def bootstrap_admin() -> None:
-    # Best-effort bootstrap: ensure admin user exists.
+    # Best-effort bootstrap: ensure admin user exists and password matches env.
     # Migrations should create the table; if not, skip.
     from sqlalchemy import text
 
     from app.db.session import engine
+    from app.security import verify_password
 
     with engine.begin() as conn:
         try:
@@ -93,7 +94,7 @@ def bootstrap_admin() -> None:
         username = settings.admin_username
         password = settings.admin_password
         existing = conn.execute(
-            text("SELECT id FROM users WHERE username = :u"),
+            text("SELECT id, password_hash FROM users WHERE username = :u"),
             {"u": username},
         ).fetchone()
         if existing is None:
@@ -101,7 +102,17 @@ def bootstrap_admin() -> None:
                 text("INSERT INTO users (username, password_hash) VALUES (:u, :p)"),
                 {"u": username, "p": hash_password(password)},
             )
-
+            log.info(f"Created admin user '{username}' from environment")
+        else:
+            # Reconcile password if it doesn't match env
+            if not verify_password(password, existing.password_hash):
+                conn.execute(
+                    text("UPDATE users SET password_hash = :p WHERE username = :u"),
+                    {"p": hash_password(password), "u": username},
+                )
+                log.info(
+                    f"Reconciled admin password for '{username}' from ADMIN_PASSWORD env var"
+                )
 
 def bootstrap_primary_node() -> None:
     import hashlib

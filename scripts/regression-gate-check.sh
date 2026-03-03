@@ -199,6 +199,16 @@ run_sql() {
     fi
 }
 
+run_sql_with_stderr() {
+    local query="$1"
+    
+    if [[ -n "$DATABASE_URL" ]]; then
+        psql "$DATABASE_URL" -t -c "$query" 2>&1 | tr -d ' \n'
+    else
+        docker compose exec -T postgres psql -U powerblockade -t -c "$query" 2>&1 | tr -d ' \n'
+    fi
+}
+
 fetch_url() {
     local url="$1"
     local timeout="${2:-10}"
@@ -350,7 +360,7 @@ gate_schema_integrity() {
     log_section "Gate 5: Schema Integrity"
     
     local result
-    result=$(run_sql "SELECT COUNT(*) FROM dns_query_events WHERE ts > now() - interval '1 hour' LIMIT 1" 2>&1)
+    result=$(run_sql_with_stderr "SELECT COUNT(*) FROM dns_query_events WHERE ts > now() - interval '1 hour' LIMIT 1")
     
     if [[ "$result" =~ "does not exist" || "$result" =~ "column" ]]; then
         record_gate "schema_integrity" "failed" "Schema error"
@@ -358,13 +368,13 @@ gate_schema_integrity() {
     fi
     
     local column_check
-    column_check=$(run_sql "
+    column_check=$(run_sql_with_stderr "
         SELECT COUNT(*) FROM dns_query_events 
         WHERE ts > now() - interval '1 hour'
           AND client_ip IS NOT NULL
           AND latency_ms IS NOT NULL
           AND blocked IS NOT NULL
-    " 2>&1)
+    ")
     
     if [[ "$column_check" =~ "does not exist" ]]; then
         record_gate "schema_integrity" "failed" "Missing required columns"

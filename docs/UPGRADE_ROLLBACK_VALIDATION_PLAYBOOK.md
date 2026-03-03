@@ -1,441 +1,471 @@
 # Upgrade and Rollback Validation Playbook
 
-**Document Version**: 1.0  
-**Date**: 2026-02-25  
+**Document Version**: 2.0
+**Date**: 2026-03-03
 **Status**: Operational Playbook
 
 ---
 
-## 1. Overview
+## Overview
 
-This playbook provides step-by-step procedures for upgrading PowerBlockade and validating successful rollback. It ensures data retention settings are preserved and system integrity is maintained.
+This playbook provides deterministic pre-flight, in-flight, and post-flight checks for PowerBlockade upgrades and rollbacks. Every check includes a command, expected output, and fail action.
 
----
-
-## 2. Pre-Upgrade Checklist
-
-### 2.1 System Health Verification
-
-```bash
-# Check current status
-./scripts/pb status
-
-# Verify all services healthy
-docker compose ps
-
-# Check disk space (need 500MB+)
-df -h .
-```
-
-### 2.2 Retention Configuration Audit
-
-```bash
-# Export current retention settings
-docker compose exec postgres psql -U powerblockade -c "
-SELECT key, value FROM settings 
-WHERE key LIKE 'retention_%';
-" > retention-settings-backup.txt
-
-# Verify expected values
-cat retention-settings-backup.txt
-```
-
-**Expected Settings**:
-| Key | Expected Value |
-|-----|---------------|
-| `retention_query_logs_days` | Per policy (default 15) |
-| `retention_node_metrics_days` | Per policy (verify!) |
-| `retention_audit_logs_days` | Per policy (default 90) |
-
-### 2.3 Node Status Audit
-
-```bash
-# List all nodes and their sync positions
-curl -s http://localhost:8080/api/nodes | jq '.[] | {name, status, last_seen}'
-```
-
-**Record for comparison after upgrade**:
-- Node names
-- Current status
-- Last sync timestamps
-
-### 2.4 Observability Backup (Manual)
-
-```bash
-# Backup Grafana database
-docker compose exec grafana sqlite3 /var/lib/grafana/grafana.db ".backup /tmp/grafana-backup.db"
-docker compose cp grafana:/tmp/grafana-backup.db backups/grafana-$(date +%Y%m%d).db
-
-# Backup Prometheus data
-docker compose exec prometheus tar -czf /tmp/prometheus-backup.tar.gz /prometheus
-docker compose cp prometheus:/tmp/prometheus-backup.tar.gz backups/prometheus-$(date +%Y%m%d).tar.gz
-```
+**Key Principles**:
+- Never upgrade without capturing baseline state
+- Every migration is a potential rollback point
+- Drift detection catches data/observability misalignment
+- Rollback rehearsals validate recovery procedures
 
 ---
 
-## 3. Upgrade Procedure
+## 1. Pre-Flight Checklist
 
-### 3.1 Standard Upgrade
+Run these checks before ANY upgrade. All ABORT-level checks must pass.
+
+### 1.1 Service Health Baseline
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| All services healthy | `./scripts/pb doctor` | "All checks passed" | **ABORT** |
+| PostgreSQL reachable | `docker compose -f docker-compose.ghcr.yml exec -T postgres pg_isready -U powerblockade` | "accepting connections" | **ABORT** |
+| Admin UI responding | `curl -sf http://localhost:8080/health` | HTTP 200, "healthy" | **ABORT** |
+| DNS resolution works | `dig @127.0.0.1 google.com +short` | Returns IP address | **WARN** |
+
+### 1.2 Database State Capture
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Row counts baseline | See command block below | Table counts returned | **ABORT** |
+| Date ranges baseline | See command block below | Min/max dates returned | **ABORT** |
+| Migration status | `docker compose -f docker-compose.ghcr.yml exec -T admin-ui alembic current` | Shows current revision | **ABORT** |
+
+**Row Counts Baseline Command**:
+```bash
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT 'dns_query_events' as tbl, count(*) FROM dns_query_events
+UNION ALL SELECT 'query_rollups', count(*) FROM query_rollups
+UNION ALL SELECT 'node_metrics', count(*) FROM node_metrics
+UNION ALL SELECT 'blocklists', count(*) FROM blocklists
+UNION ALL SELECT 'manual_entries', count(*) FROM manual_entries
+UNION ALL SELECT 'nodes', count(*) FROM nodes;
+" > /tmp/pre-upgrade-row-counts.txt
+```
+
+**Date Ranges Baseline Command**:
+```bash
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT 'dns_query_events', min(ts)::date, max(ts)::date FROM dns_query_events
+UNION ALL SELECT 'query_rollups', min(bucket_start)::date, max(bucket_start)::date FROM query_rollups
+UNION ALL SELECT 'node_metrics', min(ts)::date, max(ts)::date FROM node_metrics;
+" > /tmp/pre-upgrade-date-ranges.txt
+```
+
+### 1.3 Retention Settings Capture
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Retention config | See command below | retention_% keys returned | **ABORT** |
+| Values in range | Manual inspection | 7-90 days events, 30-730 rollups | **WARN** |
 
 ```bash
-# Run upgrade
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT key, value FROM settings WHERE key LIKE 'retention_%';
+" > /tmp/pre-upgrade-retention-settings.txt
+```
+
+### 1.4 Config State Capture
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Blocklist state | See command below | Blocklist rows returned | **CONTINUE** |
+| Forward zones | See command below | Zone rows returned | **CONTINUE** |
+
+```bash
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT id, name, enabled, list_type, last_updated FROM blocklists ORDER BY id;
+" > /tmp/pre-upgrade-blocklists.txt
+
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT * FROM forward_zones;
+" > /tmp/pre-upgrade-forward-zones.txt
+```
+
+### 1.5 Observability Baseline
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Prometheus metrics | `curl -s http://localhost:8080/metrics > /tmp/pre-upgrade-metrics.txt` | Non-empty file | **WARN** |
+| Key metrics present | `grep -E "powerblockade_queries_total\|powerblockade_blocked_total" /tmp/pre-upgrade-metrics.txt` | Metric lines found | **WARN** |
+| Grafana healthy | `curl -sf http://localhost:8080/grafana/api/health` | "ok" response | **WARN** |
+
+### 1.6 Disk Space and Backup
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Disk space | `df -h . \| awk 'NR==2 {print $4}'` | >= 500MB available | **ABORT** |
+| Backup directory | `ls shared/backups/` | Directory exists | **ABORT** |
+| Create backup | `./scripts/pb backup` | "Backup created" | **ABORT** |
+| Backup valid | `head -5 shared/backups/pre-upgrade-*.sql \| tail -1` | PostgreSQL dump header | **ABORT** |
+
+### 1.7 Dry-Run Check (Optional)
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Pull images only | `docker compose -f docker-compose.ghcr.yml pull` | Images pulled, no errors | **WARN** |
+| Check pending migrations | `docker compose -f docker-compose.ghcr.yml exec -T admin-ui alembic history --verbose \| head -20` | Shows migration history | **CONTINUE** |
+
+---
+
+## 2. In-Flight Monitoring
+
+Watch these indicators during the upgrade process.
+
+### 2.1 Upgrade Execution
+
+```bash
+# Start upgrade
 ./scripts/pb update
 ```
 
-**This automatically**:
-1. ✅ Backs up database (`backups/pre-upgrade-*.sql`)
-2. ✅ Backs up config (`.env`, `shared/rpz/`, `shared/forward-zones/`)
-3. ✅ Pulls new images
-4. ✅ Runs migrations
-5. ✅ Migrates Recursor legacy settings to current equivalents
-6. ✅ Restarts services
-7. ✅ Verifies health
+### 2.2 Real-Time Monitoring Commands
 
-### 3.2 Upgrade to Specific Version
+| What to Monitor | Command | Normal Indicator | Problem Indicator |
+|-----------------|---------|------------------|-------------------|
+| Container status | `watch -n 2 'docker compose -f docker-compose.ghcr.yml ps'` | Containers starting | Repeated restarts |
+| Migration logs | `docker compose -f docker-compose.ghcr.yml logs -f admin-ui 2>&1 \| grep -E "alembic\|migration"` | "Running upgrade" | Error messages |
+| Database connections | `docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -c "SELECT count(*) FROM pg_stat_activity;"` | Low connection count | Connections climbing |
+| Disk I/O | `iostat -x 2 2` | Moderate util | 100% util sustained |
 
-```bash
-./scripts/pb update --to 1.2.0
-```
+### 2.3 Timeout Thresholds
 
-### 3.3 Skip Backup (Not Recommended)
-
-```bash
-./scripts/pb update --skip-backup
-```
+| Stage | Max Duration | Action if Exceeded |
+|-------|--------------|-------------------|
+| Image pull | 5 minutes | Check network, retry |
+| Database backup | 10 minutes | Check disk I/O |
+| Migration run | 5 minutes | Check migration logs |
+| Service restart | 2 minutes | Check container logs |
 
 ---
 
-## 4. Post-Upgrade Validation
+## 3. Post-Flight Verification
 
-### 4.1 Service Health Check
+Run these checks immediately after upgrade completes.
 
+### 3.1 Service Health Verification
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| All services up | `docker compose -f docker-compose.ghcr.yml ps` | All "running" or "healthy" | **ABORT → ROLLBACK** |
+| Health endpoint | `curl -sf http://localhost:8080/health` | HTTP 200 | **ABORT → ROLLBACK** |
+| Version check | `./scripts/pb version` | New version displayed | **WARN** |
+| API version | `curl -s http://localhost:8080/api/version \| jq .` | JSON with new version | **WARN** |
+
+### 3.2 Database Continuity Verification
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Migration current | `docker compose -f docker-compose.ghcr.yml exec -T admin-ui alembic current` | Latest revision | **ABORT → ROLLBACK** |
+| Row counts compare | `diff /tmp/pre-upgrade-row-counts.txt <(docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT 'dns_query_events', count(*) FROM dns_query_events UNION ALL SELECT 'query_rollups', count(*) FROM query_rollups UNION ALL SELECT 'node_metrics', count(*) FROM node_metrics UNION ALL SELECT 'blocklists', count(*) FROM blocklists UNION ALL SELECT 'manual_entries', count(*) FROM manual_entries UNION ALL SELECT 'nodes', count(*) FROM nodes;")` | No diff (or minor +delta) | **WARN** |
+| Date ranges preserved | `diff /tmp/pre-upgrade-date-ranges.txt <(docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT 'dns_query_events', min(ts)::date, max(ts)::date FROM dns_query_events UNION ALL SELECT 'query_rollups', min(bucket_start)::date, max(bucket_start)::date FROM query_rollups UNION ALL SELECT 'node_metrics', min(ts)::date, max(ts)::date FROM node_metrics;")` | Same min dates | **ABORT → ROLLBACK** |
+| Retention preserved | `diff /tmp/pre-upgrade-retention-settings.txt <(docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';")` | No diff | **WARN** |
+
+### 3.3 Functional Verification
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| DNS resolution | `dig @127.0.0.1 google.com +short` | Returns IP | **ABORT → ROLLBACK** |
+| Blocking works | `dig @127.0.0.1 doubleclick.net +short` | 0.0.0.0 or NXDOMAIN | **WARN** |
+| Query ingestion | See command block below | Event appears in DB | **WARN** |
+| Admin UI login | `curl -sf http://localhost:8080/` | HTTP 200, HTML returned | **WARN** |
+| Grafana proxy | `curl -sf http://localhost:8080/grafana/api/health` | "ok" response | **WARN** |
+
+**Query Ingestion Test**:
 ```bash
-# Check all services running
-docker compose ps
+# Generate test query
+dig @127.0.0.1 post-upgrade-test-$(date +%s).example.com
 
-# Verify health endpoint
-curl -sf http://localhost:8080/health
+# Wait for ingestion
+sleep 5
 
-# Check version
-curl -s http://localhost:8080/api/version | jq .
-```
-
-### 4.2 Retention Settings Verification
-
-```bash
-# Compare with pre-upgrade backup
-docker compose exec postgres psql -U powerblockade -c "
-SELECT key, value FROM settings 
-WHERE key LIKE 'retention_%';
-" > retention-settings-after.txt
-
-# Diff
-diff retention-settings-backup.txt retention-settings-after.txt
-```
-
-**Expected**: No differences. If differences exist, investigate migration.
-
-### 4.3 Database Schema Verification
-
-```bash
-# Check migration version
-docker compose exec admin-ui alembic current
-
-# Expected: latest revision
-```
-
-### 4.4 Node Sync Verification
-
-```bash
-# Check node status
-curl -s http://localhost:8080/api/nodes | jq '.[] | {name, status, last_seen}'
-
-# Compare with pre-upgrade record
-# All nodes should show ACTIVE status
-# last_seen should be recent
-```
-
-### 4.5 Data Integrity Checks
-
-```bash
-# Check table counts
-docker compose exec postgres psql -U powerblockade -c "
-SELECT 
-  (SELECT COUNT(*) FROM query_logs) as query_logs,
-  (SELECT COUNT(*) FROM node_metrics) as node_metrics,
-  (SELECT COUNT(*) FROM audit_logs) as audit_logs,
-  (SELECT COUNT(*) FROM blocks) as blocks,
-  (SELECT COUNT(*) FROM nodes) as nodes;
+# Verify event appears
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT * FROM dns_query_events 
+WHERE qname LIKE '%post-upgrade-test%' 
+ORDER BY ts DESC LIMIT 1;
 "
 ```
 
-### 4.6 Functional Tests
+### 3.4 Observability Alignment
 
-```bash
-# Test DNS resolution
-dig @127.0.0.1 example.com
-
-# Test admin UI login
-curl -sf http://localhost:8080/
-
-# Test Grafana proxy
-curl -sf http://localhost:8080/grafana/
-```
-
-### 4.7 Recursor Migration Verification (v0.7.0+)
-
-```bash
-# Ensure migration ran
-docker compose logs recursor | grep migrate-recursor-settings
-
-# Ensure backup exists
-ls -la recursor/recursor.conf.template.bak.pre-migration
-```
-
-**Expected**:
-- Recursor logs contain at least one `migrate-recursor-settings:` line.
-- Backup file exists while upgrade validation is in progress.
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Metrics endpoint | `curl -s http://localhost:8080/metrics > /tmp/post-upgrade-metrics.txt` | Non-empty file | **WARN** |
+| Metrics comparable | `grep -E "powerblockade_queries_total" /tmp/post-upgrade-metrics.txt` | Value near pre-upgrade | **WARN** |
+| Prometheus targets | `curl -s http://localhost:9090/api/v1/targets \| jq '.data.activeTargets[].health'` | "up" status | **WARN** |
+| Grafana dashboards | `curl -sf http://localhost:8080/grafana/api/search` | JSON array of dashboards | **WARN** |
 
 ---
 
-## 5. Rollback Procedure
+## 4. Rollback Procedure
 
-### 5.1 Standard Rollback
+### 4.1 Pre-Rollback Assessment
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| State file exists | `cat .pb-state.json \| jq .` | Valid JSON with versions | **ABORT** |
+| Backup file exists | `ls -la $(jq -r '.last_db_backup' .pb-state.json)` | File listed with size | **ABORT** |
+| Backup integrity | `file $(jq -r '.last_db_backup' .pb-state.json)` | "PostgreSQL..." | **ABORT** |
+
+### 4.2 Standard Rollback
 
 ```bash
-# Run rollback with database restore
+# Execute rollback with database restore
 ./scripts/pb rollback
 ```
 
-**This automatically**:
-1. ✅ Reads previous version from state
-2. ✅ Prompts for confirmation
-3. ✅ Stops services
-4. ✅ Restores database from backup
-5. ✅ Starts services
-6. ✅ Verifies health
+This automatically:
+1. Reads previous version from `.pb-state.json`
+2. Prompts for confirmation
+3. Stops services
+4. Restores database from backup
+5. Starts services on previous version
+6. Verifies health
 
-### 5.2 Fast Rollback (Schema Compatible Only)
+### 4.3 Fast Rollback (Schema Compatible Only)
 
 ```bash
-# Skip database restore - only safe if schema is N-1 compatible
+# Skip database restore - only if schema unchanged
 ./scripts/pb rollback --fast
 ```
 
-**Warning**: Use `--fast` only when:
+**Prerequisites for --fast**:
 - Schema has not changed between versions
 - No data migrations were run
 - You're certain data is compatible
 
-### 5.3 Manual Rollback
-
-If `pb rollback` fails:
+### 4.4 Manual Rollback (If pb rollback Fails)
 
 ```bash
-# 1. Stop services
-docker compose down
+# 1. Stop all services
+docker compose -f docker-compose.ghcr.yml down
 
 # 2. Start postgres only
-docker compose up -d postgres
+docker compose -f docker-compose.ghcr.yml up -d postgres
 sleep 5
 
 # 3. Find latest backup
-ls -lt backups/pre-upgrade-*.sql | head -1
+BACKUP_FILE=$(ls -t shared/backups/pre-upgrade-*.sql 2>/dev/null | head -1)
 
 # 4. Restore database
-docker compose exec -T postgres psql -U powerblockade -c "
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -c "
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 "
-docker compose exec -T postgres psql -U powerblockade powerblockade < backups/pre-upgrade-TIMESTAMP.sql
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade powerblockade < "$BACKUP_FILE"
 
 # 5. Pull previous images (if needed)
-docker compose pull
+docker compose -f docker-compose.ghcr.yml pull
 
 # 6. Start services
-docker compose up -d
+docker compose -f docker-compose.ghcr.yml up -d
 
-# 7. Verify health
-./scripts/pb status
+# 7. Verify
+./scripts/pb doctor
 ```
 
 ---
 
-## 6. Post-Rollback Validation
+## 5. Post-Rollback Verification
 
-### 6.1 Service Health Check
+### 5.1 Service Health
 
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| All services up | `docker compose -f docker-compose.ghcr.yml ps` | All "running" or "healthy" | **DEBUG** |
+| Health endpoint | `curl -sf http://localhost:8080/health` | HTTP 200 | **DEBUG** |
+| Version reverted | `./scripts/pb version` | Previous version | **WARN** |
+
+### 5.2 Data Integrity After Rollback
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Row counts match | Compare with `/tmp/pre-upgrade-row-counts.txt` | Same or earlier timestamp | **WARN** |
+| Retention settings | `diff /tmp/pre-upgrade-retention-settings.txt <(docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT key, value FROM settings WHERE key LIKE 'retention_%';")` | No diff | **WARN** |
+| Date ranges match | Compare with `/tmp/pre-upgrade-date-ranges.txt` | Same min dates | **WARN** |
+
+### 5.3 Functional Verification After Rollback
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| DNS resolution | `dig @127.0.0.1 google.com +short` | Returns IP | **DEBUG** |
+| Blocking works | `dig @127.0.0.1 doubleclick.net +short` | 0.0.0.0 or NXDOMAIN | **WARN** |
+| Query ingestion | `dig @127.0.0.1 rollback-test.example.com && sleep 5 && docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT count(*) FROM dns_query_events WHERE qname LIKE '%rollback-test%';"` | count >= 1 | **WARN** |
+
+---
+
+## 6. Drift Detection
+
+Detect misalignment between database state and observability systems.
+
+### 6.1 Schema Drift
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Alembic check | `docker compose -f docker-compose.ghcr.yml exec -T admin-ui alembic check` | "No problems detected" | **WARN** |
+| Table existence | `docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;"` | Expected tables listed | **ABORT** |
+
+### 6.2 Data Drift
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Orphaned metrics | See command below | count = 0 | **WARN** |
+| Rollup continuity | See command below | No gaps > 2 hours | **WARN** |
+| Node alignment | See command below | All nodes have recent metrics | **WARN** |
+
+**Orphaned Metrics Check**:
 ```bash
-# Same as post-upgrade validation
-./scripts/pb status
-curl -sf http://localhost:8080/health
-```
-
-### 6.2 Retention Settings Verification
-
-```bash
-# Compare with pre-upgrade backup
-docker compose exec postgres psql -U powerblockade -c "
-SELECT key, value FROM settings 
-WHERE key LIKE 'retention_%';
-" > retention-settings-rollback.txt
-
-diff retention-settings-backup.txt retention-settings-rollback.txt
-```
-
-**Expected**: No differences. Rollback should restore exact state.
-
-### 6.3 Data Integrity Checks
-
-```bash
-# Check table counts match pre-upgrade
-docker compose exec postgres psql -U powerblockade -c "
-SELECT 
-  (SELECT COUNT(*) FROM query_logs) as query_logs,
-  (SELECT COUNT(*) FROM node_metrics) as node_metrics,
-  (SELECT COUNT(*) FROM audit_logs) as audit_logs;
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT count(*) as orphaned_metrics FROM node_metrics m
+WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = m.node_id);
 "
 ```
 
-### 6.4 Observability State Check
-
-**Note**: Observability volumes (Grafana, Prometheus) are NOT automatically restored.
-
+**Rollup Continuity Check**:
 ```bash
-# Check if manual restore needed
-ls -la backups/grafana-*.db 2>/dev/null
-ls -la backups/prometheus-*.tar.gz 2>/dev/null
-
-# If backups exist and restore needed:
-# Grafana restore
-docker compose cp backups/grafana-TIMESTAMP.db grafana:/var/lib/grafana/grafana.db
-docker compose restart grafana
-
-# Prometheus restore
-docker compose cp backups/prometheus-TIMESTAMP.tar.gz prometheus:/tmp/
-docker compose exec prometheus tar -xzf /tmp/prometheus-TIMESTAMP.tar.gz -C /
-docker compose restart prometheus
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT 
+  date_trunc('hour', bucket_start) as hour,
+  count(*) as rollup_count
+FROM query_rollups
+WHERE bucket_start > now() - interval '24 hours'
+GROUP BY date_trunc('hour', bucket_start)
+ORDER BY hour;
+"
 ```
+
+**Node Alignment Check**:
+```bash
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "
+SELECT 
+  n.name as node_name,
+  count(m.id) as metrics_count,
+  max(m.ts) as latest_metric
+FROM nodes n
+LEFT JOIN node_metrics m ON n.id = m.node_id
+GROUP BY n.name
+ORDER BY n.name;
+"
+```
+
+### 6.3 Observability vs Database Drift
+
+| Check | Command | Expected Output | Fail Action |
+|-------|---------|-----------------|-------------|
+| Prometheus vs DB count | Compare `powerblockade_queries_total` with `SELECT count(*) FROM dns_query_events WHERE ts > now() - interval '24 hours'` | Within 5% | **WARN** |
+| Grafana data source | `curl -s http://localhost:8080/grafana/api/datasources \| jq '.[].name'` | postgres datasource exists | **WARN** |
 
 ---
 
-## 7. Failure Scenarios
+## 7. Rollback Rehearsal Procedure
 
-### 7.1 Migration Fails
+Practice rollback before you need it for real.
 
-**Symptoms**: `alembic upgrade head` returns error
+### 7.1 Pre-Rehearsal Checklist
 
-**Recovery**:
+| Step | Command | Notes |
+|------|---------|-------|
+| 1. Create fresh backup | `./scripts/pb backup` | Rehearsal will test restore |
+| 2. Note current version | `./scripts/pb version > /tmp/rehearsal-version.txt` | For comparison |
+| 3. Capture row counts | See pre-flight section | Baseline for verification |
+
+### 7.2 Rehearsal Execution
+
 ```bash
-# Do NOT restart services
-# Database is in unknown state
+# 1. Simulate upgrade issue (stop admin-ui only)
+docker compose -f docker-compose.ghcr.yml stop admin-ui
 
-# 1. Check migration status
-docker compose exec admin-ui alembic current
+# 2. Execute rollback
+./scripts/pb rollback
 
-# 2. Review migration error
-docker compose logs admin-ui
+# 3. Verify services restored
+./scripts/pb doctor
 
-# 3. If recoverable, fix and retry
-docker compose exec admin-ui alembic upgrade head
+# 4. Verify data integrity
+# Run post-rollback verification section
 
-# 4. If not recoverable, rollback
+# 5. Document results
+echo "Rehearsal completed: $(date)" >> /tmp/rollback-rehearsal.log
+```
+
+### 7.3 Rehearsal Success Criteria
+
+- [ ] Rollback command completes without error
+- [ ] All services return to healthy state
+- [ ] Row counts match pre-rehearsal baseline
+- [ ] DNS resolution works after rollback
+- [ ] Version matches pre-rehearsal version
+
+---
+
+## 8. Quick Reference: Copy-Paste Commands
+
+### Pre-Flight One-Liner
+
+```bash
+./scripts/pb doctor && \
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT 'dns_query_events', count(*) FROM dns_query_events UNION ALL SELECT 'query_rollups', count(*) FROM query_rollups UNION ALL SELECT 'node_metrics', count(*) FROM node_metrics;" > /tmp/pre-upgrade-row-counts.txt && \
+curl -s http://localhost:8080/metrics > /tmp/pre-upgrade-metrics.txt && \
+./scripts/pb backup && \
+echo "Pre-flight complete. Ready for: ./scripts/pb update"
+```
+
+### Post-Flight One-Liner
+
+```bash
+./scripts/pb doctor && \
+docker compose -f docker-compose.ghcr.yml exec -T admin-ui alembic current && \
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -d powerblockade -c "SELECT 'dns_query_events', count(*) FROM dns_query_events UNION ALL SELECT 'query_rollups', count(*) FROM query_rollups UNION ALL SELECT 'node_metrics', count(*) FROM node_metrics;" > /tmp/post-upgrade-row-counts.txt && \
+curl -s http://localhost:8080/metrics > /tmp/post-upgrade-metrics.txt && \
+diff /tmp/pre-upgrade-row-counts.txt /tmp/post-upgrade-row-counts.txt && \
+echo "Post-flight complete."
+```
+
+### Rollback One-Liner
+
+```bash
+cat .pb-state.json | jq '{current, previous, backup: .last_db_backup}' && \
+ls -la $(jq -r '.last_db_backup' .pb-state.json) && \
 ./scripts/pb rollback
 ```
 
-### 7.2 Services Won't Start
+---
 
-**Symptoms**: `docker compose up -d` fails
+## 9. Failure Scenario Decision Matrix
 
-**Recovery**:
-```bash
-# Check logs
-docker compose logs
-
-# Common issues:
-# - Port conflicts: lsof -i :8080
-# - Volume issues: docker volume ls
-# - Permission issues: ls -la shared/
-
-# Force recreate
-docker compose down
-docker compose up -d --force-recreate
-```
-
-### 7.3 Database Restore Fails
-
-**Symptoms**: `psql` restore errors
-
-**Recovery**:
-```bash
-# Try with single transaction
-docker compose exec -T postgres psql -U powerblockade -1 -f backups/pre-upgrade-*.sql powerblockade
-
-# If still failing, check backup integrity
-head -20 backups/pre-upgrade-*.sql
-tail -20 backups/pre-upgrade-*.sql
-
-# Last resort: start fresh
-docker compose down -v  # WARNING: deletes all data
-docker compose up -d
-```
-
-### 7.4 Nodes Show ERROR After Rollback
-
-**Symptoms**: Node status is ERROR or sync fails
-
-**Recovery**:
-```bash
-# Check sync positions
-curl -s http://localhost:8080/api/nodes | jq '.[] | {name, status}'
-
-# May need to reset sync position on node
-# (On sync agent)
-rm -f /var/lib/powerblockade/sync-state.db
-systemctl restart powerblockade-sync
-```
+| Symptom | Severity | Action | Rollback? |
+|---------|----------|--------|-----------|
+| Migration failure | Critical | Check logs, rollback if unrecoverable | Yes |
+| Data integrity failure | Critical | Immediate rollback | Yes |
+| Services won't start | High | Debug 5 min, then rollback | Likely |
+| Retention settings lost | Medium | Manually restore from backup | No |
+| Minor feature broken | Medium | Fix forward if possible | No |
+| Performance regression | Low | Monitor, rollback if severe | Maybe |
+| Observability gap | Low | Manual Prometheus/Grafana restore | No |
 
 ---
 
-## 8. Validation Checklist
+## 10. State Files Reference
 
-### Pre-Upgrade
-- [ ] System health verified
-- [ ] Retention settings exported
-- [ ] Node status recorded
-- [ ] Observability backed up (optional)
-
-### Post-Upgrade
-- [ ] All services healthy
-- [ ] Retention settings unchanged
-- [ ] Schema version correct
-- [ ] Nodes syncing normally
-- [ ] Data integrity verified
-- [ ] DNS resolution working
-- [ ] Admin UI accessible
-- [ ] Grafana accessible
-
-### Post-Rollback
-- [ ] All services healthy
-- [ ] Retention settings restored
-- [ ] Data counts match pre-upgrade
-- [ ] Observability state acceptable
+| File | Purpose | Retention |
+|------|---------|-----------|
+| `.pb-state.json` | Current/previous version, last backup path | Indefinite |
+| `shared/backups/pre-upgrade-*.sql` | Database dumps before upgrades | 5 backups |
+| `shared/backups/config-*.tar.gz` | Config snapshots | 5 backups |
+| `/tmp/pre-upgrade-*.txt` | Baseline captures for comparison | Session only |
 
 ---
 
-## 9. Rollback Decision Matrix
-
-| Symptom | Severity | Action |
-|---------|----------|--------|
-| Migration failure | Critical | Rollback immediately |
-| Data integrity failure | Critical | Rollback immediately |
-| Service won't start | High | Debug first, rollback if unresolved |
-| Minor feature broken | Medium | Fix forward if possible |
-| Performance regression | Low | Monitor, rollback if severe |
-
----
-
-## 10. Communication Template
+## 11. Communication Templates
 
 ### Upgrade Notification
 
@@ -444,16 +474,16 @@ PowerBlockade Upgrade Notice
 
 Date: [DATE]
 Time: [TIME]
-Duration: ~15 minutes
+Expected Duration: ~15 minutes
 
-What: Upgrading PowerBlockade from vX.Y.Z to vA.B.C
+What: Upgrading from vX.Y.Z to vA.B.C
 
 Impact:
-- DNS resolution will continue during upgrade
-- Admin UI will be unavailable briefly
+- DNS resolution continues during upgrade
+- Admin UI briefly unavailable
 - No data loss expected
 
-Questions: [CONTACT]
+Rollback Plan: Pre-upgrade backup at shared/backups/pre-upgrade-[TIMESTAMP].sql
 ```
 
 ### Rollback Notification
@@ -465,11 +495,10 @@ Date: [DATE]
 Time: [TIME]
 Reason: [REASON]
 
-Action: Rolling back from vX.Y.Z to vA.B.C
+Action: Rolled back from vX.Y.Z to vA.B.C
 
 Data Status:
 - Database restored to pre-upgrade state
-- All data preserved
-
-Questions: [CONTACT]
+- All data preserved as of backup timestamp
+- Observability may have gaps during upgrade window
 ```

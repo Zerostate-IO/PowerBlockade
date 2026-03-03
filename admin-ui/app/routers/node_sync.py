@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
@@ -18,7 +18,8 @@ from app.models.dns_query_event import DNSQueryEvent
 from app.models.forward_zone import ForwardZone
 from app.models.node import Node, NodeStatus
 from app.models.node_metrics import NodeMetrics
-from app.models.settings import get_setting
+from app.models.settings import get_setting, get_health_quarantine_threshold_minutes
+from app.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,56 @@ def compute_config_version() -> str:
     return hashlib.sha256(":".join(checksums).encode()).hexdigest()[:12]
 
 
+def check_version_compatibility(primary: str | None, secondary: str | None) -> tuple[str, str]:
+    """
+    Check version compatibility between primary and secondary nodes.
+
+    Returns (status, message) where status is ALLOW, WARN, or BLOCK.
+    - BLOCK: Major version mismatch - config sync forbidden
+    - WARN: Minor/patch skew - proceed with warning
+    - ALLOW: Compatible versions
+    """
+    # Handle unknown versions
+    if not primary or primary == "unknown":
+        if not secondary or secondary == "unknown":
+            return ("ALLOW", "Both versions unknown, assuming compatibility")
+        return ("WARN", f"Primary version unknown, cannot verify secondary {secondary}")
+    if not secondary or secondary == "unknown":
+        return ("WARN", f"Secondary version unknown, cannot verify against primary {primary}")
+
+    # Strip 'v' prefix if present
+    primary = primary.lstrip("v")
+    secondary = secondary.lstrip("v")
+
+    # Parse versions
+    try:
+        p_parts = list(map(int, primary.split(".")[:3]))
+        s_parts = list(map(int, secondary.split(".")[:3]))
+        # Pad to 3 parts if needed
+        while len(p_parts) < 3:
+            p_parts.append(0)
+        while len(s_parts) < 3:
+            s_parts.append(0)
+    except ValueError:
+        return ("WARN", f"Unparseable version: primary={primary}, secondary={secondary}")
+
+    p_major, p_minor, p_patch = p_parts
+    s_major, s_minor, s_patch = s_parts
+
+    # Major version mismatch = BLOCK
+    if p_major != s_major:
+        return ("BLOCK", f"Major version mismatch: primary={primary}, secondary={secondary}")
+
+    # Minor version mismatch = WARN
+    if p_minor != s_minor:
+        return ("WARN", f"Minor version skew: primary={primary}, secondary={secondary}")
+
+    # Patch version behind = WARN
+    if s_patch < p_patch:
+        return ("WARN", f"Secondary patch behind: primary={primary}, secondary={secondary}")
+
+    return ("ALLOW", f"Versions compatible: primary={primary}, secondary={secondary}")
+
 class RegisterRequest(BaseModel):
     name: str
     version: str | None = None
@@ -97,11 +148,35 @@ def heartbeat(
     db: Session = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
+    previous_status = node.status
+    previous_last_seen = node.last_seen  # Save before updating
     node.last_seen = now
     node.last_heartbeat = now
 
     # Don't auto-clear ERROR or QUARANTINE status - these require manual intervention
-    if node.status not in (NodeStatus.ERROR.value, NodeStatus.QUARANTINE.value):
+    if previous_status in (NodeStatus.ERROR.value, NodeStatus.QUARANTINE.value):
+        # Keep existing status, just update heartbeat time
+        pass
+    elif previous_status == NodeStatus.OFFLINE.value or previous_status == NodeStatus.STALE.value:
+        # Check if node was offline long enough to require quarantine
+        if previous_last_seen:
+            quarantine_threshold = get_health_quarantine_threshold_minutes(db)
+            # Cast to datetime since model uses object | None for last_seen
+            last_seen_dt = previous_last_seen if isinstance(previous_last_seen, datetime) else None
+            if last_seen_dt:
+                offline_duration = now - last_seen_dt
+                if offline_duration > timedelta(minutes=quarantine_threshold):
+                    node.status = NodeStatus.QUARANTINE.value
+                    node.quarantine_entry_time = now
+                    node.quarantine_reason = f"Returned after {int(offline_duration.total_seconds() / 3600)} hours offline"
+                    log.warning(f"Node {node.name} quarantined: returned after {offline_duration}")
+                else:
+                    node.status = NodeStatus.ACTIVE.value
+            else:
+                node.status = NodeStatus.ACTIVE.value
+        else:
+            node.status = NodeStatus.ACTIVE.value
+    else:
         node.status = NodeStatus.ACTIVE.value
 
     if payload.version:
@@ -126,6 +201,18 @@ def config(
     import hashlib
     import json
     import os
+
+    # Version compatibility check
+    settings_obj = get_settings()
+    primary_version = settings_obj.pb_version
+    secondary_version = node.version
+    status, message = check_version_compatibility(primary_version, secondary_version)
+
+    if status == "BLOCK":
+        log.error(f"Config sync blocked for node {node.name}: {message}")
+        raise HTTPException(status_code=409, detail=message)
+    elif status == "WARN":
+        log.warning(f"Config sync warning for node {node.name}: {message}")
 
     rpz_files = []
     rpz_dir = "/shared/rpz"

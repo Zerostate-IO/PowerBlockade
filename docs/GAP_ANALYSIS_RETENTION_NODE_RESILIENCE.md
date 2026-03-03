@@ -1,30 +1,31 @@
-# Gap Analysis: Retention, Node Resilience, and Data Integrity
+# Gap Analysis: Retention Durability and Node Resilience
 
-**Document Version**: 1.0  
-**Date**: 2026-02-25  
-**Status**: Complete
+**Generated**: 2026-03-03  
+**Scope**: PowerBlockade data integrity, upgrade safety, and multi-node reliability
 
 ---
 
 ## Executive Summary
 
-This document presents a comprehensive gap analysis of PowerBlockade's data persistence, retention behavior, and multi-node resilience. The analysis identified **21 actionable gaps** across 4 priority levels, with **2 critical issues** requiring immediate attention.
+This analysis identifies 17 gaps across four critical domains: UI data truthfulness, retention durability, upgrade/rollback coherence, and node lifecycle management. The top 5 risks require immediate attention to prevent data loss, silent corruption, or operational failures.
 
-### Key Findings
+### Top 5 Risks and Immediate Actions
 
-| Category | Critical | High | Medium | Low | Total |
-|----------|----------|------|--------|-----|-------|
-| Data Retention | 1 | 1 | 2 | 0 | 4 |
-| Node Lifecycle | 0 | 5 | 2 | 2 | 9 |
-| Secondary Resilience | 0 | 1 | 1 | 1 | 3 |
-| Scheduler/Concurrency | 1 | 0 | 1 | 0 | 2 |
-| Upgrade/Rollback | 0 | 0 | 2 | 1 | 3 |
-| **Total** | **2** | **7** | **8** | **4** | **21** |
+| Priority | Risk | Impact | Immediate Action |
+|----------|------|--------|------------------|
+| **P0-1** | Advisory lock fallback runs job on error | Duplicate blocklist updates, double rollups, race conditions | Change `scheduler.py:67` to skip job instead of running |
+| **P0-2** | sync-agent metrics buffer not persisted | Up to 7 days of secondary node metrics lost on upgrade | Add volume `sync-agent-buffer:/var/lib/powerblockade` to compose.yaml |
+| **P1-3** | Node state transitions not implemented | Stale nodes appear "active"; no accurate health visibility | Add periodic job to transition ACTIVE\u2192STALE\u2192OFFLINE |
+| **P1-4** | Version compatibility checks not enforced | Major version mismatch allows breaking config sync | Implement `check_version_compatibility()` with BLOCK logic |
+| **P1-5** | Quarantine-on-return not implemented | Long-offline nodes resume without verification | Check offline duration in heartbeat, set QUARANTINE if > 24h |
 
-### Immediate Actions Required
+### Recommended Remediation Path
 
-1. **P0-1**: Fix retention default inconsistency (`retention_node_metrics_days` returns 90 vs documented 365)
-2. **P0-2**: Add distributed lock to scheduled jobs (prevent duplicate purges in multi-instance)
+```
+Week 1: Ranks 1, 2 (P0 items - data loss prevention)
+Week 2: Ranks 3, 4, 5 (P1 items - operational safety)
+Week 3+: Ranks 6-17 (P2/P3 items - polish and resilience)
+```
 
 ---
 
@@ -32,365 +33,363 @@ This document presents a comprehensive gap analysis of PowerBlockade's data pers
 
 ### Summary
 
-All UI components report real data from PostgreSQL. No mock or placeholder data was found in production paths.
+The admin-ui dashboard, logs, and settings pages generally display accurate data from PostgreSQL. However, several empty-state and error-handling inconsistencies create user confusion.
 
-### Data Flow Architecture
+### Findings
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Jinja2         │    │  FastAPI        │    │  SQLAlchemy     │
-│  Templates      │───→│  Routers        │───→│  Models         │
-│  (30 files)     │    │  (22 routers)   │    │  → PostgreSQL   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                                             │
-         └──────────────── WebSocket /ws/stream ───────┘
-                       (real-time updates)
-```
+#### 1.1 Dashboard Statistics Accurate
 
-### Verified Data Sources
+The main dashboard (`index.html`) correctly aggregates data from:
+- `dns_query_events` \u2192 query counts, blocked counts, hit rate
+- `node_metrics` \u2192 per-node telemetry
+- `settings` \u2192 health thresholds for warnings
 
-| UI Component | Template | Router | Model | Source |
-|-------------|----------|--------|-------|--------|
-| Dashboard | `index.html` | `streaming.py` | Multiple | PostgreSQL |
-| Blocks | `blocks.html` | `blocking.py` | `Block` | PostgreSQL |
-| Nodes | `nodes.html` | `nodes.py` | `Node` | PostgreSQL |
-| Queries | `queries.html` | `analytics.py` | `DNSQueryEvent` | PostgreSQL |
-| Metrics | `metrics.html` | `metrics_dashboard.py` | `NodeMetrics` | PostgreSQL |
-| Settings | `settings.html` | `settings.py` | `Settings` | PostgreSQL |
+**Evidence**: `admin-ui/app/routers/analytics.py:60-134` - Numeric fallbacks use `or 0`, preventing NaN displays.
 
-### Gaps Identified
+#### 1.2 Live Query Stream Requires Auth
 
-| ID | Gap | Severity | Impact |
-|----|-----|----------|--------|
-| UI-1 | No "last updated" timestamps on dashboard cards | Medium | Users cannot detect stale data |
-| UI-2 | No WebSocket reconnection with visual indicator | Medium | Silent data staleness |
-| UI-3 | Inconsistent empty state handling | Low | User confusion |
+WebSocket stream at `/ws/stream` correctly validates `user_id` against the `users` table. Invalid users receive close codes 4001/4003.
 
----
+**Evidence**: `admin-ui/app/routers/streaming.py:83-138`
 
-## 2. Persistence and Retention
+#### 1.3 Empty-State Inconsistencies
 
-### Data Plane Inventory
+| Page | Current Behavior | Expected |
+|------|------------------|----------|
+| Logs (`logs.html`) | Shows "No queries found." | \u2705 Correct |
+| Domains (`domains.html`) | Empty table, no message | \u274c Missing empty state |
+| Domains pagination | Shows "Next" on empty | \u274c Should hide |
+| Settings (`settings.html`) | No save confirmation | \u274c Missing feedback |
 
-| Plane | Technology | Retention Control | Default |
-|-------|------------|-------------------|---------|
-| Primary Data | PostgreSQL | Settings table | Varies |
-| Query Logs | PostgreSQL | `retention_events_days` | 15 days |
-| Node Metrics | PostgreSQL | `retention_node_metrics_days` | **90 or 365** |
-| Rollups | PostgreSQL | `retention_rollups_days` | 90 days |
-| Observability | Prometheus/Grafana | External config | Variable |
-### Critical Gap: Retention Default Inconsistency
+**Evidence**: 
+- `admin-ui/app/templates/logs.html:216` - Has empty state
+- `admin-ui/app/templates/domains.html:16-31` - No empty state row
+- `admin-ui/app/templates/settings.html:10` - No success/error flash
 
-**Location**: `admin-ui/app/models/settings.py`
+#### 1.4 Redirect Pages Work Correctly
 
-```python
-# Constant definition
-DEFAULTS = {
-    "retention_node_metrics_days": 365,  # ← Documentation says 365
-}
+`/blocked` and `/failures` redirect to `/logs?view=blocked|failures`, inheriting correct empty-state handling.
 
-# Getter function
-def get_retention_node_metrics_days(db: Session) -> int:
-    return int(get_setting(db, "retention_node_metrics_days", 90))  # ← Returns 90!
-```
+**Evidence**: `admin-ui/app/routers/analytics.py:447-468`
 
-**Impact**: Users expecting 365-day retention will have data purged at 90 days.
+### Remediation Items
 
-### Observability Data Persistence
-
-| Data Type | Storage | Backup Status |
-|-----------|---------|---------------|
-| Prometheus metrics | Docker volume | Not in `pb backup` |
-| Grafana dashboards | Docker volume | Not in `pb backup` |
-| Alert config | Grafana DB | Not in `pb backup` |
-
-**Note**: Observability volumes are not preserved during upgrades or rollbacks.
-| RET-4 | No data archival before schema migration | Medium | Irreversible data loss |
+- **Rank 11**: Add empty-state message to domains page
+- **Rank 14**: Add settings save feedback
+- **Rank 17**: Hide pagination on empty domains
 
 ---
 
-## 2.5 Secondary Node Data Resilience
+## 2. Retention Durability
 
-### Current Behavior
+### Summary
 
-| Data Type | Buffered? | Storage | Max Retention | On Failure |
-|-----------|----------|---------|---------------|------------|
-| DNS query events | ✅ Yes | BoltDB | 100MB / 24h (rec: 7 days) | Queued until success or limit |
-| Node metrics | ❌ No | None | — (req: 7 days) | Dropped immediately |
-| Heartbeat | ❌ No | None | — | Dropped immediately |
-### Implementation Details
+PowerBlockade implements retention policies for core data tables, but two critical persistence gaps threaten data durability during container recreation or extended outages.
 
-**dnstap-processor** (Go):
-- Uses BoltDB (`/var/lib/dnstap-processor/buffer.db`) for persistent buffering
-- Default limits: 100MB max size, 24h max age (configurable)
-- **Recommended for production**: Set `BUFFER_MAX_AGE=604800` (7 days)
-- Events are only deleted after successful POST to `/api/node-sync/ingest`
-- Retry every 2 seconds while buffer has pending events
-- Code: `dnstap-processor/cmd/dnstap-processor/main.go:347-386`
+### Findings
 
-**sync-agent** (Python):
-- No buffering for metrics or heartbeat
-- Metrics scraped from recursor and pushed immediately
-- **Requirement**: Add 7-day persistent buffer (matching dnstap-processor pattern)
-- Failed pushes are logged and data is dropped:
-  ```python
-  # sync-agent/agent.py:333-342
-  metrics = scrape_recursor_metrics(recursor_url)
-  if metrics:
-      try:
-          r = post("/api/node-sync/metrics", metrics)
-      except Exception as e:
-          print(f"metrics push error: {e}")  # ← Data lost
-  ```
+#### 2.1 Core Retention Policies (Working)
 
-### Gaps Identified
+| Table | Retention Setting | Default | Cleanup Method |
+|-------|-------------------|---------|----------------|
+| `dns_query_events` | `retention_events_days` | 15 days | Daily DELETE at 03:00 |
+| `query_rollups` | `retention_rollups_days` | 365 days | Daily DELETE at 03:00 |
+| `node_metrics` | `retention_node_metrics_days` | 365 days | Daily DELETE at 03:00 |
 
-| ID | Gap | Severity | Impact |
-|----|-----|----------|--------|
-| SEC-1 | sync-agent has no metrics buffering (7-day requirement) | High | Metrics lost during outages |
-| SEC-2 | No disk-based queue for sync-agent | Medium | No recovery after prolonged outage |
-| SEC-3 | Buffer size/age not configurable in UI | Low | Requires manual config editing |
+**Evidence**: 
+- `admin-ui/app/models/settings.py:22-44` - Default values
+- `admin-ui/app/services/retention.py:67-76` - `run_retention_job()`
+- `admin-ui/app/services/scheduler.py` - CronTrigger at hour=3, minute=0
 
-## 3. Node Lifecycle and Resilience
+#### 2.2 dnstap-processor Buffer (Working)
 
-### Current State Model (Insufficient)
+BoltDB buffer at `/var/lib/dnstap-processor/buffer.db` persists events during primary outages.
 
-```python
-class NodeStatus(str, Enum):
-    PENDING = "pending"  # Registered, awaiting first sync
-    ACTIVE = "active"    # Syncing normally
-    ERROR = "error"      # Sync failure detected
+| Config | Value |
+|--------|-------|
+| Volume | `dnstap-buffer` (named volume) |
+| Max size | 100MB (`BUFFER_MAX_BYTES`) |
+| Max age | 24h (`BUFFER_MAX_AGE`) |
+
+**Evidence**: `dnstap-processor/internal/buffer/buffer.go` - `Put()`, `Peek()`, `Delete()`, `Prune()`
+
+#### 2.3 sync-agent Metrics Buffer (BROKEN)
+
+**Critical Gap**: sync-agent writes metrics to `/var/lib/powerblockade/metrics.db` but no Docker volume maps this path.
+
+| Impact | Severity |
+|--------|----------|
+| Container recreation loses up to 7 days of buffered metrics | P0-Critical |
+| Only affects secondary nodes during primary outage | Medium blast radius |
+
+**Evidence**: 
+- `sync-agent/agent.py:287-288` - Buffer path config
+- `compose.yaml` - No volume for sync-agent buffer path
+
+**Fix**:
+```yaml
+# Add to compose.yaml sync-agent service:
+volumes:
+  - sync-agent-buffer:/var/lib/powerblockade
+
+# Add to volumes section:
+volumes:
+  sync-agent-buffer:
 ```
 
-**Missing States**: `STALE`, `OFFLINE`, `QUARANTINE`
+#### 2.4 Audit Log Has No Retention
 
-### Failure Mode Analysis
+`config_changes` table grows indefinitely. Long-term deployments may accumulate large audit history.
 
-| Failure Mode | Current Behavior | Gap |
-|--------------|------------------|-----|
-| Node crashes | Status remains `ACTIVE` | No background detection |
-| Network partition | Status remains `ACTIVE` | No stale/offline detection job |
-| Long offline (>24h) | Returns to `ACTIVE` immediately | No quarantine |
-| Version mismatch | Version stored but not validated | Silent corruption risk |
-| Sync data corruption | No validation | Data integrity risk |
+**Evidence**: `admin-ui/app/services/retention.py` - No cleanup for config_changes
 
-**Note**: Heartbeat mechanism EXISTS (`sync-agent/agent.py` sends every 60s, `admin-ui/app/routers/node_sync.py:93-112` receives). The gaps are:
-1. No background job detects stale/offline nodes from `last_seen` field
-2. Heartbeat blindly sets `status = "active"`, bypassing state machine
-3. No version compatibility validation on heartbeat
-### Recovery Path Analysis
+### Remediation Items
 
-```
-Current Flow (Problematic):
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ Node Offline │────→│ Returns     │────→│ Sync Resumes│
-│ (days)       │     │ (no check)  │     │ Immediately │
-└─────────────┘     └─────────────┘     └─────────────┘
-                            │
-                            └─── No validation
-                            └─── No version check
-                            └─── No data continuity check
-```
-
-### Gaps Identified
-
-| ID | Gap | Severity | Impact |
-|----|-----|----------|--------|
-| NODE-1 | No `STALE`/`OFFLINE`/`QUARANTINE` states | High | Cannot triage unresponsive nodes |
-| NODE-2 | No stale/offline detection job | High | Stale nodes appear healthy |
-| NODE-3 | Heartbeat state machine bypassed | High | ERROR/QUARANTINE status cleared on heartbeat |
-| NODE-4 | No version compatibility check | High | Data corruption risk |
-| NODE-5 | No quarantine on long-offline return | High | Security/integrity risk |
-| NODE-6 | No sync gap detection | Medium | Silent data loss |
-| NODE-7 | No retry backoff | Low | Resource exhaustion |
----
-
-## 4. Version Compatibility
-
-### Current State
-
-No version field exists in sync protocol. Master and slaves can run different versions with no warning.
-
-### Proposed Compatibility Matrix
-
-| Master | Slave | Compatibility | Behavior |
-|--------|-------|---------------|----------|
-| 2.0 | 2.0 | ✅ Full | Normal sync |
-| 2.0 | 1.9 | ⚠️ Degraded | Sync with warnings |
-| 2.0 | 1.0 | ❌ Incompatible | Reject sync |
-| 1.0 | 2.0 | ❌ Incompatible | Reject sync |
-
-### Gaps Identified
-
-| ID | Gap | Severity | Impact |
-|----|-----|----------|--------|
-| VER-1 | No version field in sync protocol | High | Cannot detect skew |
-| VER-2 | No compatibility matrix | High | Silent corruption |
-| VER-3 | No version tracking in DB | Medium | Cannot audit history |
+- **Rank 2**: Add volume for sync-agent metrics buffer (P0)
+- **Rank 10**: Add retention for config_changes audit log (P2)
 
 ---
 
-## 5. Scheduler and Concurrency
+## 3. Upgrade/Rollback Coherence
 
-### Current State
+### Summary
 
-APScheduler runs in-process with no distributed coordination.
+The `pb update` and `pb rollback` scripts implement database backup and restore workflows. Pre/post upgrade verification commands exist but are not automated into the upgrade flow.
 
-```python
-# admin-ui/app/main.py
-def lifespan(_: FastAPI):
-    start_scheduler()  # ← No distributed lock
-```
+### Findings
 
-### Problem: Multi-Instance Deployment
-
-```
-Instance A                    Instance B
-┌──────────────────┐          ┌──────────────────┐
-│ Scheduler        │  race    │ Scheduler        │
-│ ├─ retention     │ ──────→  │ ├─ retention     │ = DUPLICATE
-│ ├─ rollups       │ ──────→  │ ├─ rollups       │ = DUPLICATE
-│ └─ blocklists    │ ──────→  │ └─ blocklists    │ = DUPLICATE
-└──────────────────┘          └──────────────────┘
-```
-
-### Gaps Identified
-
-| ID | Gap | Severity | Impact |
-|----|-----|----------|--------|
-| SCHED-1 | No distributed lock on jobs | **Critical** | Duplicate purges |
-| SCHED-2 | No job overlap protection | Medium | Resource waste |
-
----
-
-## 6. Upgrade and Rollback
-
-### Upgrade Flow
+#### 3.1 Upgrade Workflow
 
 ```
 pb update
-├── 1. Backup database (pg_dump)
-├── 2. Backup config (.env, RPZ)
-├── 3. Pull new images
-├── 4. Run migrations (alembic upgrade head)
-├── 5. Restart services
-├── 6. Verify health
-└── 7. Save state
+\u251c\u2500\u2500 backup_database()     \u2192 shared/backups/pre-upgrade-TIMESTAMP.sql
+\u251c\u2500\u2500 backup_config()       \u2192 shared/backups/config-TIMESTAMP.tar.gz
+\u251c\u2500\u2500 Pull images           \u2192 docker compose pull
+\u251c\u2500\u2500 run_migrations()      \u2192 alembic upgrade head
+\u251c\u2500\u2500 Restart services      \u2192 docker compose up -d
+\u251c\u2500\u2500 verify_health()       \u2192 /health + DNS test
+\u2514\u2500\u2500 save_state()          \u2192 .pb-state.json
 ```
 
-### Rollback Flow
+**Evidence**: `scripts/pb:437-528` - `cmd_update()` function
+
+#### 3.2 Rollback Workflow
 
 ```
 pb rollback
-├── 1. Read previous state
-├── 2. Stop services
-├── 3. Restore database [--fast skips]
-├── 4. Start services
-└── 5. Verify health
+\u251c\u2500\u2500 Read .pb-state.json   \u2192 previous_version, last_db_backup
+\u251c\u2500\u2500 Stop services         \u2192 docker compose down
+\u251c\u2500\u2500 Restore DB (optional) \u2192 psql < backup.sql
+\u251c\u2500\u2500 Start services        \u2192 docker compose up -d
+\u2514\u2500\u2500 verify_health()
 ```
 
-### Rollback Gaps
+**Evidence**: `scripts/pb:530-602` - `cmd_rollback()` function
 
-| Gap | Description | Severity |
-|-----|-------------|----------|
-| No observability restore | Grafana/Prometheus volumes not restored | Medium |
-| No retention validation | No check that retention settings preserved | Medium |
-| No sync position check | Node sync positions may be invalid | Low |
+#### 3.3 Volume Preservation
 
----
+Named volumes survive `docker compose down`:
+- `postgres-data` - Primary database
+- `prometheus-data` - Metrics TSDB
+- `grafana-data` - Dashboards
+- `dnstap-buffer` - Event buffer
 
-## 7. Remediation Backlog Summary
+**Evidence**: `compose.yaml:299-307` - Named volumes list
 
-### Critical (Immediate)
+#### 3.4 Pre/Post-Upgrade Verification (Manual)
 
-| ID | Issue | Effort | Dependencies |
-|----|-------|--------|--------------|
-| P0-1 | Fix retention default inconsistency | 1 hour | None |
-| P0-2 | Add distributed scheduler locks | 4 hours | None |
+The evidence document provides comprehensive checklists but they are not integrated into `pb update`:
 
-### High (Next Release)
+**Pre-upgrade**:
+- Service health baseline (`pb doctor`)
+- Database integrity check
+- Row count capture
+- Retention settings snapshot
+- Prometheus metrics baseline
 
-| ID | Issue | Effort | Dependencies |
-|----|-------|--------|--------------|
-| P1-1 | Add missing node states | 1-2 days | None |
-| P1-2 | Add stale/offline detection job | 1 day | P1-1 |
-| P1-3 | Fix heartbeat state machine | 2 hours | P1-1 |
-| P1-4 | Add version compatibility check | 1 day | P1-1 |
-| P1-5 | Implement quarantine flow | 2 days | P1-1, P1-2 |
-| P1-6 | Add metrics buffering to sync-agent | 1-2 days | None |
+**Post-upgrade**:
+- Migration verification (`alembic current`)
+- Data continuity (row count diff)
+- Observability alignment (Prometheus targets)
+- Ingestion test (dig + DB check)
 
-| ID | Issue | Effort | Dependencies |
-|----|-------|--------|--------------|
-| P2-1 | Add dashboard timestamps | 2 hours | None |
-| P2-2 | WebSocket reconnection | 4 hours | None |
-| P2-3 | Sync gap detection | 1 day | P1-3 |
-| P2-4 | Pre-upgrade archival | 4 hours | None |
-| P2-5 | Rollback observability restore | 1 day | None |
-| P2-6 | Job execution metrics | 4 hours | P0-2 |
+**Evidence**: `.sisyphus/evidence/task-3-upgrade-retention-checks.md:49-341`
 
-### Low (Backlog)
+#### 3.5 Rollback Drift Detection
 
-| ID | Issue | Effort | Dependencies |
-|----|-------|--------|--------------|
-| P3-1 | Consistent empty states | 2 hours | None |
-| P3-2 | Sync retry backoff | 2 hours | None |
-| P3-3 | Version health widget | 4 hours | P1-4 |
-| P3-4 | Upgrade documentation | 2 hours | None |
+Rollback verification includes:
+- Schema drift check (`alembic check`)
+- Orphaned data detection
+- Retention setting validation
+- Data continuity (rollup gaps)
 
----
+**Evidence**: `.sisyphus/evidence/task-3-upgrade-retention-checks.md:425-460`
 
-## 8. Recommended Implementation Timeline
+### Recommendations
 
-### Sprint 1 (Week 1-2)
-- P0-1: Retention default fix
-- P0-2: Distributed scheduler locks
-- P1-1: Add missing node states
-- P1-3: Fix heartbeat state machine
-- P1-6: Metrics buffering for sync-agent
-
-### Sprint 2 (Week 3-4)
-- P1-2: Stale/offline detection job
-- P1-4: Version compatibility check
-- P2-1: Dashboard timestamps
-- P2-2: WebSocket reconnection
-
-### Sprint 3 (Week 5-6)
-- P1-5: Quarantine flow
-- P2-4: Pre-upgrade archival
-- P2-6: Job execution metrics
-
-### Sprint 4 (Week 7-8)
-- P2-3: Sync gap detection
-- P2-5: Rollback observability restoration
-- P3 items as capacity allows
+1. Integrate pre-upgrade checks into `pb update --preflight`
+2. Add post-upgrade verification to `pb update` (auto-rollback on failure)
+3. Document rollback procedure with data-loss scenarios
 
 ---
 
-## Appendix A: Evidence Files
+## 4. Node Lifecycle/Recovery
 
-| File | Description |
-|------|-------------|
-| `.sisyphus/evidence/task-1-ui-truth-map.md` | UI data flow verification |
-| `.sisyphus/evidence/task-2-persistence-inventory.md` | Data plane inventory |
-| `.sisyphus/evidence/task-3-retention-upgrade-path.md` | Upgrade/rollback retention analysis |
-| `.sisyphus/evidence/task-4-node-failure-matrix.md` | Node failure mode analysis |
-| `.sisyphus/evidence/task-5-compatibility-matrix.md` | Version compatibility framework |
-| `.sisyphus/evidence/task-6-node-lifecycle-contract.md` | Proposed state model |
-| `.sisyphus/evidence/task-7-scheduler-ownership-guardrails.md` | Distributed lock implementation |
-| `.sisyphus/evidence/task-8-prioritized-backlog.md` | Full remediation backlog |
-| `.sisyphus/evidence/task-9-secondary-buffering.md` | Secondary node data buffering analysis |
+### Summary
+
+The node lifecycle state machine is defined but not fully implemented. Nodes can get stuck in incorrect states, and returning nodes bypass quarantine verification.
+
+### Findings
+
+#### 4.1 State Machine (Defined but Incomplete)
+
+```
+PENDING \u2192 ACTIVE \u2192 STALE \u2192 OFFLINE \u2192 QUARANTINE \u2192 ACTIVE
+                    \u2191         \u2193            \u2193
+                    \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+                     (manual or auto)
+```
+
+**Current Implementation**:
+- `NodeStatus` enum exists: PENDING, ACTIVE, STALE, OFFLINE, QUARANTINE, ERROR
+- Heartbeat sets ACTIVE (unless already ERROR/QUARANTINE)
+- **Missing**: Periodic job to transition ACTIVE\u2192STALE\u2192OFFLINE
+
+**Evidence**: `admin-ui/app/models/node.py:15-23` - Status enum
+
+#### 4.2 State Transitions Not Automated
+
+| Transition | Expected | Current |
+|------------|----------|---------|
+| ACTIVE \u2192 STALE | When `last_seen` > `stale_minutes` | Warning only, no status change |
+| STALE \u2192 OFFLINE | When `last_seen` > `offline_minutes` | Not implemented |
+| OFFLINE \u2192 QUARANTINE | On return after 24h+ offline | Not implemented |
+
+**Evidence**: 
+- `admin-ui/app/routers/system.py:100-116` - Warning only
+- `admin-ui/app/routers/node_sync.py:103-105` - Sets ACTIVE, no quarantine check
+
+#### 4.3 Quarantine-on-Return Not Implemented
+
+**Critical Gap**: Nodes returning after extended outage should enter QUARANTINE for verification.
+
+| Scenario | Current | Expected |
+|----------|---------|----------|
+| Node returns after 2 days | ACTIVE immediately | QUARANTINE pending verification |
+| Quarantine exit | Manual only | Version check + config sync + approval |
+
+**Evidence**: `admin-ui/app/routers/node_sync.py:84-108` - No quarantine logic
+
+#### 4.4 Version Compatibility Not Enforced
+
+**Critical Gap**: Major version mismatches should BLOCK config sync.
+
+| Primary | Secondary | Matrix Status | Current Behavior |
+|---------|-----------|---------------|------------------|
+| 1.2.0 | 1.2.0 | ALLOW | \u2705 Works |
+| 1.2.0 | 2.0.0 | BLOCK | \u274c Sync proceeds |
+| 1.2.0 | 0.9.0 | BLOCK | \u274c Sync proceeds |
+
+**Evidence**: 
+- `admin-ui/app/routers/node_sync.py:83,107-108` - Version stored but not checked
+- `.sisyphus/evidence/task-5-compatibility-matrix.md` - Full matrix defined
+
+#### 4.5 Node Failure Modes
+
+| Failure Mode | Detection | Recovery | Residual Risk |
+|--------------|-----------|----------|---------------|
+| Network partition | Agent logs, stale warnings | Auto-retry, metrics buffer | Query history gaps |
+| Prolonged offline | `last_seen` age | Manual validation | No auto-quarantine |
+| Config sync failure | Agent logs, unchanged version | Retry on interval | Stale policy |
+| Metrics push failure | Buffer accumulation | Replay on recovery | Buffer pruned after 7d |
+
+**Evidence**: `.sisyphus/evidence/task-4-node-failure-matrix.md:3-12`
+
+#### 4.6 Missing Threshold Settings
+
+| Setting | Current | Required |
+|---------|---------|----------|
+| `health_stale_minutes` | 5 (exists) | - |
+| `health_offline_minutes` | Missing | Default: 30 |
+| `health_quarantine_threshold_minutes` | Missing | Default: 1440 (24h) |
+
+**Evidence**: `admin-ui/app/models/settings.py:41` - Only stale defined
+
+### Remediation Items
+
+- **Rank 3**: Implement periodic state transition job
+- **Rank 4**: Add version compatibility enforcement
+- **Rank 5**: Implement quarantine-on-return
+- **Rank 7**: Add configurable offline/quarantine thresholds
+- **Rank 8**: Add event buffering to sync-agent (query history)
+- **Rank 16**: Implement quarantine exit checks
 
 ---
 
-## Appendix B: Key Code Locations
+## 5. Remediation Priorities
 
-| Component | Location |
-|-----------|----------|
-| Settings/Defaults | `admin-ui/app/models/settings.py` |
-| Retention Service | `admin-ui/app/services/retention.py` |
-| Node Model | `admin-ui/app/models/node.py` |
-| Node Sync API | `admin-ui/app/routers/node_sync.py` |
-| Sync Agent | `sync-agent/agent.py` |
-| Scheduler | `admin-ui/app/services/scheduler.py` |
-| Upgrade CLI | `scripts/pb` |
-| Migrations | `admin-ui/alembic/versions/` |
+### Full Backlog Reference
+
+See `.sisyphus/evidence/task-8-remediation-backlog.md` for the complete 17-item prioritized backlog with:
+- Severity classification (P0/P1/P2/P3)
+- Blast radius assessment
+- Verification commands
+- Dependency mapping
+
+### Critical Path
+
+```
+\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+\u2502  Phase 1: Data Safety (Week 1)                              \u2502
+\u2502  \u251c\u2500\u2500 Rank 1: Fix advisory lock fallback                     \u2502
+\u2502  \u2514\u2500\u2500 Rank 2: Add sync-agent volume                          \u2502
+\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+\u2502  Phase 2: Operational Safety (Week 2)                       \u2502
+\u2502  \u251c\u2500\u2500 Rank 3: Implement state transitions                    \u2502
+\u2502  \u251c\u2500\u2500 Rank 4: Add version enforcement                        \u2502
+\u2502  \u251c\u2500\u2500 Rank 5: Implement quarantine-on-return                 \u2502
+\u2502  \u251c\u2500\u2500 Rank 6: Add locks to remaining jobs                    \u2502
+\u2502  \u2514\u2500\u2500 Rank 7: Add configurable thresholds                    \u2502
+\u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+\u2502  Phase 3: Resilience (Week 3+)                              \u2502
+\u2502  \u251c\u2500\u2500 Rank 8: Event buffering for query history              \u2502
+\u2502  \u251c\u2500\u2500 Rank 9: Metrics unique constraint                      \u2502
+\u2502  \u251c\u2500\u2500 Rank 10: Audit log retention                           \u2502
+\u2502  \u2514\u2500\u2500 Ranks 11-17: UX improvements                           \u2502
+\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+```
+
+### Quick Verification
+
+```bash
+# Check P0 items
+grep -A5 "except Exception" admin-ui/app/services/scheduler.py | head -10
+grep -A20 "sync-agent:" compose.yaml | grep -A5 "volumes:"
+
+# Check P1 items  
+grep -E "stale_minutes|offline_minutes" admin-ui/app/routers/system.py
+grep -E "check_version|BLOCK" admin-ui/app/routers/node_sync.py
+grep -B5 -A10 "quarantine" admin-ui/app/routers/node_sync.py | head -20
+
+# Run tests
+cd admin-ui && python -m pytest tests/ -v
+```
+
+---
+
+## Appendix: Evidence Files
+
+| Task | File | Focus |
+|------|------|-------|
+| Task 1 | `.sisyphus/evidence/task-1-ui-truth-map.md` | UI data sources and empty states |
+| Task 2 | `.sisyphus/evidence/task-2-persistence-inventory.md` | Retention policies and volume gaps |
+| Task 3 | `.sisyphus/evidence/task-3-upgrade-retention-checks.md` | Pre/post upgrade verification |
+| Task 4 | `.sisyphus/evidence/task-4-node-failure-matrix.md` | Failure modes and recovery |
+| Task 5 | `.sisyphus/evidence/task-5-compatibility-matrix.md` | Version compatibility rules |
+| Task 6 | `.sisyphus/evidence/task-6-lifecycle-contract.md` | State machine and transitions |
+| Task 7 | `.sisyphus/evidence/task-7-scheduler-ownership.md` | Job scheduling and locks |
+| Task 8 | `.sisyphus/evidence/task-8-remediation-backlog.md` | Prioritized remediation list |
+
+---
+
+*Document generated: 2026-03-03*

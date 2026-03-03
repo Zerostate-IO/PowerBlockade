@@ -199,17 +199,39 @@ jobs:
         run: |
           echo "✅ Built and pushed ${{ matrix.image }}:${{ needs.update-versions.outputs.version }}"
 
-  # Phase 3: Create GitHub Release
-  create-release:
+  # Phase 3: Fresh Install Smoke Test (Release-Blocking)
+  smoke-test:
     runs-on: ubuntu-latest
     needs: [update-versions, build-and-push]
+    if: github.event.inputs.skip_docker != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Pull fresh images
+        run: |
+          VERSION="${{ needs.update-versions.outputs.version }}"
+          docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:$VERSION
+          docker pull ghcr.io/zerostate-io/powerblockade-recursor:$VERSION
+          docker pull ghcr.io/zerostate-io/powerblockade-dnstap-processor:$VERSION
+          docker pull ghcr.io/zerostate-io/powerblockade-sync-agent:$VERSION
+
+      - name: Run fresh install smoke test
+        run: |
+          chmod +x scripts/smoke-test.sh
+          ./scripts/smoke-test.sh
+
+  # Phase 4: Create GitHub Release
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [update-versions, build-and-push, smoke-test]
     if: >-
       always() &&
       github.event.inputs.dry_run != 'true' &&
       needs.update-versions.result == 'success' &&
       (
         github.event.inputs.skip_docker == 'true' ||
-        needs.build-and-push.result == 'success'
+        (needs.build-and-push.result == 'success' && needs.smoke-test.result == 'success')
       )
     steps:
       - name: Checkout code
@@ -263,8 +285,7 @@ jobs:
   # Summary job
   summary:
     runs-on: ubuntu-latest
-    needs: [update-versions, build-and-push, create-release]
-    if: always()
+    needs: [update-versions, build-and-push, smoke-test, create-release]
     steps:
       - name: Release summary
         run: |

@@ -1,362 +1,537 @@
 # Node Lifecycle and Quarantine Policy
 
-**Document Version**: 1.0  
-**Date**: 2026-02-25  
-**Status**: Proposed Policy
+**Document Version**: 2.0  
+**Date**: 2026-03-03  
+**Status**: Policy Specification
 
 ---
 
-## 1. Overview
+## 1. Policy Scope
 
-This document defines the node lifecycle states, transition rules, and quarantine procedures for PowerBlockade multi-node deployments.
+This document defines:
 
----
+- **Node lifecycle states** and their semantics
+- **Transition triggers** between states with timeout values
+- **Quarantine policy** for nodes returning after extended absence
+- **Version compatibility gates** for primary/secondary synchronization
+- **Incident response procedures** for days-absent nodes
 
-## 2. Node States
+### 1.1 Scope Boundaries
 
-### 2.1 State Definitions
+| In Scope | Out of Scope |
+|----------|--------------|
+| Node state transitions | DNS resolution logic |
+| Quarantine entry/exit | RPZ zone content |
+| Version compatibility checks | Metrics collection implementation |
+| Heartbeat monitoring | Network partition recovery (handled by sync-agent buffering) |
 
-| State | Description | UI Indicator |
-|-------|-------------|--------------|
-| `PENDING` | Node registered but has not completed first sync | ⏳ Yellow |
-| `ACTIVE` | Node syncing normally within acceptable thresholds | ✅ Green |
-| `STALE` | Node has synced before but exceeds staleness threshold | ⚠️ Orange |
-| `OFFLINE` | No heartbeat received for extended period | 🔴 Red |
-| `QUARANTINE` | Node returned after long absence, pending validation | 🔒 Gray |
-| `ERROR` | Sync failure detected, requires intervention | ❌ Red |
+### 1.2 Applicable Components
 
-### 2.2 State Diagram
+| Component | Role |
+|-----------|------|
+| **admin-ui** | State machine owner, transition enforcement, quarantine/release |
+| **sync-agent** | Heartbeat sender, version reporter (no state authority) |
+| **dnstap-processor** | Ingest pipeline (respects quarantine blocks) |
 
-```
-                    ┌──────────────┐
-                    │   PENDING    │
-                    └──────┬───────┘
-                           │ First sync success
-                           ▼
-                    ┌──────────────┐
-         ┌─────────│   ACTIVE     │◄────────┐
-         │         └──────┬───────┘         │
-         │                │                 │
-         │ Stale          │ Offline         │ Sync success
-         │ threshold      │ threshold       │
-         ▼                ▼                 │
-  ┌──────────────┐  ┌──────────────┐        │
-  │    STALE     │  │   OFFLINE    │        │
-  └──────┬───────┘  └──────┬───────┘        │
-         │                 │                 │
-         │ Returns         │ Returns within  │
-         │ after long      │ grace period    │
-         │ absence         ├─────────────────┘
-         │                 │
-         │                 │ Returns after
-         │                 │ quarantine threshold
-         ▼                 ▼
-  ┌──────────────────────────────┐
-  │         QUARANTINE           │
-  └──────────────┬───────────────┘
-                 │
-                 │ Admin approval
-                 │ + validation passed
-                 ▼
-         ┌──────────────┐
-         │   ACTIVE     │
-         └──────────────┘
-
-  Any State ────Sync failure───→ ERROR
-  ERROR ────Manual fix + sync───→ ACTIVE
-```
+**Key Principle**: The sync-agent never owns state transitions. It reports health; admin-ui decides state.
 
 ---
 
-## 3. Threshold Configuration
+## 2. State Definitions
 
-### 3.1 Default Thresholds
+### 2.1 State Machine Overview
 
-| Threshold | Default | Configurable | Description |
-|-----------|---------|--------------|-------------|
-| `STALE_THRESHOLD_HOURS` | 4 | Yes | Time since last sync before marked stale |
-| `OFFLINE_THRESHOLD_HOURS` | 24 | Yes | Time without heartbeat before marked offline |
-| `QUARANTINE_THRESHOLD_HOURS` | 72 | Yes | Time offline before quarantine required |
-| `HEARTBEAT_INTERVAL_SECONDS` | 60 | Yes | Expected heartbeat frequency |
-
-### 3.2 Configuration Storage
-
-Thresholds should be stored in the `settings` table:
-
-```sql
-INSERT INTO settings (key, value) VALUES
-  ('stale_threshold_hours', '4'),
-  ('offline_threshold_hours', '24'),
-  ('quarantine_threshold_hours', '72'),
-  ('heartbeat_interval_seconds', '60');
+```
+┌─────────┐    register     ┌────────┐
+│ PENDING │ ──────────────► │ ACTIVE │◄──────────────────┐
+└─────────┘                 └────────┘                   │
+                               │  │                      │
+                     heartbeat │  │ stale_timeout        │
+                     (healthy) │  │ (warning)            │
+                               ▼  ▼                      │
+                           ┌────────┐                    │
+                           │ STALE  │───────┐            │
+                           └────────┘       │            │
+                               │            │ heartbeat  │
+                               │ offline_   │ (recovery) │
+                               │ timeout    │            │
+                               ▼            │            │
+                           ┌──────────┐     │            │
+                           │ OFFLINE  │─────┤            │
+                           └──────────┘     │            │
+                               │            │            │
+                     return_   │            │            │
+                     after_    │            │            │
+                     long_     │            │            │
+                     absence   │            │            │
+                               ▼            │            │
+                           ┌────────────┐   │            │
+                           │ QUARANTINE │───┼────────────┘
+                           └────────────┘   │ manual_release
+                               │            │
+                      sync_    │            │
+                      failure  │            │
+                               ▼            │
+                           ┌────────┐       │
+                           │ ERROR  │◄──────┘
+                           └────────┘  manual_set
 ```
 
-### 3.3 Admin UI Configuration
+### 2.2 State Reference Table
 
-Add threshold configuration to Settings page under "Node Management" section.
+| State | Description | Entry Criteria | Exit Criteria | UI Indicator |
+|-------|-------------|----------------|---------------|--------------|
+| **PENDING** | Node registered with API key but not yet synced | Initial node creation with API key | First successful `register` call | ⏳ Yellow |
+| **ACTIVE** | Node is healthy and syncing normally | Successful `register` or `heartbeat` (when not in ERROR/QUARANTINE) | Timeout expiry to STALE/OFFLINE | ✅ Green |
+| **STALE** | Heartbeat overdue (warning state) | `last_seen` > `stale_minutes` but < `offline_minutes` | Heartbeat resumes → ACTIVE; Extended absence → OFFLINE | ⚠️ Orange |
+| **OFFLINE** | Heartbeat significantly overdue | `last_seen` > `offline_minutes` | Return after absence → QUARANTINE (if > threshold) or ACTIVE | 🔴 Red |
+| **QUARANTINE** | Returned after long absence, pending verification | Node returns after `last_seen` > `quarantine_threshold` | Manual approval after compatibility/drift check | 🔒 Gray |
+| **ERROR** | Sync failure requiring intervention | Operator manually sets or automated failure detection | Manual intervention and status clear | ❌ Red |
 
 ---
 
-## 4. Heartbeat Mechanism
+## 3. Transition Rules
 
-### 4.0 Current State (Existing Implementation)
+### 3.1 Transition Matrix
 
-**Heartbeat already exists** in the codebase:
-- `sync-agent/agent.py`: Sends heartbeat every `HEARTBEAT_INTERVAL_SECONDS` (default: 60s)
-- `admin-ui/app/routers/node_sync.py:93-112`: Receives heartbeat and updates `last_seen`
+| From | To | Trigger | Owner | Timeout |
+|------|-----|---------|-------|---------|
+| PENDING | ACTIVE | Successful `register` call | admin-ui | Immediate |
+| ACTIVE | STALE | `last_seen` age > `stale_minutes` | admin-ui (periodic check) | 5 minutes (default) |
+| STALE | ACTIVE | Successful `heartbeat` | admin-ui | Immediate |
+| STALE | OFFLINE | `last_seen` age > `offline_minutes` | admin-ui (periodic check) | 30 minutes (default) |
+| OFFLINE | QUARANTINE | Node returns after `last_seen` > `quarantine_threshold` | admin-ui | On first heartbeat |
+| OFFLINE | ACTIVE | Node returns within `quarantine_threshold` | admin-ui | On first heartbeat |
+| QUARANTINE | ACTIVE | Manual approval after verification | Operator (via admin-ui) | Manual |
+| QUARANTINE | ERROR | Compatibility/drift check fails | admin-ui | Automatic |
+| ERROR | ACTIVE | Manual intervention complete | Operator (via admin-ui) | Manual |
+| Any | ERROR | Operator manual set | Operator | Manual |
 
-**Current Implementation Gaps**:
-1. No background job detects stale/offline nodes from `last_seen` field
-2. Heartbeat blindly sets `status = "active"` without state machine validation
-3. No version compatibility check on heartbeat
-
-### 4.1 Sync Agent Heartbeat (Current + Enhancements)
-
-**Frequency**: Every `HEARTBEAT_INTERVAL_SECONDS` (default: 60 seconds) - ALREADY IMPLEMENTED
-
-**Payload** (current + proposed additions):
-```json
-{
-  "node_id": "node-uuid",
-  "version": "1.2.0",           // ← ALREADY SENT
-  "last_sync_position": 12345678, // ← PROPOSED: for gap detection
-  "metrics": {
-    "queries_processed": 1000,
-    "cache_hits": 800,
-    "cache_misses": 200
-  },
-  "timestamp": "2026-02-25T12:00:00Z"
-}
-```
-
-### 4.2 Master Response
-
-```json
-{
-  "status": "active",
-  "config_version": 42,
-  "required_sync_position": 12345000,
-  "warnings": []
-}
-```
-
-### 4.3 Heartbeat Failure Handling
-
-| Consecutive Failures | Action |
-|---------------------|--------|
-| 1-3 | Log warning, continue |
-| 4-10 | Log error, exponential backoff |
-| >10 | Mark node as OFFLINE after threshold |
-
-### 4.4 Required Fixes to Existing Heartbeat
-
-1. **State Machine Guard**: Don't set `status = "active"` if current status is ERROR or QUARANTINE
-2. **Detection Job**: Add scheduler job to check `last_seen` and transition ACTIVE→STALE→OFFLINE
-3. **Version Check**: Validate `version` field against compatibility matrix
----
-
-## 5. Quarantine Flow
-
-### 5.1 Entry to Quarantine
-
-A node enters quarantine when:
-
-1. **Long Offline Return**: Node was OFFLINE for > `QUARANTINE_THRESHOLD_HOURS` and reconnects
-2. **Version Incompatibility**: Node version is incompatible with master
-3. **Manual Quarantine**: Admin manually quarantines a node
-
-### 5.2 Quarantine Restrictions
-
-While in quarantine, a node:
-
-- ❌ Cannot ingest events
-- ❌ Cannot pull configuration
-- ❌ Cannot push metrics
-- ✅ Can send heartbeats (for monitoring)
-- ✅ Can be queried for diagnostics
-
-### 5.3 Validation Requirements
-
-Before exiting quarantine, validate:
-
-| Check | Description | Auto/Manual |
-|-------|-------------|-------------|
-| Version | Node version is compatible | Automatic |
-| Sync Gap | Gap between last sync and current position | Automatic |
-| Checksum | Data checksums match (if implemented) | Automatic |
-| Admin Approval | Administrator explicitly approves | Manual |
-
-### 5.4 Quarantine Exit
-
-**Automatic Exit** (if all conditions met):
-```
-1. Version is compatible
-2. Sync gap < MAX_SYNC_GAP
-3. No checksum errors
-4. Auto-approve enabled in settings
-```
-
-**Manual Exit**:
-```
-1. Admin reviews node in UI
-2. Admin clicks "Approve" or "Reject"
-3. If approved: status → ACTIVE
-4. If rejected: status → ERROR, reason recorded
-```
-
----
-
-## 6. State Transition Rules
-
-### 6.1 Transition Matrix
-
-| From | To | Trigger | Automatic? |
-|------|-----|---------|------------|
-| PENDING | ACTIVE | First successful sync | Yes |
-| ACTIVE | STALE | last_sync > STALE_THRESHOLD | Yes |
-| ACTIVE | OFFLINE | No heartbeat > OFFLINE_THRESHOLD | Yes |
-| STALE | ACTIVE | Successful sync | Yes |
-| STALE | OFFLINE | No heartbeat > OFFLINE_THRESHOLD | Yes |
-| STALE | QUARANTINE | Returns after > QUARANTINE_THRESHOLD | Yes |
-| OFFLINE | ACTIVE | Returns within QUARANTINE_THRESHOLD | Yes |
-| OFFLINE | QUARANTINE | Returns after > QUARANTINE_THRESHOLD | Yes |
-| QUARANTINE | ACTIVE | Validation passed + approved | Semi-auto |
-| QUARANTINE | ERROR | Validation failed | Yes |
-| Any | ERROR | Unrecoverable sync error | Yes |
-| ERROR | ACTIVE | Manual intervention + successful sync | Manual |
-
-### 6.2 State Transition Logging
+### 3.2 Transition Logging
 
 All state transitions must be logged with:
 
 ```json
 {
-  "timestamp": "2026-02-25T12:00:00Z",
+  "timestamp": "2026-03-03T12:00:00Z",
   "node_id": "node-uuid",
   "from_state": "OFFLINE",
   "to_state": "QUARANTINE",
   "trigger": "return_after_threshold",
   "metadata": {
-    "offline_duration_hours": 96,
-    "last_sync_position": 12345678
+    "offline_duration_minutes": 1440,
+    "last_seen": "2026-03-02T12:00:00Z"
   }
 }
 ```
 
 ---
 
-## 7. Database Schema
+## 4. Quarantine Policy
 
-### 7.1 Node Table Extensions
+### 4.1 Entry Criteria
 
-```sql
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMP;
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS quarantine_entry_time TIMESTAMP;
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS node_version VARCHAR(32);
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(id);
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+A node enters QUARANTINE when:
+
+1. **Was OFFLINE** (`last_seen` > `offline_minutes`)
+2. **Returns** (sends heartbeat/register)
+3. **Absence exceeded threshold** (`offline_duration > quarantine_threshold_minutes`)
+
+**Pseudocode**:
+
+```python
+if node.status == "offline" and heartbeat_received:
+    offline_duration = now - node.last_seen
+    if offline_duration > quarantine_threshold:
+        node.status = "quarantine"
+        node.quarantine_entry_time = now
+        node.quarantine_reason = f"Returned after {offline_duration} offline"
+    else:
+        node.status = "active"
 ```
 
-### 7.2 Node State History Table
+### 4.2 Quarantine Restrictions
+
+While in quarantine, a node:
+
+| Action | Allowed | Rationale |
+|--------|---------|-----------|
+| Send heartbeats | ✅ Yes | Monitoring maintained |
+| Pull configuration | ❌ No | Prevent stale config application |
+| Push metrics | ❌ No | Prevent data corruption |
+| Ingest events | ❌ No | Prevent duplicate/anomalous data |
+| Be queried for diagnostics | ✅ Yes | Troubleshooting support |
+
+### 4.3 Exit Checks
+
+Before releasing from QUARANTINE, the following checks must pass:
+
+| Check | Pass Condition | Failure Action |
+|-------|----------------|----------------|
+| **Version compatibility** | Node version within supported skew of primary | Block release, show warning |
+| **Config drift** | Node's `config_version` matches primary | Force full sync before release |
+| **Metrics sanity** | Recent metrics not anomalous | Flag for investigation |
+| **Manual approval** | Operator explicitly approves | Required for release |
+
+### 4.4 Release Workflow
+
+**Manual Release (Recommended Default)**:
+
+1. Admin reviews node in UI
+2. System displays:
+   - Offline duration
+   - Version comparison
+   - Config drift status
+   - Last known metrics
+3. Admin clicks "Approve" or "Reject"
+4. If approved:
+   - Status → ACTIVE
+   - `approved_by` and `approved_at` recorded
+   - Full config sync triggered
+5. If rejected:
+   - Status → ERROR
+   - Reason recorded in `quarantine_reason`
+
+**Automatic Release (Opt-in)**:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `quarantine_auto_release` | `false` | Enable automatic release when all checks pass |
+
+**Risk Acceptance**: Automatic release is an opt-in risk acceptance and should only be enabled in controlled environments.
+
+---
+
+## 5. Compatibility Gates
+
+### 5.1 Version Comparison Logic
+
+```python
+def check_version_compatibility(primary: str, secondary: str) -> tuple[str, str]:
+    """
+    Returns (status, message) where status is ALLOW, WARN, or BLOCK.
+    """
+    # Handle unknown versions
+    if primary == "unknown" and secondary == "unknown":
+        return ("ALLOW", "Both versions unknown, assuming compatibility")
+    if primary == "unknown":
+        return ("WARN", f"Primary version unknown, cannot verify secondary {secondary}")
+    if secondary == "unknown":
+        return ("WARN", f"Secondary version unknown, cannot verify against primary {primary}")
+
+    # Parse versions
+    try:
+        p_major, p_minor, p_patch = map(int, primary.split("."))
+        s_major, s_minor, s_patch = map(int, secondary.split("."))
+    except ValueError:
+        return ("WARN", f"Unparseable version: primary={primary}, secondary={secondary}")
+
+    # Major version mismatch = BLOCK
+    if p_major != s_major:
+        return ("BLOCK", f"Major version mismatch: primary={primary}, secondary={secondary}")
+
+    # Minor version mismatch = WARN
+    if p_minor != s_minor:
+        return ("WARN", f"Minor version skew: primary={primary}, secondary={secondary}")
+
+    # Patch version behind = WARN, ahead or equal = ALLOW
+    if s_patch < p_patch:
+        return ("WARN", f"Secondary patch behind: primary={primary}, secondary={secondary}")
+
+    return ("ALLOW", f"Versions compatible: primary={primary}, secondary={secondary}")
+```
+
+### 5.2 Compatibility Matrix
+
+| Primary Version | Secondary Version | Status | Operator Action |
+|-----------------|-------------------|--------|-----------------|
+| `X.Y.Z` | `X.Y.Z` (identical) | **ALLOW** | None required |
+| `X.Y.Z` | `X.Y.Z+1` (patch ahead) | **ALLOW** | Monitor logs |
+| `X.Y.Z` | `X.Y.Z-1` (patch behind) | **WARN** | Schedule secondary update |
+| `X.Y.Z` | `X.Y+1.0` (minor ahead) | **WARN** | Consider primary upgrade |
+| `X.Y.Z` | `X.Y-1.0` (minor behind) | **WARN** | Update secondary |
+| `X.Y.Z` | `X+1.0.0` (major ahead) | **BLOCK** | Downgrade secondary or upgrade primary |
+| `X.Y.Z` | `X-1.0.0` (major behind) | **BLOCK** | Update secondary to current major |
+| `X.Y.Z` | `unknown` | **WARN** | Check `PB_VERSION` on secondary |
+| `unknown` | `X.Y.Z` | **WARN** | Check `PB_VERSION` on primary |
+
+### 5.3 Status Actions
+
+| Status | Config Sync | Log Level | UI Badge |
+|--------|-------------|-----------|----------|
+| **ALLOW** | Proceeds normally | DEBUG | Green checkmark |
+| **WARN** | Proceeds with warning | WARNING | Amber warning |
+| **BLOCK** | Halted (HTTP 409) | ERROR | Red error, node → ERROR |
+
+### 5.4 Recommended Skew Policy
+
+| Skew Type | Max Allowed | Rationale |
+|-----------|-------------|-----------|
+| Patch | Unlimited | Patches are backward compatible |
+| Minor | ±1 version | Feature additions should be gradual |
+| Major | 0 (must match) | Breaking changes require coordinated upgrade |
+
+---
+
+## 6. Configuration
+
+### 6.1 Default Thresholds
+
+| Setting | Default | Configurable | Location |
+|---------|---------|--------------|----------|
+| `stale_minutes` | 5 | Yes | `settings.health_stale_minutes` |
+| `offline_minutes` | 30 | Yes | `settings.health_offline_minutes` |
+| `quarantine_threshold_minutes` | 1440 (24h) | Yes | `settings.health_quarantine_threshold_minutes` |
+| `heartbeat_interval_seconds` | 60 | Yes | sync-agent env `HEARTBEAT_INTERVAL_SECONDS` |
+| `config_sync_interval_seconds` | 300 | Yes | sync-agent env `CONFIG_SYNC_INTERVAL_SECONDS` |
+| `metrics_buffer_max_age_seconds` | 604800 (7d) | Yes | sync-agent env `METRICS_BUFFER_MAX_AGE` |
+
+### 6.2 Current Implementation Status
+
+| Setting | Current State | Required State |
+|---------|---------------|----------------|
+| Stale threshold | `health_stale_minutes` (5) ✅ | Same |
+| Offline threshold | **Not implemented** | `health_offline_minutes` (30) |
+| Quarantine threshold | **Not implemented** | `health_quarantine_threshold_minutes` (1440) |
+
+### 6.3 Override Mechanism
+
+Thresholds can be overridden at multiple levels:
+
+| Level | Mechanism | Scope |
+|-------|-----------|-------|
+| **Global** | Settings table | All nodes |
+| **Per-node** | Node-specific override column | Individual node |
+| **Environment** | Container environment variables | Sync-agent behavior |
+
+**Settings Table Override**:
 
 ```sql
-CREATE TABLE node_state_history (
-    id SERIAL PRIMARY KEY,
-    node_id BIGINT REFERENCES nodes(id),
-    from_state VARCHAR(32),
-    to_state VARCHAR(32),
-    trigger VARCHAR(64),
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+-- Override global stale threshold
+UPDATE settings SET value = '10' WHERE key = 'health_stale_minutes';
 
-CREATE INDEX idx_node_state_history_node ON node_state_history(node_id);
-CREATE INDEX idx_node_state_history_created ON node_state_history(created_at);
+-- Per-node override (requires schema extension)
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS stale_override_minutes INTEGER;
+```
+
+**Environment Override (sync-agent)**:
+
+```bash
+# In .env or docker-compose
+HEARTBEAT_INTERVAL_SECONDS=120
+CONFIG_SYNC_INTERVAL_SECONDS=600
+METRICS_BUFFER_MAX_AGE=86400  # 1 day for testing
 ```
 
 ---
 
-## 8. API Endpoints
+## 7. Incident Response
 
-### 8.1 New Endpoints
+### 7.1 Long-Absent Node Procedure
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/node-sync/heartbeat` | POST | Heartbeat from sync agent |
-| `/api/node-sync/quarantine/{node_id}/approve` | POST | Admin approve quarantined node |
-| `/api/node-sync/quarantine/{node_id}/reject` | POST | Admin reject quarantined node |
-| `/api/nodes/{node_id}/quarantine` | POST | Manual quarantine |
-| `/api/nodes/{node_id}/history` | GET | State transition history |
+When a node returns after being offline for days:
 
-### 8.2 Modified Endpoints
+**Step 1: Detection**
 
-| Endpoint | Change |
+```bash
+# Check for nodes offline > 24 hours
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT name, status, last_seen,
+    EXTRACT(EPOCH FROM (NOW() - last_seen))/3600 as hours_offline
+   FROM nodes 
+   WHERE last_seen < NOW() - INTERVAL '24 hours'
+   ORDER BY last_seen DESC;"
+```
+
+**Step 2: Automatic Quarantine**
+
+If node returns after > `quarantine_threshold_minutes` (default 24h):
+
+1. Node automatically enters QUARANTINE state
+2. `quarantine_entry_time` and `quarantine_reason` recorded
+3. Alert fired to monitoring
+
+**Step 3: Assessment Checklist**
+
+| Check | Command | Pass Criteria |
+|-------|---------|---------------|
+| Version match | `SELECT version FROM nodes WHERE name = 'X'` | Same major, ±1 minor |
+| Config drift | Compare `config_version` with primary | Must match |
+| Metrics sanity | Review last pushed metrics | No anomalies |
+| DNS resolution | `dig @node-ip test.domain` | Returns expected result |
+
+**Step 4: Release Decision**
+
+| Scenario | Action |
 |----------|--------|
-| `/api/node-sync/ingest` | Block if node is QUARANTINE |
-| `/api/node-sync/config` | Block if node is QUARANTINE |
-| `/api/node-sync/register` | Record node_version |
+| All checks pass, node trusted | Approve → ACTIVE |
+| Version mismatch | Update node, retry |
+| Config drift detected | Force full sync, verify, then approve |
+| Suspicious activity | Reject → ERROR, investigate |
+
+**Step 5: Post-Release Verification**
+
+```bash
+# Verify node is syncing
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT name, status, last_seen, version, config_version
+   FROM nodes WHERE name = 'X';"
+
+# Check recent heartbeats
+docker logs sync-agent --since 5m | grep -i heartbeat
+```
+
+### 7.2 Days-Absent Node Flowchart
+
+```
+Node Returns After Days Offline
+              │
+              ▼
+    ┌─────────────────────┐
+    │ Offline > 24 hours? │
+    └──────────┬──────────┘
+               │
+        ┌──────┴──────┐
+        │             │
+       Yes           No
+        │             │
+        ▼             ▼
+  ┌──────────┐   ┌──────────┐
+  │QUARANTINE│   │  ACTIVE  │
+  └────┬─────┘   └──────────┘
+       │
+       ▼
+┌─────────────────────┐
+│ Version Compatible? │
+└──────────┬──────────┘
+           │
+    ┌──────┴──────┐
+    │             │
+   Yes           No
+    │             │
+    ▼             ▼
+┌────────┐   ┌────────────────┐
+│ Config │   │ ERROR          │
+│ Sync   │   │ "Version mismatch"
+└────┬───┘   └────────────────┘
+     │
+     ▼
+┌──────────────────┐
+│ Config Version   │
+│ Matches Primary? │
+└────────┬─────────┘
+         │
+  ┌──────┴──────┐
+  │             │
+ Yes           No
+  │             │
+  ▼             ▼
+┌────────┐  ┌─────────────┐
+│ Manual │  │ Force Sync  │
+│Approve │  │ Then Approve│
+└────┬───┘  └─────────────┘
+     │
+     ▼
+┌──────────┐
+│  ACTIVE  │
+└──────────┘
+```
+
+### 7.3 Rollback Procedure
+
+If a released node causes issues:
+
+```bash
+# 1. Immediately quarantine
+curl -X POST http://localhost:8080/api/nodes/{node_id}/quarantine \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"reason": "Post-release issues detected"}'
+
+# 2. Review state history
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT * FROM node_state_history 
+   WHERE node_id = (SELECT id FROM nodes WHERE name = 'X')
+   ORDER BY created_at DESC LIMIT 10;"
+
+# 3. Investigate logs
+docker logs sync-agent --since 1h | grep -i error
+```
 
 ---
 
-## 9. UI Requirements
+## 8. Verification Commands
 
-### 9.1 Node List Page
+### 8.1 Check Node States
 
-- Show state with colored indicators
-- Filter by state
-- Show "last heartbeat" timestamp
-- Show "last sync" timestamp
-- Quarantine approval actions for admins
+```bash
+# List all nodes with status and last_seen
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT name, status, last_seen, 
+    EXTRACT(EPOCH FROM (NOW() - last_seen))/60 as minutes_since_seen
+   FROM nodes ORDER BY last_seen DESC;"
+```
 
-### 9.2 Quarantine Queue
+### 8.2 Check Stale Nodes
 
-- Dedicated view for quarantined nodes
-- Show quarantine reason and duration
-- Show validation status (version, sync gap)
-- Approve/Reject buttons
+```bash
+# Nodes where last_seen > stale_minutes (5 min default)
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT name, status, last_seen,
+    EXTRACT(EPOCH FROM (NOW() - last_seen))/60 as minutes_stale
+   FROM nodes 
+   WHERE last_seen < NOW() - INTERVAL '5 minutes'
+   ORDER BY last_seen DESC;"
+```
 
-### 9.3 Alerts
+### 8.3 Check Quarantine Status
 
-| Alert | Condition |
-|-------|-----------|
-| Node Stale | Any node in STALE state |
-| Node Offline | Any node in OFFLINE state |
-| Node Quarantined | Any node enters QUARANTINE |
-| Quarantine Pending | Nodes awaiting approval |
+```bash
+# Nodes in quarantine
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT name, status, quarantine_entry_time, quarantine_reason,
+    approved_by, approved_at
+   FROM nodes WHERE status = 'quarantine';"
+```
+
+### 8.4 Check Version Compatibility
+
+```bash
+# Compare all node versions with primary
+docker exec admin-ui psql -U postgres -d powerblockade -c \
+  "SELECT n.name, n.version as node_version, 
+    (SELECT value FROM settings WHERE key = 'pb_version') as primary_version
+   FROM nodes n;"
+```
 
 ---
 
-## 10. Monitoring
+## 9. Implementation Status
 
-### 10.1 Metrics
+### 9.1 Completed
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `pb_nodes_total` | Gauge | Total nodes by state |
-| `pb_node_heartbeat_latency_seconds` | Histogram | Heartbeat response time |
-| `pb_node_sync_gap` | Gauge | Sync position gap per node |
-| `pb_quarantine_queue_size` | Gauge | Nodes awaiting approval |
+- [x] `NodeStatus` enum defines all states
+- [x] Heartbeat endpoint receives and updates `last_seen`
+- [x] Sync-agent sends heartbeats with version
+- [x] Stale detection generates UI warnings
 
-### 10.2 Dashboards
+### 9.2 In Progress
 
-- Node health overview panel
-- State distribution pie chart
-- Quarantine queue timeline
+- [ ] Automatic STALE → OFFLINE state transitions
+- [ ] Quarantine-on-return for long-absent nodes
+- [ ] Configurable offline/quarantine thresholds
+
+### 9.3 Planned
+
+- [ ] Quarantine release workflow UI
+- [ ] Version compatibility enforcement
+- [ ] State transition history table
+- [ ] Per-node threshold overrides
 
 ---
 
-## 11. Implementation Checklist
+## 10. Acceptance Criteria
 
-- [ ] Add new states to `NodeStatus` enum
-- [ ] Create database migration for schema changes
-- [ ] Implement heartbeat endpoint
-- [ ] Add heartbeat to sync agent
-- [ ] Implement state transition logic
-- [ ] Add quarantine validation
-- [ ] Create approval API endpoints
-- [ ] Update node list UI
-- [ ] Create quarantine queue UI
-- [ ] Add alerts for state changes
-- [ ] Add Prometheus metrics
-- [ ] Update documentation
+- [x] Default thresholds documented (5min stale, 30min offline, 24h quarantine)
+- [x] Override mechanism defined (settings table + environment variables)
+- [x] Quarantine-on-return explicit (entry criteria, exit checks, workflow)
+- [x] Incident response path for days-absent nodes (detection, assessment, release, rollback)

@@ -313,7 +313,17 @@ check_prerequisites() {
     else
         log_fail "jq not installed"
         prereq_json+="\"jq\": {\"installed\": false}, "
-        ((errors++))
+        errors=$((errors + 1))
+    fi
+
+    # Check bc (required for threshold calculations)
+    if command -v bc &>/dev/null; then
+        log_pass "bc installed"
+        prereq_json+="\"bc\": {\"installed\": true}, "
+    else
+        log_fail "bc not installed (required for threshold calculations)"
+        prereq_json+="\"bc\": {\"installed\": false}, "
+        errors=$((errors + 1))
     fi
 
     # Check network access to target

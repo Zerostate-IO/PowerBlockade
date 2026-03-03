@@ -39,6 +39,8 @@ DEFAULTS = {
     "health_timeout_warning": "2",
     "health_slow_warning": "10",
     "health_stale_minutes": "5",
+    "health_offline_minutes": "30",
+    "health_quarantine_threshold_minutes": "1440",  # 24 hours
     # Blocking state: "enabled", "disabled", or ISO timestamp for pause-until
     "blocking_state": "enabled",
 }
@@ -127,6 +129,14 @@ def get_health_slow_warning(db) -> float:
 
 def get_health_stale_minutes(db) -> int:
     return int(get_setting(db, "health_stale_minutes") or "5")
+
+
+def get_health_offline_minutes(db) -> int:
+    return int(get_setting(db, "health_offline_minutes") or "30")
+
+
+def get_health_quarantine_threshold_minutes(db) -> int:
+    return int(get_setting(db, "health_quarantine_threshold_minutes") or "1440")
 
 
 def get_blocking_state(db) -> str:

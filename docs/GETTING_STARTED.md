@@ -79,16 +79,43 @@ After adding yourself to the docker group, **log out and back in** for it to tak
 git clone https://github.com/Zerostate-IO/PowerBlockade.git
 cd PowerBlockade
 
-# Generate environment file with random secrets
+# Run interactive setup script
 ./scripts/init-env.sh
 ```
 
-The `init-env.sh` script creates a `.env` file with secure random values for:
+The `init-env.sh` script is interactive and guides you through setup:
+
+### Step 1: DNS Port Check
+
+The script detects if port 53 is already in use by:
+- **systemd-resolved** (Ubuntu's default DNS stub resolver)
+- **Netbird** or **Tailscale** (VPN DNS resolvers)
+- **dnsmasq** (often used by NetworkManager)
+- **Pi-hole** or other DNS servers
+
+If a conflict is found, you can:
+1. **Bind to a specific IP** (recommended) - dnsdist will listen on just that interface
+2. **Keep binding to all interfaces** - may fail if the port is in use
+3. **Stop the conflicting service** - the script will stop it for you
+
+### Step 2: Node Configuration
+
+Enter a node name for this instance. Default is `primary`.
+
+### Step 3: Admin Credentials
+
+Choose how to set your admin password:
+1. **Auto-generate** - Creates a secure random password (recommended)
+2. **Custom password** - Enter your own (minimum 8 characters)
+
+### Step 4: Secrets Generation
+
+The script automatically generates secure random values for:
 - `ADMIN_SECRET_KEY` - Session encryption key
-- `ADMIN_PASSWORD` - Your admin login password (displayed after running)
-- `PRIMARY_API_KEY` - Internal API authentication
+- `POSTGRES_PASSWORD` - Database credentials
 - `RECURSOR_API_KEY` - Recursor management API key
-- Database credentials
+- `PRIMARY_API_KEY` - Internal API authentication
+- `GRAFANA_ADMIN_PASSWORD` - Grafana login password
 
 **Save the displayed admin password!** You'll need it to log in.
 
@@ -98,27 +125,43 @@ The `init-env.sh` script creates a `.env` file with secure random values for:
 # View generated config (don't share these values!)
 cat .env
 ```
-
-Key settings you might want to change in `.env`:
-- `ADMIN_USERNAME` - Login username (default: `admin`)
-- `ADMIN_PASSWORD` - Your password (regenerate if needed)
-
 ## Step 3: Start PowerBlockade
+
+### Primary Path: Pre-built Images (Recommended)
+
+Use pre-built images from GitHub Container Registry for fastest startup:
+
+```bash
+# Start with pre-built images (no local build needed)
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+First startup takes 1-2 minutes to:
+1. Pull container images from GHCR
+2. Initialize the PostgreSQL database
+3. Run database migrations
+4. Start all services
+
+### Alternative: Build Locally
+
+For development or customization, build images locally:
 
 ```bash
 # Build and start all services
 docker compose up -d --build
 ```
 
-First startup takes 2-5 minutes to:
-1. Build container images
-2. Initialize the PostgreSQL database
-3. Run database migrations
-4. Start all services
+This takes longer (2-5 minutes) as it builds all containers from source.
+
+### Verify the Stack is Running
 
 Check that everything is running:
 
 ```bash
+# For pre-built images
+docker compose -f docker-compose.ghcr.yml ps
+
+# Or for local build
 docker compose ps
 ```
 

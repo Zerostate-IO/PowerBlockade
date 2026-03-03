@@ -19,6 +19,8 @@ from app.models.settings import (
     get_precache_ignore_ttl,
 )
 
+from app.services.scheduler import run_with_advisory_lock
+
 log = logging.getLogger(__name__)
 
 BATCH_SIZE = 50
@@ -167,6 +169,8 @@ def get_domains_needing_refresh(
 
     return needs_refresh
 
+
+@run_with_advisory_lock("precache_warming")
 
 def precache_warming_job() -> None:
     db = SessionLocal()

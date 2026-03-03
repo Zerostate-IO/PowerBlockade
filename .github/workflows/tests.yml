@@ -182,3 +182,12 @@ jobs:
 
       - name: Run pb CLI tests
         run: ./scripts/test-pb.sh
+
+  setup-contract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check setup contract drift guards
+        run: bash scripts/check-setup-contract.sh
