@@ -28,6 +28,46 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 > - Keep `recursor/recursor.conf.template.bak.pre-migration` until post-upgrade validation is complete.
 > - Upgrade secondaries first, then primary.
 
+## [0.7.2] - 2026-03-03
+
+> **Release Type**: Minor Feature Release
+> **Upgrade Safety**: Safe upgrade, see Known Issues below
+
+### Added
+
+- Node lifecycle management with automatic state transitions (healthy → offline → quarantined)
+- Quarantine-on-return for nodes offline >24 hours (configurable via `health_quarantine_threshold_minutes`)
+- Metrics buffering for secondary nodes (7-day retention during primary outages)
+- Version compatibility warnings in sync protocol (MINOR version skew = WARN, MAJOR = BLOCK)
+- Scheduler job state tracking with PostgreSQL advisory locks
+
+### Changed
+
+- **BREAKING-ADJACENT**: Container startup now validates security settings
+  - Installs with default/weak credentials will fail to start
+  - Bypass available: `POWERBLOCKADE_ALLOW_INSECURE=true` (development only)
+- Secondary node sync protocol now handles mixed-version deployments gracefully
+
+### Fixed
+
+- Advisory lock race conditions in scheduler jobs
+- Secondary node compatibility with version skew during rolling upgrades
+
+### Known Issues
+
+- `pb rollback` does not automatically restore previous Docker image versions
+  - **Workaround**: See [Manual Rollback Procedure](docs/UPGRADE.md#manual-rollback-procedure)
+
+### Upgrade Instructions
+
+```bash
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
+
 ## [0.7.1] - 2026-02-26
 
 > **Release Type**: Patch Release

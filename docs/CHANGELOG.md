@@ -1,3 +1,7 @@
+> **⚠️ DEPRECATED**: This changelog is no longer updated.
+> For current release notes, see [CHANGELOG.md](../CHANGELOG.md) in the repository root.
+
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

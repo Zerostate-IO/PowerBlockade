@@ -267,6 +267,33 @@ cat backup_20250225.sql | docker compose -f docker-compose.ghcr.yml exec -T post
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
+### Manual Rollback Procedure
+
+> ⚠️ **Important**: `pb rollback` restores config and database but does NOT pull previous Docker images. If you need to restore a previous version completely, follow this procedure.
+
+When rolling back to a previous version, you must explicitly pull the old images:
+
+```bash
+# 1. Get the previous version from state file
+PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
+echo "Rolling back to: $PREV_VERSION"
+
+# 2. Export the version and pull old images
+export POWERBLOCKADE_VERSION="$PREV_VERSION"
+docker compose -f docker-compose.ghcr.yml pull
+
+# 3. Stop current containers
+docker compose -f docker-compose.ghcr.yml down
+
+# 4. Start with the old version
+docker compose -f docker-compose.ghcr.yml up -d
+
+# 5. Verify the rollback
+docker exec admin-ui cat /app/version.txt
+```
+
+**Why this is needed**: The `pb rollback` command restores your database backup and configuration, but containers using `:latest` tags will restart with the same image. Explicit version pinning ensures you're running the intended version.
+
 ## Updating Config Files
 
 Some updates may require updated configuration files (e.g., new prometheus.yml settings). Download the latest:
