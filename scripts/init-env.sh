@@ -31,7 +31,7 @@ set_kv() {
   local value="$2"
   # Remove existing key if present
   if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
-    perl -0777 -i -pe "s/^${key}=.*$/${key}=${value}/m" "$ENV_FILE"
+    perl -0777 -i -pe "s|^${key}=.*$|${key}=${value}|m" "$ENV_FILE"
   else
     echo "${key}=${value}" >> "$ENV_FILE"
   fi
