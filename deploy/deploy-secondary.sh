@@ -50,7 +50,7 @@ fi
 
 # Download config files
 echo "Ensuring config files exist..."
-mkdir -p recursor/rpz dnsist
+mkdir -p recursor/rpz dnsdist
 
 for file in \
     "recursor/recursor.conf.template:recursor/recursor.conf.template" \
@@ -125,7 +125,6 @@ docker compose pull
 
 echo "Starting services (with secondary profile)..."
 docker compose --profile secondary up -d
-docker compose --profile sync-agent up -d
 
 echo ""
 echo "=== Secondary Node Deployment Complete ==="
