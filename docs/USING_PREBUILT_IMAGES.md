@@ -30,7 +30,7 @@ docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 
 Secondary nodes only run the DNS services (dnsdist, recursor, dnstap-processor) and sync-agent. They do not run postgres, admin-ui, prometheus, or grafana - those run only on the primary node.
 
-See [GETTING_STARTED.md](GETTING_STARTED.md#multi-node-setup-optional) for complete multi-node setup instructions.
+See [GETTING_STARTED.md](GETTING_STARTED.md) for complete multi-node setup instructions.
 
 ## Repository Configuration
 

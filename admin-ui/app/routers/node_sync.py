@@ -18,7 +18,7 @@ from app.models.dns_query_event import DNSQueryEvent
 from app.models.forward_zone import ForwardZone
 from app.models.node import Node, NodeStatus
 from app.models.node_metrics import NodeMetrics
-from app.models.settings import get_setting, get_health_quarantine_threshold_minutes
+from app.models.settings import get_health_quarantine_threshold_minutes, get_setting
 from app.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -109,6 +109,7 @@ def check_version_compatibility(primary: str | None, secondary: str | None) -> t
         return ("WARN", f"Secondary patch behind: primary={primary}, secondary={secondary}")
 
     return ("ALLOW", f"Versions compatible: primary={primary}, secondary={secondary}")
+
 
 class RegisterRequest(BaseModel):
     name: str

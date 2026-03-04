@@ -110,9 +110,8 @@ def bootstrap_admin() -> None:
                     text("UPDATE users SET password_hash = :p WHERE username = :u"),
                     {"p": hash_password(password), "u": username},
                 )
-                log.info(
-                    f"Reconciled admin password for '{username}' from ADMIN_PASSWORD env var"
-                )
+                log.info(f"Reconciled admin password for '{username}' from ADMIN_PASSWORD env var")
+
 
 def bootstrap_primary_node() -> None:
     import hashlib

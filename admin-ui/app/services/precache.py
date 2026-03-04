@@ -18,7 +18,6 @@ from app.models.settings import (
     get_precache_enabled,
     get_precache_ignore_ttl,
 )
-
 from app.services.scheduler import run_with_advisory_lock
 
 log = logging.getLogger(__name__)
@@ -171,7 +170,6 @@ def get_domains_needing_refresh(
 
 
 @run_with_advisory_lock("precache_warming")
-
 def precache_warming_job() -> None:
     db = SessionLocal()
     try:

@@ -19,14 +19,13 @@ from app.models.blocklist_entry import BlocklistEntry
 from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.models.settings import get_health_offline_minutes, get_health_stale_minutes
 from app.services.blocklist_manager import fetch_and_parse_blocklist
 from app.services.blocklist_scheduler import run_schedule_check
-from app.services.precache import precache_warming_job
 from app.services.retention import run_retention_job
 from app.services.rollups import run_rollup_job
 from app.services.rpz import render_rpz_whitelist, render_rpz_zone
 from app.settings import get_settings
-from app.models.settings import get_health_stale_minutes, get_health_offline_minutes
 
 log = logging.getLogger(__name__)
 
@@ -195,36 +194,38 @@ def node_state_transitions_job() -> None:
         now = datetime.now(timezone.utc)
         stale_minutes = get_health_stale_minutes(db)
         offline_minutes = get_health_offline_minutes(db)
-        
+
         stale_threshold = now - timedelta(minutes=stale_minutes)
         offline_threshold = now - timedelta(minutes=offline_minutes)
-        
+
         # ACTIVE -> STALE: last_seen older than stale_minutes
         active_to_stale = (
             db.query(Node)
             .filter(Node.status == "active", Node.last_seen < stale_threshold)
             .update({Node.status: "stale"}, synchronize_session=False)
         )
-        
+
         # STALE -> OFFLINE: last_seen older than offline_minutes
         stale_to_offline = (
             db.query(Node)
             .filter(Node.status == "stale", Node.last_seen < offline_threshold)
             .update({Node.status: "offline"}, synchronize_session=False)
         )
-        
+
         db.commit()
-        
+
         if active_to_stale or stale_to_offline:
-            log.info(f"Node state transitions: {active_to_stale} active→stale, {stale_to_offline} stale→offline")
+            log.info(
+                f"Node state transitions: {active_to_stale} active→stale, {stale_to_offline} stale→offline"
+            )
     except Exception as e:
         log.error(f"Node state transitions job failed: {e}")
         db.rollback()
     finally:
         db.close()
 
-@run_with_advisory_lock("blocklist_schedule")
 
+@run_with_advisory_lock("blocklist_schedule")
 def blocklist_schedule_job() -> None:
     """Check blocklist schedules and enable/disable based on time."""
     try:
@@ -236,7 +237,6 @@ def blocklist_schedule_job() -> None:
 
 
 @run_with_advisory_lock("local_metrics")
-
 def scrape_local_recursor_metrics() -> None:
     import socket
 
@@ -333,6 +333,9 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
+    # Lazy import to avoid circular dependency with app.services.precache
+    from app.services.precache import precache_warming_job
+
     _scheduler.add_job(
         precache_warming_job,
         IntervalTrigger(minutes=5),
@@ -357,7 +360,6 @@ def start_scheduler() -> None:
         name="Check blocklist schedules",
         replace_existing=True,
     )
-
 
     _scheduler.add_job(
         node_state_transitions_job,
