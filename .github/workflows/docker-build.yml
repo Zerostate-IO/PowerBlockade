@@ -3,13 +3,14 @@ name: Build and Push Docker Images
 on:
   push:
     branches: [main, develop]
-    # Tags are handled by release.yml to avoid double-publish
+    tags: ['v*']
     paths:
       - 'admin-ui/**'
       - 'recursor/**'
       - 'dnstap-processor/**'
       - 'sync-agent/**'
       - 'docker-compose.yml'
+      - '.github/workflows/docker-build.yml'
   workflow_dispatch:
 
 env:
