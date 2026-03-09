@@ -55,7 +55,7 @@ jobs:
 
       - name: Extract metadata for admin-ui
         id: meta-admin
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}-admin-ui
           tags: |
@@ -67,7 +67,7 @@ jobs:
 
       - name: Extract metadata for recursor
         id: meta-recursor
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}-recursor
           tags: |
@@ -79,7 +79,7 @@ jobs:
 
       - name: Extract metadata for dnstap-processor
         id: meta-dnstap
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}-dnstap-processor
           tags: |
@@ -91,7 +91,7 @@ jobs:
 
       - name: Extract metadata for sync-agent
         id: meta-sync
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}-sync-agent
           tags: |
