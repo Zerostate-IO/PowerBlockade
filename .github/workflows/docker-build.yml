@@ -102,7 +102,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push admin-ui
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./admin-ui
           platforms: linux/amd64,linux/arm64
@@ -117,7 +117,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push recursor
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./recursor
           platforms: linux/amd64,linux/arm64
@@ -128,7 +128,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push dnstap-processor
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./dnstap-processor
           platforms: linux/amd64,linux/arm64
@@ -143,7 +143,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push sync-agent
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./sync-agent
           platforms: linux/amd64,linux/arm64
