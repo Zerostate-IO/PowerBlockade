@@ -38,6 +38,20 @@ PowerBlockade runs well on a Raspberry Pi 4 (2GB+ RAM recommended).
 - **Git** (to clone the repository)
 - Port 53 (DNS) available on the host
 
+## Fastest Path (Single Host)
+
+For a fresh Linux host, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash
+```
+
+The installer handles dependency checks, Docker/Compose install, repo bootstrap, interactive `.env` setup, and service startup.
+
+For details, see [EASY_START.md](EASY_START.md).
+
+If you want a manual, step-by-step setup, continue below.
+
 ## Step 1: Install Docker
 
 If Docker isn't installed, follow the official guides:

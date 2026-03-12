@@ -4,6 +4,26 @@ Get a DNS filtering server running in under 5 minutes using pre-built Docker ima
 
 > **Looking for more detail?** See [Getting Started](docs/GETTING_STARTED.md) for a complete walkthrough, or [Upgrade Guide](docs/UPGRADE.md) for updating an existing installation.
 
+## One-Command Easy Start (Single Host)
+
+For a brand-new Linux host, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash
+```
+
+Optional version pin:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.0
+```
+
+The installer asks questions, detects missing prerequisites, handles Docker/Compose installation, runs `init-env.sh`, and starts the stack.
+
+For full details, see [docs/EASY_START.md](docs/EASY_START.md).
+
+## Manual Walkthrough
+
 ## Network Topology Overview
 
 ```

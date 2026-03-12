@@ -8,14 +8,28 @@ Modern dark UI, multi-node support, Docker-first.
 
 ## Quick start
 
-The canonical setup path uses pre-built images from GitHub Container Registry:
+### Easy Start (single host)
+
+Paste this into a fresh Linux host:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash
+```
+
+The installer is interactive and handles dependency checks, Docker setup, repo checkout, `.env` generation, and startup.
+
+See [Easy Start Guide](docs/EASY_START.md) for details.
+
+### Manual setup path
+
+The canonical manual setup path uses pre-built images from GitHub Container Registry:
 
 ```bash
 ./scripts/init-env.sh
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-That's it. Two commands.
+That's it. Two commands if Docker and prerequisites are already installed.
 
 ### What `init-env.sh` does
 
@@ -52,6 +66,7 @@ docker compose up -d --build
 
 ## Documentation
 
+- [Easy Start](docs/EASY_START.md) - One-command bootstrap for single-host installs
 - [Quick Start Guide](QUICK_START.md) - Get running in 5 minutes
 - [Getting Started](docs/GETTING_STARTED.md) - Complete walkthrough with Docker setup
 - [Using Pre-built Images](docs/USING_PREBUILT_IMAGES.md) - GHCR image details

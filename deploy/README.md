@@ -6,9 +6,26 @@ This directory contains scripts for deploying PowerBlockade to production server
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
+| `deploy-primary-one-liner.sh` | Interactive single-host easy start | `curl -fsSL .../deploy-primary-one-liner.sh \| bash` |
 | `deploy-primary.sh` | Deploy primary node | `./deploy-primary.sh [version]` |
 | `deploy-secondary.sh` | Deploy secondary node | `./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]` |
 | `upgrade.sh` | Upgrade existing deployment | `./upgrade.sh [version]` |
+
+## Single-Host Easy Start
+
+For a brand-new single node, use:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash
+```
+
+Optional version pin:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.0
+```
+
+This flow is interactive and includes prerequisites, Docker/Compose setup, `init-env.sh` prompts, and startup checks.
 
 ## Architecture
 

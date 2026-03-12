@@ -2,6 +2,8 @@
 
 PowerBlockade provides pre-built Docker images hosted on GitHub Container Registry (GHCR). You can pull these images instead of building locally.
 
+> Want full bootstrap from a fresh host with one command? Use [EASY_START.md](EASY_START.md).
+
 ## Quick Start with Pre-Built Images
 
 ### 1. Generate environment file
