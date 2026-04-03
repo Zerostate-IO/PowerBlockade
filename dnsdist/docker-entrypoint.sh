@@ -7,6 +7,7 @@ DNSTAP_PROCESSOR_IP="${DNSTAP_PROCESSOR_IP:-172.30.0.20}"
 DNSTAP_PORT="${DNSTAP_PORT:-6000}"
 CHECK_INTERVAL="${DNSTAP_CHECK_INTERVAL:-10}"
 DNSTAP_WAIT_TIMEOUT_SECONDS="${DNSTAP_WAIT_TIMEOUT_SECONDS:-60}"
+RECURSOR_WAIT_TIMEOUT_SECONDS="${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}"
 
 # Generate dnsdist.conf from template with IP substitution
 # Write to /tmp since /etc/dnsdist is read-only mounted
@@ -18,6 +19,14 @@ echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=
 
 check_dnstap() {
     timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_PROCESSOR_IP/$DNSTAP_PORT" 2>/dev/null
+}
+
+check_recursor() {
+    timeout 2 bash -c "echo >/dev/tcp/$RECURSOR_IP/5300" 2>/dev/null
+}
+
+check_dnsdist_local() {
+    timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/53" 2>/dev/null
 }
 
 # Wait for dnstap-processor with bounded timeout
@@ -45,9 +54,52 @@ while true; do
 done
 
 
+RECURSOR_WAIT_START=$(date +%s)
+echo "Waiting for recursor at $RECURSOR_IP:5300 (timeout: ${RECURSOR_WAIT_TIMEOUT_SECONDS}s)..."
+
+while true; do
+    ELAPSED=$(($(date +%s) - RECURSOR_WAIT_START))
+    if [ $ELAPSED -ge $RECURSOR_WAIT_TIMEOUT_SECONDS ]; then
+        echo "WARNING: recursor not ready after ${RECURSOR_WAIT_TIMEOUT_SECONDS}s, starting dnsdist anyway"
+        break
+    fi
+
+    if check_recursor; then
+        echo "recursor is ready (${ELAPSED}s)"
+        break
+    fi
+
+    sleep 1
+done
+
+
 # Start dnsdist in background
 dnsdist --supervised -C /tmp/dnsdist.conf &
 DNSDIST_PID=$!
+
+DNSDIST_READY=false
+for _ in $(seq 1 10); do
+    if ! kill -0 $DNSDIST_PID 2>/dev/null; then
+        break
+    fi
+
+    if check_dnsdist_local; then
+        DNSDIST_READY=true
+        echo "dnsdist is listening on 127.0.0.1:53"
+        break
+    fi
+
+    sleep 1
+done
+
+if [ "$DNSDIST_READY" != "true" ]; then
+    echo "ERROR: dnsdist did not become reachable on 127.0.0.1:53" >&2
+    if kill -0 $DNSDIST_PID 2>/dev/null; then
+        kill $DNSDIST_PID 2>/dev/null || true
+        wait $DNSDIST_PID 2>/dev/null || true
+    fi
+    exit 1
+fi
 
 # Track the last known state of dnstap-processor
 if [ "$DNSTAP_READY" = "true" ]; then

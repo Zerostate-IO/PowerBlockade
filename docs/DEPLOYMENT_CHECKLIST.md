@@ -71,7 +71,7 @@ On each server (celsate, bowlister):
 
 3. **Run deployment:**
    ```bash
-   ./deploy-primary.sh v0.7.0
+   ./deploy-primary.sh v0.7.3
    ```
 
 4. **Save the admin password** from the output.
@@ -119,7 +119,7 @@ On each server (celsate, bowlister):
 
 4. **Run deployment:**
    ```bash
-   ./deploy-secondary.sh v0.7.0 http://CELSATE_IP:8080 API_KEY bowlister
+   ./deploy-secondary.sh v0.7.3 http://CELSATE_IP:8080 API_KEY bowlister
    ```
 
 5. **Verify on celsate:**
@@ -159,8 +159,8 @@ On each server (celsate, bowlister):
 1. **Upgrade bowlister:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
-   POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile sync-agent up -d
+   POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
+   POWERBLOCKADE_VERSION=v0.7.3 docker compose --profile sync-agent up -d
    ```
 
 2. **Verify bowlister is online** in primary's Admin UI
@@ -168,8 +168,8 @@ On each server (celsate, bowlister):
 3. **Upgrade celsate:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
-   POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+   POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
+   POWERBLOCKADE_VERSION=v0.7.3 docker compose up -d
    ```
 
 4. **Validate Recursor settings migration output:**
@@ -208,6 +208,19 @@ docker compose logs recursor
 dig @localhost google.com
 ```
 
+### DNS after host reboot
+```bash
+# Both services should recover to healthy
+docker compose ps recursor dnsdist
+
+# Verify the intended serving address answers
+dig @HOST_LAN_IP google.com +short
+```
+
+- [ ] `recursor` shows `healthy`
+- [ ] `dnsdist` shows `healthy`
+- [ ] DNS answers on the configured LAN IP within 60 seconds of boot
+
 ### Secondary shows offline
 ```bash
 # Check sync-agent
@@ -232,6 +245,7 @@ cat backups/backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v0.7.3 | 2026-04-03 | Reboot recovery hardening for dnsdist/recursor startup and health checks |
 | v0.7.0 | 2026-02-26 | PowerDNS stable-line upgrade and built-in recursor settings migration |
 | v0.5.5 | 2026-02-26 | Documentation overhaul, GHCR deployment |
 | v0.5.4 | 2026-02-26 | Pre-release testing |

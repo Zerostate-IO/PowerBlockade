@@ -9,24 +9,38 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
-### Added
-- Built-in Recursor settings migration tooling (`recursor/migrate-settings.sh`) to rewrite legacy keys to current equivalents during upgrades.
-- Upgrade flow hook in `scripts/pb` to run Recursor settings migration before service restart.
+## [0.7.3] - 2026-04-03
+
+> **Release Type**: Patch Release
+> **Upgrade Safety**: Safe upgrade, no manual steps required
 
 ### Changed
-- PowerDNS stack upgraded to stable lines: dnsdist 2.0 (`powerdns/dnsdist-20`) and Recursor 5.3 (`powerdns/pdns-recursor-53`).
-- Recursor container startup now runs with `--enable-old-settings` while migration support is active.
-- Default release references and user-facing version metadata moved to `v0.7.0` for the next feature release train.
+
+- dnsdist startup now waits for recursor readiness before accepting queries and fails fast if port 53 is not reachable inside the container
+- dnsdist and recursor now use health-gated startup ordering so reboot recovery does not depend on container start order alone
+- Generated secondary deployment packages now use the same health and dependency contract as the canonical compose files
 
 ### Fixed
-- Secondary node package generator now emits a clean compose/env payload without duplicated template blocks.
 
-### Operator Action Required
+- Post-reboot DNS outages where recursor was healthy but dnsdist never became reachable on the intended LAN IP
+- dnsdist healthchecks on official images that do not ship with `dig`
+- recursor healthchecks that treated lowercase `pong` responses as failures on live hosts
 
-> ⚠️ **For upgrades to v0.7.0+**: review Recursor settings migration output on first restart.
-> - Confirm `migrate-recursor-settings:` appears in Recursor logs during startup.
-> - Keep `recursor/recursor.conf.template.bak.pre-migration` until post-upgrade validation is complete.
-> - Upgrade secondaries first, then primary.
+### Documentation
+
+- Added reboot recovery verification guidance for LAN-IP testing, health checks, and dnsdist troubleshooting in deployment and getting-started docs
+- Documented the live-validated distinction between VPN resolver success and PowerBlockade DNS reachability
+
+### Validation
+
+- Verified on `10.5.5.2` and `10.5.5.3` after a real power outage: `recursor` healthy, `dnsdist` healthy, and `dig @10.5.5.x google.com +short` succeeds locally and remotely
+
+### Upgrade Instructions
+
+```bash
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml up -d
+```
 
 ## [0.7.2] - 2026-03-03
 

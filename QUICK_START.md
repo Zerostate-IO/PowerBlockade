@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional version pin:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.0
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.3
 ```
 
 The installer asks questions, detects missing prerequisites, handles Docker/Compose installation, runs `init-env.sh`, and starts the stack.
@@ -166,7 +166,7 @@ To pin to a specific version instead of `latest`:
 
 ```bash
 # Pin to a specific release
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Step 4: Access the Admin UI
@@ -213,8 +213,8 @@ dig @YOUR_SERVER_IP ad.doubleclick.net
 Or from the PowerBlockade server itself:
 
 ```bash
-# Test locally
-dig @localhost google.com
+# Test against the configured bind address
+dig @YOUR_DNSDIST_LISTEN_ADDRESS google.com
 ```
 
 ### Check Query Logs
@@ -287,8 +287,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 ### Update to a specific version
 
 ```bash
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ### Check status
@@ -333,8 +333,8 @@ sudo ufw allow 8080/tcp
 ### DNS queries not working
 
 ```bash
-# Test DNS resolution locally
-dig @localhost google.com
+# Test DNS resolution on the configured bind address
+dig @YOUR_DNSDIST_LISTEN_ADDRESS google.com
 
 # Check dnsdist logs
 docker compose -f docker-compose.ghcr.yml logs dnsdist

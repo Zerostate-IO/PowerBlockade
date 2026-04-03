@@ -334,6 +334,15 @@ docker compose logs recursor
 docker compose logs dnsdist
 ```
 
+After a host reboot, verify recovery in this order:
+
+```bash
+docker compose ps recursor dnsdist
+dig @YOUR_DNSDIST_LISTEN_ADDRESS google.com +short
+```
+
+`recursor` should become `healthy` before `dnsdist`, and `dnsdist` should also end up `healthy`. If only a VPN address answers on port 53, check whether you are hitting Netbird/Tailscale instead of the IP configured in `DNSDIST_LISTEN_ADDRESS`. `127.0.0.1` is not a reliable host-side test when docker publishes port 53 only on a specific address.
+
 ### Blocklist Apply Fails with Permission Error
 
 If clicking "Apply" on the Blocklists page returns a 500 error, the RPZ directory may have incorrect permissions:

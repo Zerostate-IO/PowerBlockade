@@ -34,8 +34,10 @@ def generate_secondary_package_zip(
         """\
         services:
           dnsdist:
-            image: powerdns/dnsdist-20:latest
+            image: powerdns/dnsdist-20:2.0.3
             restart: unless-stopped
+            environment:
+              RECURSOR_WAIT_TIMEOUT_SECONDS: ${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}
             ports:
               - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
               - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
@@ -45,7 +47,14 @@ def generate_secondary_package_zip(
             cap_add:
               - NET_BIND_SERVICE
             depends_on:
-              - recursor
+              recursor:
+                condition: service_healthy
+            healthcheck:
+              test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/53' || exit 1"]
+              interval: 10s
+              timeout: 5s
+              retries: 3
+              start_period: 10s
 
           recursor:
             image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor:${POWERBLOCKADE_VERSION:-latest}
@@ -57,6 +66,12 @@ def generate_secondary_package_zip(
             expose:
               - "5300"
               - "8082"
+            healthcheck:
+              test: ["CMD-SHELL", "rec_control --socket-dir=/var/run/pdns-recursor ping | grep -qi pong || exit 1"]
+              interval: 10s
+              timeout: 5s
+              retries: 3
+              start_period: 10s
             volumes:
               - ./config/recursor.conf:/etc/pdns-recursor/recursor.conf:ro
               - ./config/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
@@ -95,7 +110,8 @@ def generate_secondary_package_zip(
             volumes:
               - dnstap-socket:/var/run/dnstap
             depends_on:
-              - dnsdist
+              dnsdist:
+                condition: service_healthy
 
           sync-agent:
             image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-sync-agent:${POWERBLOCKADE_VERSION:-latest}
@@ -114,7 +130,8 @@ def generate_secondary_package_zip(
               - ./config:/config
               - ./rpz:/rpz
             depends_on:
-              - recursor
+              recursor:
+                condition: service_healthy
 
         volumes:
           dnstap-socket:

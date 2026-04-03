@@ -24,7 +24,7 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to a specific release
-export POWERBLOCKADE_VERSION=v0.7.0
+export POWERBLOCKADE_VERSION=v0.7.3
 
 # Pull and restart
 docker compose -f docker-compose.ghcr.yml pull
@@ -34,8 +34,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 Or in a single command:
 
 ```bash
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull && \
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml pull && \
+POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Migration Guide
@@ -135,7 +135,7 @@ If running secondary nodes, verify they're healthy:
 **Always safe** - no manual steps required.
 
 ```bash
-# Example: v0.7.0 → v0.7.1
+# Example: v0.7.2 → v0.7.3
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
@@ -219,11 +219,11 @@ All containers should show `Up` or `healthy`.
 ### 3. Verify DNS Resolution
 
 ```bash
-# Test DNS is working
-dig @localhost google.com
+# Test DNS is working on the configured bind address
+dig @YOUR_DNSDIST_LISTEN_ADDRESS google.com
 
 # Test blocking is working
-dig @localhost ad.doubleclick.net
+dig @YOUR_DNSDIST_LISTEN_ADDRESS ad.doubleclick.net
 ```
 
 ### 4. Check Query Logs

@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional version pin:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.0
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.3
 ```
 
 This flow is interactive and includes prerequisites, Docker/Compose setup, `init-env.sh` prompts, and startup checks.
@@ -90,15 +90,16 @@ This flow is interactive and includes prerequisites, Docker/Compose setup, `init
 ### Primary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
+POWERBLOCKADE_VERSION=v0.7.3 docker compose up -d
+```
 
 
 ### Secondary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=v0.7.0 docker compose pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose --profile secondary up -d
+POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
+POWERBLOCKADE_VERSION=v0.7.3 docker compose --profile secondary up -d
 ```
 
 ### Recommended: Upgrade Secondaries First
@@ -113,11 +114,12 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to specific version
-export POWERBLOCKADE_VERSION=v0.7.0
+export POWERBLOCKADE_VERSION=v0.7.3
 docker compose up -d
 
 # Or inline
-POWERBLOCKADE_VERSION=v0.7.0 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.3 docker compose up -d
+```
 
 ## Troubleshooting
 
@@ -132,8 +134,8 @@ curl -I http://PRIMARY_IP:8080/health
 
 ### DNS not working
 ```bash
-# Test locally
-dig @localhost google.com
+# Test the configured bind address
+dig @YOUR_DNSDIST_LISTEN_ADDRESS google.com
 
 # Check dnsdist logs
 docker compose logs dnsdist
@@ -141,6 +143,26 @@ docker compose logs dnsdist
 # Check recursor logs
 docker compose logs recursor
 ```
+
+### DNS unreachable after reboot
+```bash
+# Confirm the DNS services actually recovered
+docker compose ps recursor dnsdist
+
+# Test the configured serving address, not a VPN helper address
+dig @YOUR_DNSDIST_LISTEN_ADDRESS google.com +short
+
+# If recursor is healthy but dnsdist is still starting or unhealthy,
+# inspect the startup ordering and readiness logs
+docker compose logs dnsdist | tail -50
+
+# Force the stack back through the intended dependency order
+docker compose restart recursor
+sleep 10
+docker compose restart dnsdist
+```
+
+If queries only succeed on a Netbird or Tailscale IP, verify that you are not accidentally testing the VPN resolver instead of PowerBlockade's configured `DNSDIST_LISTEN_ADDRESS`. `127.0.0.1` may legitimately refuse if dnsdist is published only on a specific LAN IP.
 
 ### Permission errors
 ```bash
