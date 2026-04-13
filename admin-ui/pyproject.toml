@@ -4,7 +4,7 @@ version = "0.7.3"
 description = "PowerBlockade Admin UI - DNS control plane"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.110",
+    "fastapi>=0.135.3",
     "uvicorn[standard]>=0.27",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
