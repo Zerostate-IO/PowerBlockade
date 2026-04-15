@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import socket
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -45,6 +46,13 @@ def get_version() -> str:
 
 
 def write_if_changed(filepath: Path, content: str) -> bool:
+    """Write *content* to *filepath* only when the checksum differs.
+
+    Uses same-directory temp + ``os.replace`` so the final write is
+    atomic on directory-mount-backed paths (RPZ files).  Falls back to
+    a safe in-place rewrite for the rare case ``os.replace`` fails
+    (e.g. cross-device link on a file bind mount).
+    """
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     if filepath.exists():
@@ -52,8 +60,43 @@ def write_if_changed(filepath: Path, content: str) -> bool:
         if compute_file_checksum(existing) == compute_file_checksum(content):
             return False
 
-    filepath.write_text(content, encoding="utf-8")
+    # Atomic write: temp in same dir, then os.replace
+    d = str(filepath.parent)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".pb-tmp-")
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        try:
+            os.replace(tmp, filepath)
+        except OSError:
+            # os.replace may fail on file bind mounts (cross-device).
+            # Fall back to in-place write preserving the inode.
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            with open(filepath, "w", encoding="utf-8") as dst:
+                dst.write(content)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return True
+
+
+def trigger_reload(rpz_dir: Path) -> None:
+    """Create a reload-trigger sentinel inside the RPZ directory.
+
+    The secondary's recursor-reloader sidecar watches for this file and
+    runs rec_control reload-* when it appears.
+    """
+    signal_file = rpz_dir / ".reload-trigger"
+    try:
+        signal_file.touch(exist_ok=True)
+    except OSError:
+        pass
 
 
 def clear_recursor_cache(recursor_url: str, api_key: str) -> tuple[bool, str]:
@@ -266,6 +309,9 @@ def sync_config(
                 changed = True
 
         settings = data.get("settings", {})
+        if changed:
+            trigger_reload(rpz_dir)
+            print("config changed, triggered recursor reload")
         return changed, settings
     except Exception as e:
         print(f"config sync error: {e}")
@@ -382,8 +428,6 @@ def main() -> None:
 
         if should_sync:
             changed, settings = sync_config(primary_url, headers, rpz_dir, fzones_path)
-            if changed:
-                print("config changed, recursor will reload via polling")
             if settings:
                 current_settings = settings
             last_config_sync = now
@@ -391,7 +435,7 @@ def main() -> None:
 
         if now - last_precache_run >= precache_interval:
             run_precache_warming(
-            primary_url, headers, current_settings, dns_server=dns_server_ip
+                primary_url, headers, current_settings, dns_server=dns_server_ip
             )
             last_precache_run = now
 
