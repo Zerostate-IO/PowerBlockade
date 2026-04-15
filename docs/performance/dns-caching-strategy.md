@@ -15,7 +15,7 @@ This section documents the exact current runtime settings and image references e
 | dnsdist | `powerdns/dnsdist-20:latest` (line 29) | `powerdns/dnsdist-20:latest` (line 18) | Official PowerDNS image, version 20 series |
 | recursor | Built from `./recursor` Dockerfile | `ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor:${POWERBLOCKADE_VERSION:-latest}` (line 52) | Custom image based on upstream |
 | recursor base | `powerdns/pdns-recursor-53:latest` (Dockerfile:1) | Same | Version 53 series |
-| recursor-reloader | `powerdns/pdns-recursor-53:latest` (line 180) | `powerdns/pdns-recursor-53:latest` (line 74) | Used only for `rec_control` binary |
+| recursor-reloader | `powerdns/pdns-recursor-53:latest` (line 195) | `powerdns/pdns-recursor-53:latest` (line 87) | Trigger-driven reload via sentinel file, uses `rec_control` binary |
 
 ### dnsdist Packet Cache Settings (Primary)
 
