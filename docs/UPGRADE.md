@@ -24,7 +24,7 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to a specific release
-export POWERBLOCKADE_VERSION=v0.7.3
+export POWERBLOCKADE_VERSION=v0.7.4
 
 # Pull and restart
 docker compose -f docker-compose.ghcr.yml pull
@@ -34,8 +34,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 Or in a single command:
 
 ```bash
-POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml pull && \
-POWERBLOCKADE_VERSION=v0.7.3 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull && \
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Migration Guide
@@ -135,7 +135,7 @@ If running secondary nodes, verify they're healthy:
 **Always safe** - no manual steps required.
 
 ```bash
-# Example: v0.7.2 → v0.7.3
+# Example: v0.7.3 → v0.7.4
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
@@ -189,7 +189,7 @@ When upgrading PowerDNS components (Recursor/dnsdist), the stack now includes bu
 ### Code updates required when bumping PowerDNS components
 
 - Update upstream image lines in `compose.yaml` and `docker-compose.ghcr.yml` for `dnsdist` and `recursor-reloader`.
-- Update Recursor base image in `recursor/Dockerfile`.
+- Update Recursor base image in `recursor/Dockerfile` and `recursor-reloader/Dockerfile` (both share the same upstream base).
 - Keep generated secondary package in sync via `admin-ui/app/services/node_generator.py`.
 - Validate tuned settings in `recursor/recursor.conf.template` and `dnsdist/dnsdist.conf.template` against target versions.
 
@@ -330,15 +330,15 @@ For multi-node deployments, upgrade secondaries **before** the primary to minimi
 
 ```bash
 # On each secondary
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
 
 # Verify sync-agent is running
 docker compose -f docker-compose.ghcr.yml logs sync-agent
 
 # Then on primary
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=v0.7.0 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Manual Intervention Required

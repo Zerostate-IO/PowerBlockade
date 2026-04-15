@@ -9,6 +9,33 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-04-15
+
+> **Release Type**: Patch Release
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+
+### Added
+
+- Dedicated `recursor-reloader` sidecar watches RPZ files and `forward-zones.conf` via inotify and runs `rec_control reload-lua-config` only when files actually change, eliminating unnecessary recursor load
+- `powerblockade-recursor-reloader` image published to GHCR alongside existing component images
+
+### Changed
+
+- RPZ files on the primary are now written with `atomic_write()` (atomic replace via temp file) so the reloader sidecar sees clean inotify events instead of partial writes
+- `forward-zones.conf` is now written with `safe_write()` (in-place overwrite preserving inode) so Docker file bind mounts stay consistent
+- Generated secondary node packages now reference the official `powerblockade-recursor-reloader` GHCR image and use `docker-compose.ghcr.yml` as the compose file
+
+### Fixed
+
+- Replaced continuous 5-second `rec_control` polling with a dedicated file-watch sidecar that reloads the recursor only when config files change
+
+### Upgrade Instructions
+
+```bash
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## [0.7.3] - 2026-04-03
 
 > **Release Type**: Patch Release

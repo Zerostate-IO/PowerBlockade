@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional version pin:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.3
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.4
 ```
 
 This flow is interactive and includes prerequisites, Docker/Compose setup, `init-env.sh` prompts, and startup checks.
@@ -43,23 +43,27 @@ This flow is interactive and includes prerequisites, Docker/Compose setup, `init
 
 ## Deploy Primary Node (celsate)
 
-1. Copy the deploy directory to celsate:
+1. **Clone the repository on celsate:**
    ```bash
-   scp -r deploy/ user@celsate:/opt/powerblockade-deploy/
+   git clone https://github.com/Zerostate-IO/PowerBlockade.git /opt/powerblockade
+   cd /opt/powerblockade
    ```
 
-2. SSH to celsate and run:
+2. **Generate secrets and configure:**
    ```bash
-   cd /opt/powerblockade-deploy
-   chmod +x deploy-primary.sh
-   ./deploy-primary.sh latest
+   ./scripts/init-env.sh
    ```
 
-3. Note the generated admin password from the output.
+3. **Start with pre-built images:**
+   ```bash
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
+   ```
 
-4. Access the Admin UI at `http://celsate:8080`
+4. Note the generated admin password from the `init-env.sh` output.
 
-5. Go to **Nodes** → **Add Node** to register bowlister.
+5. Access the Admin UI at `http://celsate:8080`
+
+6. Go to **Nodes** → **Add Node** to register bowlister.
 
 ## Deploy Secondary Node (bowlister)
 
@@ -69,16 +73,17 @@ This flow is interactive and includes prerequisites, Docker/Compose setup, `init
    - Click **Generate Deployment Package**
    - Note the API key
 
-2. Copy the deploy directory to bowlister:
+2. **Clone the repository on bowlister:**
    ```bash
-   scp -r deploy/ user@bowlister:/opt/powerblockade-deploy/
+   git clone https://github.com/Zerostate-IO/PowerBlockade.git /opt/powerblockade
+   cd /opt/powerblockade
+   ./scripts/init-env.sh
    ```
+   Set `NODE_NAME=bowlister`, `PRIMARY_URL=http://CELSATE_IP:8080`, and `PRIMARY_API_KEY` in `.env`.
 
-3. SSH to bowlister and run:
+3. **Start the secondary stack:**
    ```bash
-   cd /opt/powerblockade-deploy
-   chmod +x deploy-secondary.sh
-   ./deploy-secondary.sh latest http://CELSTATE_IP:8080 API_KEY bowlister
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
    ```
 
 4. Verify on celsate:
@@ -90,16 +95,16 @@ This flow is interactive and includes prerequisites, Docker/Compose setup, `init
 ### Primary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
-POWERBLOCKADE_VERSION=v0.7.3 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 
 ### Secondary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
-POWERBLOCKADE_VERSION=v0.7.3 docker compose --profile secondary up -d
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 ```
 
 ### Recommended: Upgrade Secondaries First
@@ -114,11 +119,11 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to specific version
-export POWERBLOCKADE_VERSION=v0.7.3
-docker compose up -d
+export POWERBLOCKADE_VERSION=v0.7.4
+docker compose -f docker-compose.ghcr.yml up -d
 
 # Or inline
-POWERBLOCKADE_VERSION=v0.7.3 docker compose up -d
+POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Troubleshooting
@@ -212,11 +217,11 @@ cd /opt/powerblockade
 PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
 
 # Rollback
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose --profile secondary up -d
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 
 # Verify
-docker compose ps
+docker compose -f docker-compose.ghcr.yml ps
 dig @127.0.0.1 google.com +short
 ```
 
@@ -230,13 +235,13 @@ PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
 DB_BACKUP=$(jq -r '.last_db_backup' .powerblockade/state.json)
 
 # Rollback with database restore
-docker compose down
-docker compose up -d postgres
+docker compose -f docker-compose.ghcr.yml down
+docker compose -f docker-compose.ghcr.yml up -d postgres
 sleep 5
-docker compose exec -T postgres psql -U powerblockade -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" powerblockade
-docker compose exec -T postgres psql -U powerblockade powerblockade < "$DB_BACKUP"
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose pull
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose up -d
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" powerblockade
+docker compose -f docker-compose.ghcr.yml exec -T postgres psql -U powerblockade powerblockade < "$DB_BACKUP"
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml up -d
 
 # Verify
 curl -sf http://localhost:8080/health
@@ -282,7 +287,7 @@ echo "YOUR_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
 ### Step 3: Verify Access
 
 ```bash
-docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:v0.5.5
+docker pull ghcr.io/zerostate-io/powerblockade-admin-ui:latest
 ```
 
 If this succeeds, you're authenticated and can proceed with deployment.

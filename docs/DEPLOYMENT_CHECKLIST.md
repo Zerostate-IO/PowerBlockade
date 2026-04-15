@@ -61,20 +61,19 @@ On each server (celsate, bowlister):
    ssh user@celsate
    ```
 
-2. **Download deployment scripts:**
+2. **Clone the repository and generate secrets:**
    ```bash
-   mkdir -p /opt/powerblockade-deploy
-   cd /opt/powerblockade-deploy
-   curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary.sh -o deploy-primary.sh
-   chmod +x deploy-primary.sh
+   git clone https://github.com/Zerostate-IO/PowerBlockade.git /opt/powerblockade
+   cd /opt/powerblockade
+   ./scripts/init-env.sh
    ```
 
-3. **Run deployment:**
+3. **Start the stack with pre-built images:**
    ```bash
-   ./deploy-primary.sh v0.7.3
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
-4. **Save the admin password** from the output.
+4. **Save the admin password** printed by `init-env.sh`.
 
 5. **Access Admin UI:**
    - URL: `http://CELSTATE_IP:8080`
@@ -87,6 +86,7 @@ On each server (celsate, bowlister):
 - [ ] Can login with admin credentials
 - [ ] DNS resolution works: `dig @celsate_ip google.com`
 - [ ] Grafana dashboards load: `http://celsate:8080/grafana`
+- [ ] Reloader sidecar running: `docker compose -f docker-compose.ghcr.yml ps recursor-reloader`
 
 ---
 
@@ -109,17 +109,17 @@ On each server (celsate, bowlister):
    ssh user@bowlister
    ```
 
-3. **Download deployment scripts:**
+3. **Clone the repository and configure for secondary:**
    ```bash
-   mkdir -p /opt/powerblockade-deploy
-   cd /opt/powerblockade-deploy
-   curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-secondary.sh -o deploy-secondary.sh
-   chmod +x deploy-secondary.sh
+   git clone https://github.com/Zerostate-IO/PowerBlockade.git /opt/powerblockade
+   cd /opt/powerblockade
+   ./scripts/init-env.sh
    ```
+   Set `NODE_NAME=bowlister`, `PRIMARY_URL=http://CELSATE_IP:8080`, and `PRIMARY_API_KEY` in `.env`.
 
-4. **Run deployment:**
+4. **Start the secondary stack:**
    ```bash
-   ./deploy-secondary.sh v0.7.3 http://CELSATE_IP:8080 API_KEY bowlister
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
    ```
 
 5. **Verify on celsate:**
@@ -159,8 +159,8 @@ On each server (celsate, bowlister):
 1. **Upgrade bowlister:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
-   POWERBLOCKADE_VERSION=v0.7.3 docker compose --profile sync-agent up -d
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
    ```
 
 2. **Verify bowlister is online** in primary's Admin UI
@@ -168,22 +168,27 @@ On each server (celsate, bowlister):
 3. **Upgrade celsate:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=v0.7.3 docker compose pull
-   POWERBLOCKADE_VERSION=v0.7.3 docker compose up -d
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
+   POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. **Validate Recursor settings migration output:**
    ```bash
-   docker compose logs recursor | grep migrate-recursor-settings
+   docker compose -f docker-compose.ghcr.yml logs recursor | grep migrate-recursor-settings
    ls -la recursor/recursor.conf.template.bak.pre-migration
+   ```
+
+5. **Verify reloader sidecar started:**
+   ```bash
+   docker compose -f docker-compose.ghcr.yml ps recursor-reloader
    ```
 
 ### Rollback (if needed)
 
 ```bash
 # Revert to previous version
-POWERBLOCKADE_VERSION=v0.6.9 docker compose pull
-POWERBLOCKADE_VERSION=v0.6.9 docker compose up -d
+POWERBLOCKADE_VERSION=v0.6.9 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=v0.6.9 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ---
@@ -245,6 +250,7 @@ cat backups/backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v0.7.4 | 2026-04-15 | Dedicated recursor-reloader sidecar with inotify file watching, atomic config writes |
 | v0.7.3 | 2026-04-03 | Reboot recovery hardening for dnsdist/recursor startup and health checks |
 | v0.7.0 | 2026-02-26 | PowerDNS stable-line upgrade and built-in recursor settings migration |
 | v0.5.5 | 2026-02-26 | Documentation overhaul, GHCR deployment |
