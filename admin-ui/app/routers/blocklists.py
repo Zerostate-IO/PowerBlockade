@@ -14,6 +14,7 @@ from app.models.manual_entry import ManualEntry
 from app.models.settings import get_setting
 from app.presets import PRESET_LISTS
 from app.routers.auth import get_current_user
+from app.services.atomic_write import atomic_write
 from app.services.blocklist_manager import fetch_and_parse_blocklist
 from app.services.config_audit import model_to_dict, record_change
 from app.services.rpz import render_rpz_whitelist, render_rpz_zone
@@ -372,10 +373,14 @@ def blocklists_apply(request: Request, db: Session = Depends(get_db)):
 
     effective_blocked = blocked_domains - allow_domains
 
-    with open(os.path.join(out_dir, "blocklist-combined.rpz"), "w", encoding="utf-8") as f:
-        f.write(render_rpz_zone(effective_blocked, policy_name="blocklist-combined"))
-    with open(os.path.join(out_dir, "whitelist.rpz"), "w", encoding="utf-8") as f:
-        f.write(render_rpz_whitelist(allow_domains))
+    atomic_write(
+        os.path.join(out_dir, "blocklist-combined.rpz"),
+        render_rpz_zone(effective_blocked, policy_name="blocklist-combined"),
+    )
+    atomic_write(
+        os.path.join(out_dir, "whitelist.rpz"),
+        render_rpz_whitelist(allow_domains),
+    )
 
     db.add_all(enabled)
     if blocklist_entries_to_add:
