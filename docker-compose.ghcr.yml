@@ -85,25 +85,20 @@ services:
       start_period: 10s
 
   recursor-reloader:
-    image: powerdns/pdns-recursor-53:latest
+    image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor-reloader:${POWERBLOCKADE_VERSION:-latest}
     container_name: powerblockade-recursor-reloader
     restart: unless-stopped
-    entrypoint:
-      - sh
-      - -c
-      - >-
-        while true; do
-          rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
-          rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
-          rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
-          sleep ${RECURSOR_RELOAD_INTERVAL_SECONDS:-5};
-        done
+    environment:
+      RELOADER_SOCKET_DIR: /var/run/pdns-recursor
+      RELOADER_RPZ_DIR: /shared/rpz
+      RELOADER_FORWARD_ZONES: /shared/forward-zones.conf
     volumes:
       - recursor-control-socket:/var/run/pdns-recursor
-      - ./recursor/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+      - ./recursor/rpz:/shared/rpz
+      - ./recursor/forward-zones.conf:/shared/forward-zones.conf
     depends_on:
       recursor:
-        condition: service_started
+        condition: service_healthy
 
   dnstap-processor:
     image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-dnstap-processor:${POWERBLOCKADE_VERSION:-latest}
