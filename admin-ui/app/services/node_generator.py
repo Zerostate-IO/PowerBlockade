@@ -80,23 +80,20 @@ def generate_secondary_package_zip(
               - recursor-control-socket:/var/run/pdns-recursor
 
           recursor-reloader:
-            image: powerdns/pdns-recursor-53:latest
+            image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor-reloader:${POWERBLOCKADE_VERSION:-latest}
             restart: unless-stopped
-            entrypoint:
-              - sh
-              - -c
-              - >-
-                while true; do
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
-                  sleep 5;
-                done
+            environment:
+              RELOADER_SOCKET_DIR: /var/run/pdns-recursor
+              RELOADER_RPZ_DIR: /shared/rpz
+              RELOADER_FORWARD_ZONES: /shared/forward-zones.conf
+              RELOADER_DEBOUNCE_SECONDS: "2"
             volumes:
               - recursor-control-socket:/var/run/pdns-recursor
-              - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+              - ./config/forward-zones.conf:/shared/forward-zones.conf:ro
+              - ./rpz:/shared/rpz
             depends_on:
-              - recursor
+              recursor:
+                condition: service_healthy
 
           dnstap-processor:
             image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-dnstap-processor:${POWERBLOCKADE_VERSION:-latest}
@@ -152,21 +149,23 @@ def generate_secondary_package_zip(
            - `DNSDIST_LISTEN_ADDRESS` - Set to host's LAN IP if port 53 conflicts
         3. Run:
 
-           docker compose up -d
+           docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 
         ## Architecture
 
         This is a headless mirror of the primary node:
         - **dnsdist** - Receives DNS queries, forwards to recursor, logs client IPs via dnstap
         - **recursor** - PowerDNS Recursor with RPZ blocking (synced from primary)
+        - **recursor-reloader** - Watches config files and reloads recursor on changes
         - **dnstap-processor** - Ships query logs to primary
-        - **sync-agent** - Pulls config from primary every 60s, executes commands
+        - **sync-agent** - Pulls config from primary every 300s, writes changed files
 
         No admin UI - all management is done via the primary.
 
         ## Sync behavior
 
-        - Config (RPZ, forward zones) syncs within 60 seconds of changes on primary
+        - Config (RPZ, forward zones) syncs within 300 seconds of changes on primary
+        - Recursor reloads automatically when the reloader sidecar detects changed files
         - Cache clear commands propagate within 60 seconds
         - Emergency blocking disable/pause takes effect within 60 seconds
         """
@@ -242,7 +241,7 @@ def generate_secondary_package_zip(
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.writestr("docker-compose.yml", compose)
+        z.writestr("docker-compose.ghcr.yml", compose)
         z.writestr(".env", env)
         z.writestr("README.md", readme)
         z.writestr("config/recursor.conf", recursor_conf)
