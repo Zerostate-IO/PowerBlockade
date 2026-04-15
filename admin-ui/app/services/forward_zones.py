@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+
 from sqlalchemy.orm import Session
 
 from app.models.forward_zone import ForwardZone
+from app.services.atomic_write import safe_write
 
 
 def generate_forward_zones_config(db: Session) -> str:
@@ -29,17 +32,18 @@ def generate_forward_zones_config(db: Session) -> str:
 
 
 def write_forward_zones_config(db: Session, out_path: str | None = None) -> str:
-    """Write forward-zones config to file."""
-    content = generate_forward_zones_config(db)
+    """Write forward-zones config to file using mount-safe semantics.
 
-    import os
+    Uses ``safe_write`` (temp + in-place copy) so the target inode is
+    preserved — required for Docker file bind mounts where a rename
+    would break the mount link.
+    """
+    content = generate_forward_zones_config(db)
 
     if out_path is None:
         shared_dir = os.environ.get("POWERBLOCKADE_SHARED_DIR", "/shared")
         out_path = os.path.join(shared_dir, "forward-zones.conf")
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(content)
+    safe_write(out_path, content)
 
     return content
