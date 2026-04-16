@@ -18,7 +18,11 @@ PING_RETRY_INTERVAL="${RELOADER_PING_RETRY_INTERVAL:-5}"
 PING_MAX_ATTEMPTS="${RELOADER_PING_MAX_ATTEMPTS:-60}"
 IGNORE_PATTERN='\.pb-tmp-|\.gitkeep|^\.|^#|~$'
 
-# Watch the parent directory for forward-zones.conf to survive atomic replaces
+# Watch both the file directly AND its parent directory.
+# Docker file bind mounts (host-file → container-file) do NOT propagate inotify
+# events through a parent-directory watch across the mount boundary.  A direct
+# watch on the file inode is required to catch in-place writes from safe_write().
+# The parent-dir watch is kept as a safety net for atomic-replace scenarios.
 FORWARD_ZONES_DIR=$(dirname "$FORWARD_ZONES")
 FORWARD_ZONES_BASE=$(basename "$FORWARD_ZONES")
 
@@ -91,16 +95,22 @@ has_relevant_events() {
     # Non-blocking drain: wait up to DEBOUNCE_SECONDS for more events.
     # Returns 0 (true) if events arrived, 1 (false) if timed out.
     local output
-    output=$(inotifywait -q -r \
+    output=$(inotifywait -q \
         -e close_write -e moved_to \
         --format '%w %f' \
         -t "$DEBOUNCE_SECONDS" \
-        "$RPZ_DIR" "$FORWARD_ZONES_DIR" 2>/dev/null) || return 1
+        "$RPZ_DIR" "$FORWARD_ZONES" "$FORWARD_ZONES_DIR" 2>/dev/null) || return 1
 
     # Check if any of the events are for relevant files
     local found_relevant=1
     while IFS=' ' read -r wpath fname; do
-        # For forward-zones dir events, only care about the forward-zones file
+        # Direct file watch: %w is the file path, %f is empty
+        if [ "$wpath" = "$FORWARD_ZONES" ]; then
+            found_relevant=0
+            log "debounce: coalesced event for $wpath"
+            break
+        fi
+        # Directory watch: filter to forward-zones file only
         if [ "$wpath" = "$FORWARD_ZONES_DIR/" ]; then
             [ "$fname" = "$FORWARD_ZONES_BASE" ] || continue
         fi
@@ -116,30 +126,36 @@ has_relevant_events() {
 watch() {
     log "starting inotifywait monitor"
     log "  watching RPZ dir: $RPZ_DIR"
-    log "  watching forward-zones via dir: $FORWARD_ZONES_DIR (file: $FORWARD_ZONES_BASE)"
+    log "  watching forward-zones file: $FORWARD_ZONES (direct file watch for bind-mount)"
+    log "  watching forward-zones dir: $FORWARD_ZONES_DIR (fallback for atomic replace)"
     log "  debounce: ${DEBOUNCE_SECONDS}s"
     log "  ignore pattern: $IGNORE_PATTERN"
 
     while true; do
         # Block until first event arrives
+        # Watch forward-zones.conf directly (file bind mount) AND its parent dir
         local first_output
-        first_output=$(inotifywait -q -r \
+        first_output=$(inotifywait -q \
             -e close_write -e moved_to \
             --format '%w %f' \
-            "$RPZ_DIR" "$FORWARD_ZONES_DIR" 2>/dev/null) || continue
+            "$RPZ_DIR" "$FORWARD_ZONES" "$FORWARD_ZONES_DIR" 2>/dev/null) || continue
 
         # Parse and check relevance of first event
         local first_wpath first_fname
         read -r first_wpath first_fname <<< "$first_output"
 
-        local relevant=0
-        if [ "$first_wpath" = "$FORWARD_ZONES_DIR/" ]; then
-            [ "$first_fname" = "$FORWARD_ZONES_BASE" ] || relevant=1
-        fi
-        if [ "$relevant" -eq 0 ] && is_relevant "$first_fname"; then
+        # Direct file watch: %w is the file path, %f is empty
+        if [ "$first_wpath" = "$FORWARD_ZONES" ]; then
+            log "detected change: $first_wpath (direct file watch)"
+        elif [ "$first_wpath" = "$FORWARD_ZONES_DIR/" ]; then
+            if [ "$first_fname" = "$FORWARD_ZONES_BASE" ] && is_relevant "$first_fname"; then
+                log "detected change: $first_wpath$first_fname (dir watch)"
+            else
+                continue
+            fi
+        elif is_relevant "$first_fname"; then
             log "detected change: $first_wpath$first_fname"
         else
-            # First event was noise; go back to waiting
             continue
         fi
 
