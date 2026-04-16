@@ -9,10 +9,31 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-04-15
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.4 secondary-package generation was broken; use v0.7.5 for any secondary node deployments
+
+### Fixed
+
+- Generated secondary node packages now produce correct dnsdist backend addressing (was emitting invalid listen/bind configuration that prevented dnsdist startup on secondary nodes)
+- Generated secondary node packages now use the correct static-IP and network contract so the secondary node's dnsdist binds to the intended LAN address instead of failing or binding to the wrong interface
+- Node generator (`admin-ui/app/services/node_generator.py`) now matches the canonical compose health and dependency contract validated in v0.7.3
+
+### Upgrade Instructions
+
+Secondary nodes deployed from v0.7.4 generated packages must be re-deployed from a fresh v0.7.5 package.
+
+```bash
+POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## [0.7.4] - 2026-04-15
 
 > **Release Type**: Patch Release
-> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Upgrade Safety**: Safe upgrade for primary nodes. Secondary node packages generated from v0.7.4 contain dnsdist addressing bugs; upgrade to v0.7.5 before deploying any secondary nodes.
 
 ### Added
 
@@ -32,8 +53,8 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 ### Upgrade Instructions
 
 ```bash
-POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=v0.7.4 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.4 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## [0.7.3] - 2026-04-03
