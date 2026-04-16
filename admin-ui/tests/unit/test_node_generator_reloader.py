@@ -1,7 +1,7 @@
 """Tests for node_generator secondary package output.
 
 Verifies that generated ZIP packages use the official GHCR compose contract
-with the unified recursor-reloader sidecar image.
+with the unified recursor-reloader sidecar image and static-IP networking.
 """
 
 from __future__ import annotations
@@ -84,6 +84,96 @@ class TestReloaderSidecar:
         assert "shell:" not in before_dnstop
 
 
+class TestStaticIPContract:
+    """Verify generated packages use IP-literal dnsdist backends and static-IP networking.
+
+    This catches the bowlister rollback bug: dnsdist rejects hostname-based
+    newServer() addresses like 'recursor:5300'.
+    """
+
+    def test_dnsdist_template_uses_ip_literal_placeholders(self) -> None:
+        z = _make_zip()
+        template = z.read("config/dnsdist.conf.template").decode()
+        # Must use ${RECURSOR_IP}:5300, not recursor:5300
+        assert "${RECURSOR_IP}:5300" in template
+        assert "${DNSTAP_PROCESSOR_IP}:6000" in template
+        # Must NOT contain hostname-based references
+        assert 'address="recursor:5300"' not in template
+        assert "recursor:5300" not in template
+        assert "dnstap-processor:6000" not in template
+
+    def test_dnsdist_no_hostname_backend_anywhere(self) -> None:
+        """No generated file should contain a hostname-based dnsdist backend."""
+        z = _make_zip()
+        for name in z.namelist():
+            content = z.read(name).decode(errors="replace")
+            assert "recursor:5300" not in content, (
+                f"{name} contains hostname-based dnsdist backend 'recursor:5300'"
+            )
+
+    def test_env_contains_static_ip_vars(self) -> None:
+        z = _make_zip()
+        env = z.read(".env").decode()
+        assert "DOCKER_SUBNET=" in env
+        assert "RECURSOR_IP=" in env
+        assert "DNSTAP_PROCESSOR_IP=" in env
+        # Verify safe defaults match repo contract
+        assert "DOCKER_SUBNET=172.30.0.0/24" in env
+        assert "RECURSOR_IP=172.30.0.10" in env
+        assert "DNSTAP_PROCESSOR_IP=172.30.0.20" in env
+
+    def test_compose_has_static_ip_assignments(self) -> None:
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        # recursor must have ipv4_address
+        recursor_section = compose[compose.index("recursor:") :]
+        recursor_before_reloader = recursor_section.split("recursor-reloader:")[0]
+        assert "ipv4_address:" in recursor_before_reloader
+        assert "${RECURSOR_IP:-172.30.0.10}" in recursor_before_reloader
+        # dnstap-processor must have ipv4_address
+        dnstap_section = compose[compose.index("dnstap-processor:") :]
+        assert "ipv4_address:" in dnstap_section
+        assert "${DNSTAP_PROCESSOR_IP:-172.30.0.20}" in dnstap_section
+
+    def test_compose_has_network_definition(self) -> None:
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        assert "networks:" in compose
+        assert "ipam:" in compose
+        assert "subnet:" in compose
+        assert "${DOCKER_SUBNET:-172.30.0.0/24}" in compose
+
+    def test_dnsdist_uses_entrypoint_with_template(self) -> None:
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        # dnsdist service must use custom entrypoint that generates conf from template
+        dnsdist_section = compose[compose.index("dnsdist:") :]
+        dnsdist_before_recursor = dnsdist_section.split("recursor:")[0]
+        assert 'entrypoint: ["/docker-entrypoint.sh"]' in dnsdist_before_recursor
+        assert "dnsdist.conf.template" in dnsdist_before_recursor
+        assert "docker-entrypoint.sh" in dnsdist_before_recursor
+
+    def test_entrypoint_substitutes_ip_placeholders(self) -> None:
+        z = _make_zip()
+        entrypoint = z.read("docker-entrypoint.sh").decode()
+        # Must sed-substitute RECURSOR_IP and DNSTAP_PROCESSOR_IP
+        assert "RECURSOR_IP" in entrypoint
+        assert "DNSTAP_PROCESSOR_IP" in entrypoint
+        assert "sed" in entrypoint
+        assert "dnsdist.conf.template" in entrypoint
+        assert "/tmp/dnsdist.conf" in entrypoint
+        # Must exec dnsdist with the generated config
+        assert "exec dnsdist --supervised -C /tmp/dnsdist.conf" in entrypoint
+
+    def test_compose_dnsdist_passes_ip_env_vars(self) -> None:
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        dnsdist_section = compose[compose.index("dnsdist:") :]
+        dnsdist_before_recursor = dnsdist_section.split("recursor:")[0]
+        assert "RECURSOR_IP:" in dnsdist_before_recursor
+        assert "DNSTAP_PROCESSOR_IP:" in dnsdist_before_recursor
+
+
 class TestReadmeContent:
     """Verify the README uses the official startup command."""
 
@@ -137,10 +227,16 @@ class TestZipStructure:
         assert ".env" in names
         assert "README.md" in names
         assert "config/recursor.conf" in names
-        assert "config/dnsdist.conf" in names
+        assert "config/dnsdist.conf.template" in names
+        assert "docker-entrypoint.sh" in names
         assert "config/rpz.lua" in names
         assert "config/forward-zones.conf" in names
         assert "rpz/.gitkeep" in names
+
+    def test_zip_does_not_contain_static_dnsdist_conf(self) -> None:
+        """Static dnsdist.conf is replaced by template + entrypoint."""
+        z = _make_zip()
+        assert "config/dnsdist.conf" not in z.namelist()
 
     def test_env_contains_node_config(self) -> None:
         z = _make_zip(node_name="mynode", primary_url="http://10.0.0.1:8080")
