@@ -70,7 +70,7 @@ On each server (celsate, bowlister):
 
 3. **Start the stack with pre-built images:**
    ```bash
-   POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml up -d
+   POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. **Save the admin password** printed by `init-env.sh`.
@@ -119,7 +119,7 @@ On each server (celsate, bowlister):
 
 4. **Start the secondary stack:**
    ```bash
-   POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+   POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
    ```
 
 5. **Verify on celsate:**
@@ -159,8 +159,8 @@ On each server (celsate, bowlister):
 1. **Upgrade bowlister:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml pull
-   POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+   POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml pull
+   POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
    ```
 
 2. **Verify bowlister is online** in primary's Admin UI
@@ -168,8 +168,8 @@ On each server (celsate, bowlister):
 3. **Upgrade celsate:**
    ```bash
    cd /opt/powerblockade
-   POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml pull
-   POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml up -d
+   POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml pull
+   POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. **Validate Recursor settings migration output:**
@@ -250,6 +250,7 @@ cat backups/backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v0.7.6 | 2026-04-15 | Bugfix: reloader detection of bind-mounted forward-zones.conf changes |
 | v0.7.5 | 2026-04-15 | Bugfix: secondary-package dnsdist addressing and static-IP/network contract |
 | v0.7.4 | 2026-04-15 | Dedicated recursor-reloader sidecar with inotify file watching, atomic config writes |
 | v0.7.3 | 2026-04-03 | Reboot recovery hardening for dnsdist/recursor startup and health checks |

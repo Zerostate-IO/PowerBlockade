@@ -9,11 +9,30 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-04-15
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.5 for environments that rely on forward-zone live reloads
+
+### Fixed
+
+- Recursor reloader sidecar now correctly detects changes to bind-mounted `forward-zones.conf` (inotify watch was not firing for bind-mounted files on Docker hosts)
+
+### Upgrade Instructions
+
+v0.7.6 is the recommended rollout target for all environments. Environments that use forward-zone live reloads should upgrade from v0.7.5.
+
+```bash
+POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## [0.7.5] - 2026-04-15
 
 > **Release Type**: Patch Release (Bugfix)
 > **Upgrade Safety**: Safe upgrade, no manual steps required
-> **Supersedes**: v0.7.4 secondary-package generation was broken; use v0.7.5 for any secondary node deployments
+> **Supersedes**: v0.7.4 secondary-package generation was broken; use v0.7.5 for any secondary node deployments. For forward-zone live reloads, use v0.7.6 instead.
 
 ### Fixed
 
