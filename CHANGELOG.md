@@ -9,6 +9,29 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-04-17
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.6 for fresher blocked-event classification and release publication fixes
+
+### Changed
+
+- dnstap-processor now reloads RPZ and allowlist sets at most once per second instead of every five seconds, reducing stale blocked-event tagging after config changes
+- Release automation now uses a blocking runtime gate that avoids GitHub-hosted runner port-53 conflicts while keeping the full install-path smoke test as advisory verification
+
+### Documentation
+
+- Updated version-pinning and upgrade examples to target v0.7.7
+- Clarified help text to match trigger-driven recursor reload behavior
+
+### Upgrade Instructions
+
+```bash
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## [0.7.6] - 2026-04-15
 
 > **Release Type**: Patch Release (Bugfix)
