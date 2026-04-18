@@ -23,11 +23,11 @@
         <li>You add blocklist sources (URLs in various formats: hosts, domains, adblock-style)</li>
         <li>Click <strong>Apply</strong> to download and parse all blocklists</li>
         <li>PowerBlockade generates RPZ zone files in <code class="bg-bg-900 px-1 rounded">/shared/rpz/</code></li>
-        <li>PowerDNS Recursor (the DNS engine) detects zone file changes and reloads them within ~5 seconds</li>
+        <li>PowerDNS Recursor detects zone file changes and reloads them immediately</li>
         <li>All matching queries are now blocked</li>
       </ol>
       <p class="mt-3 text-sm text-slate-400">
-        💡 The recursor-reloader sidecar monitors for RPZ changes and runs <code class="bg-bg-900 px-1 rounded">rec_control reload-zones</code> automatically.
+        💡 The recursor-reloader sidecar watches for RPZ changes and runs <code class="bg-bg-900 px-1 rounded">rec_control reload-zones</code> when config is updated.
       </p>
     </div>
 

@@ -26,10 +26,10 @@
         <li>Create a forward zone entry with a domain (or suffix) and target DNS server(s)</li>
         <li>Set <strong>Node Scope</strong> to either <em>Global</em> or a specific secondary node</li>
         <li>Click <strong>Apply</strong> to generate the config file</li>
-        <li>PowerDNS Recursor detects the change and reloads (~5 seconds)</li>
+        <li>PowerDNS Recursor detects the change and reloads immediately</li>
       </ol>
       <p class="mt-3 text-sm text-slate-400">
-        💡 Like RPZ zones, the recursor-reloader runs <code class="bg-bg-900 px-1 rounded">rec_control reload-zones</code> when config changes.
+        💡 Like RPZ zones, the recursor-reloader runs <code class="bg-bg-900 px-1 rounded">rec_control reload-zones</code> when config is updated.
       </p>
     </div>
 
