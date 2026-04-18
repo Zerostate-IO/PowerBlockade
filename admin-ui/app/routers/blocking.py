@@ -15,6 +15,7 @@ from app.models.node import Node
 from app.models.node_command import NodeCommand
 from app.models.settings import get_blocking_state, set_blocking_state
 from app.routers.auth import get_current_user
+from app.services.atomic_write import atomic_write
 from app.services.config_audit import record_change
 from app.settings import get_settings
 
@@ -35,8 +36,7 @@ def _write_emergency_rpz() -> None:
         f"; BLOCKING DISABLED - emergency mode\n"
     )
 
-    with open(os.path.join(out_dir, "blocklist-combined.rpz"), "w", encoding="utf-8") as f:
-        f.write(empty_zone)
+    atomic_write(os.path.join(out_dir, "blocklist-combined.rpz"), empty_zone)
 
 
 def _is_blocking_active(db) -> bool:

@@ -81,8 +81,10 @@ docker compose -f docker-compose.ghcr.yml up -d
 | Image | GHCR Path | Description |
 |-------|-----------|-------------|
 | `powerblockade-recursor` | `ghcr.io/USER/powerblockade-recursor:latest` | PowerDNS Recursor with config |
+| `powerblockade-recursor-reloader` | `ghcr.io/USER/powerblockade-recursor-reloader:latest` | File-watch sidecar that reloads recursor on config changes |
 | `powerblockade-dnstap-processor` | `ghcr.io/USER/powerblockade-dnstap-processor:latest` | Go service for DNS query ingestion |
 | `powerblockade-admin-ui` | `ghcr.io/USER/powerblockade-admin-ui:latest` | FastAPI admin web interface |
+| `powerblockade-sync-agent` | `ghcr.io/USER/powerblockade-sync-agent:latest` | Secondary node sync agent |
 
 ## Image Tags
 

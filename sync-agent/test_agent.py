@@ -14,6 +14,7 @@ from agent import (
     getenv_required,
     scrape_recursor_metrics,
     sync_config,
+    trigger_reload,
     write_if_changed,
 )
 
@@ -86,6 +87,29 @@ class TestWriteIfChanged:
             assert result is True
             assert filepath.read_text() == "new content"
 
+    def test_no_temp_files_left_after_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "test.txt"
+            write_if_changed(filepath, "content")
+            temp_files = list(Path(tmpdir).glob(".pb-tmp-*"))
+            assert temp_files == []
+
+    def test_no_temp_files_left_after_no_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "test.txt"
+            filepath.write_text("same content")
+            write_if_changed(filepath, "same content")
+            temp_files = list(Path(tmpdir).glob(".pb-tmp-*"))
+            assert temp_files == []
+
+    def test_atomic_no_partial_reads(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "test.txt"
+            filepath.write_text("old")
+            write_if_changed(filepath, "new content here")
+            assert filepath.read_text() == "new content here"
+            assert len(filepath.read_text()) == len("new content here")
+
 
 class TestScrapeRecursorMetrics:
     def test_parses_prometheus_metrics(self):
@@ -142,17 +166,20 @@ class TestSyncConfig:
             rpz_dir = Path(tmpdir) / "rpz"
             fzones_path = Path(tmpdir) / "forward-zones.conf"
 
+            rpz_content = "$ORIGIN blocklist.rpz.\n"
+            wl_content = "$ORIGIN whitelist.rpz.\n"
+
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
                 "rpz_files": [
                     {
                         "filename": "blocklist.rpz",
-                        "content": "$ORIGIN blocklist.rpz.\n",
+                        "content": rpz_content,
                     },
                     {
                         "filename": "whitelist.rpz",
-                        "content": "$ORIGIN whitelist.rpz.\n",
+                        "content": wl_content,
                     },
                 ],
                 "forward_zones": [],
@@ -167,6 +194,9 @@ class TestSyncConfig:
                 )
 
             assert changed is True
+            assert (rpz_dir / "blocklist.rpz").read_text() == rpz_content
+            assert (rpz_dir / "whitelist.rpz").read_text() == wl_content
+
     def test_writes_forward_zones(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             rpz_dir = Path(tmpdir) / "rpz"
@@ -191,6 +221,9 @@ class TestSyncConfig:
                 )
 
             assert changed is True
+            fz_text = fzones_path.read_text()
+            assert "internal.lan=192.168.1.1" in fz_text
+            assert "corp.local=10.0.0.1;10.0.0.2" in fz_text
 
     def test_returns_false_on_http_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -222,8 +255,10 @@ class TestSyncConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             rpz_dir = Path(tmpdir) / "rpz"
             rpz_dir.mkdir()
-            (rpz_dir / "blocklist.rpz").write_text("existing content")
+            rpz_file = rpz_dir / "blocklist.rpz"
+            rpz_file.write_text("existing content")
             fzones_path = Path(tmpdir) / "forward-zones.conf"
+            orig_mtime = rpz_file.stat().st_mtime
 
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -243,6 +278,7 @@ class TestSyncConfig:
                 )
 
             assert changed is False
+            assert rpz_file.stat().st_mtime == orig_mtime
 
 
 class TestGetLocalIp:
@@ -270,3 +306,101 @@ class TestGetVersion:
         if "PB_VERSION" in os.environ:
             del os.environ["PB_VERSION"]
         assert get_version() == "unknown"
+
+
+class TestTriggerReload:
+    def test_creates_trigger_file_in_rpz_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rpz_dir = Path(tmpdir) / "rpz"
+            rpz_dir.mkdir()
+            trigger_reload(rpz_dir)
+            assert (rpz_dir / ".reload-trigger").exists()
+
+    def test_idempotent_touch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rpz_dir = Path(tmpdir) / "rpz"
+            rpz_dir.mkdir()
+            signal = rpz_dir / ".reload-trigger"
+            signal.write_text("existing")
+            trigger_reload(rpz_dir)
+            assert signal.exists()
+
+    def test_no_error_on_missing_dir(self):
+        trigger_reload(Path("/nonexistent/path"))
+
+
+class TestSyncConfigTriggersReload:
+    def test_creates_trigger_file_on_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rpz_dir = Path(tmpdir) / "rpz"
+            fzones_path = Path(tmpdir) / "forward-zones.conf"
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "rpz_files": [
+                    {"filename": "blocklist.rpz", "content": "new content"},
+                ],
+                "forward_zones": [],
+            }
+
+            with patch("agent.requests.get", return_value=mock_response):
+                sync_config(
+                    "http://primary:8080",
+                    {"X-PowerBlockade-Node-Key": "key"},
+                    rpz_dir,
+                    fzones_path,
+                )
+
+            assert (rpz_dir / ".reload-trigger").exists()
+
+    def test_no_trigger_file_when_no_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rpz_dir = Path(tmpdir) / "rpz"
+            rpz_dir.mkdir()
+            (rpz_dir / "blocklist.rpz").write_text("existing content")
+            fzones_path = Path(tmpdir) / "forward-zones.conf"
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "rpz_files": [
+                    {"filename": "blocklist.rpz", "content": "existing content"},
+                ],
+                "forward_zones": [],
+            }
+
+            with patch("agent.requests.get", return_value=mock_response):
+                sync_config(
+                    "http://primary:8080",
+                    {},
+                    rpz_dir,
+                    fzones_path,
+                )
+
+            assert not (rpz_dir / ".reload-trigger").exists()
+
+    def test_no_temp_files_after_rpz_sync(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rpz_dir = Path(tmpdir) / "rpz"
+            fzones_path = Path(tmpdir) / "forward-zones.conf"
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "rpz_files": [
+                    {"filename": "blocklist.rpz", "content": "zone data"},
+                ],
+                "forward_zones": [],
+            }
+
+            with patch("agent.requests.get", return_value=mock_response):
+                sync_config(
+                    "http://primary:8080",
+                    {"X-PowerBlockade-Node-Key": "key"},
+                    rpz_dir,
+                    fzones_path,
+                )
+
+            temp_files = list(rpz_dir.glob(".pb-tmp-*"))
+            assert temp_files == []

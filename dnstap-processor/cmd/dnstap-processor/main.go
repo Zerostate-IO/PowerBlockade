@@ -90,8 +90,8 @@ func main() {
 	allowSet := map[string]struct{}{}
 	lastLoad := time.Time{}
 	loadSets := func() {
-		// reload at most every 5s
-		if !lastLoad.IsZero() && time.Since(lastLoad) < 5*time.Second {
+		// Reload at most every 1s to avoid redundant reads on high query rates
+		if !lastLoad.IsZero() && time.Since(lastLoad) < 1*time.Second {
 			return
 		}
 		lastLoad = time.Now()

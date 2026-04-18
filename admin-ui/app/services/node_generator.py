@@ -27,6 +27,9 @@ def generate_secondary_package_zip(
         DNSDIST_LISTEN_ADDRESS={dnsdist_listen_address}
         HEARTBEAT_INTERVAL_SECONDS=60
         CONFIG_SYNC_INTERVAL_SECONDS=300
+        DOCKER_SUBNET=172.30.0.0/24
+        RECURSOR_IP=172.30.0.10
+        DNSTAP_PROCESSOR_IP=172.30.0.20
         """
     )
 
@@ -36,16 +39,22 @@ def generate_secondary_package_zip(
           dnsdist:
             image: powerdns/dnsdist-20:2.0.3
             restart: unless-stopped
+            entrypoint: ["/docker-entrypoint.sh"]
             environment:
+              RECURSOR_IP: ${RECURSOR_IP:-172.30.0.10}
+              DNSTAP_PROCESSOR_IP: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}
               RECURSOR_WAIT_TIMEOUT_SECONDS: ${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}
             ports:
               - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
               - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
             volumes:
-              - ./config/dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
+              - ./config/dnsdist.conf.template:/etc/dnsdist/dnsdist.conf.template:ro
+              - ./docker-entrypoint.sh:/docker-entrypoint.sh:ro
               - dnstap-socket:/var/run/dnstap
             cap_add:
               - NET_BIND_SERVICE
+            networks:
+              - default
             depends_on:
               recursor:
                 condition: service_healthy
@@ -66,6 +75,9 @@ def generate_secondary_package_zip(
             expose:
               - "5300"
               - "8082"
+            networks:
+              default:
+                ipv4_address: ${RECURSOR_IP:-172.30.0.10}
             healthcheck:
               test: ["CMD-SHELL", "rec_control --socket-dir=/var/run/pdns-recursor ping | grep -qi pong || exit 1"]
               interval: 10s
@@ -80,23 +92,20 @@ def generate_secondary_package_zip(
               - recursor-control-socket:/var/run/pdns-recursor
 
           recursor-reloader:
-            image: powerdns/pdns-recursor-53:latest
+            image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-recursor-reloader:${POWERBLOCKADE_VERSION:-latest}
             restart: unless-stopped
-            entrypoint:
-              - sh
-              - -c
-              - >-
-                while true; do
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-zones || true;
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-lua-config || true;
-                  rec_control --socket-dir=/var/run/pdns-recursor reload-fzones || true;
-                  sleep 5;
-                done
+            environment:
+              RELOADER_SOCKET_DIR: /var/run/pdns-recursor
+              RELOADER_RPZ_DIR: /shared/rpz
+              RELOADER_FORWARD_ZONES: /shared/forward-zones.conf
+              RELOADER_DEBOUNCE_SECONDS: "2"
             volumes:
               - recursor-control-socket:/var/run/pdns-recursor
-              - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
+              - ./config/forward-zones.conf:/shared/forward-zones.conf:ro
+              - ./rpz:/shared/rpz
             depends_on:
-              - recursor
+              recursor:
+                condition: service_healthy
 
           dnstap-processor:
             image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-dnstap-processor:${POWERBLOCKADE_VERSION:-latest}
@@ -107,6 +116,9 @@ def generate_secondary_package_zip(
               PRIMARY_URL: ${PRIMARY_URL}
               PRIMARY_API_KEY: ${PRIMARY_API_KEY}
               DNSTAP_LISTEN: "0.0.0.0:6000"
+            networks:
+              default:
+                ipv4_address: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}
             volumes:
               - dnstap-socket:/var/run/dnstap
             depends_on:
@@ -136,6 +148,12 @@ def generate_secondary_package_zip(
         volumes:
           dnstap-socket:
           recursor-control-socket:
+
+        networks:
+          default:
+            ipam:
+              config:
+                - subnet: ${DOCKER_SUBNET:-172.30.0.0/24}
         """
     )
 
@@ -152,21 +170,23 @@ def generate_secondary_package_zip(
            - `DNSDIST_LISTEN_ADDRESS` - Set to host's LAN IP if port 53 conflicts
         3. Run:
 
-           docker compose up -d
+           docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 
         ## Architecture
 
         This is a headless mirror of the primary node:
         - **dnsdist** - Receives DNS queries, forwards to recursor, logs client IPs via dnstap
         - **recursor** - PowerDNS Recursor with RPZ blocking (synced from primary)
+        - **recursor-reloader** - Watches config files and reloads recursor on changes
         - **dnstap-processor** - Ships query logs to primary
-        - **sync-agent** - Pulls config from primary every 60s, executes commands
+        - **sync-agent** - Pulls config from primary every 300s, writes changed files
 
         No admin UI - all management is done via the primary.
 
         ## Sync behavior
 
-        - Config (RPZ, forward zones) syncs within 60 seconds of changes on primary
+        - Config (RPZ, forward zones) syncs within 300 seconds of changes on primary
+        - Recursor reloads automatically when the reloader sidecar detects changed files
         - Cache clear commands propagate within 60 seconds
         - Emergency blocking disable/pause takes effect within 60 seconds
         """
@@ -195,11 +215,16 @@ def generate_secondary_package_zip(
         """
     )
 
-    dnsdist_conf = textwrap.dedent(
+    dnsdist_conf_template = textwrap.dedent(
         """\
         -- Secondary node dnsdist config
-        setLocal("0.0.0.0:53", { reusePort=true })
-        newServer({address="recursor:5300", name="recursor", sockets=4, useClientSubnet=true})
+        setLocal('0.0.0.0:53', { reusePort=true })
+        newServer({
+            address='${RECURSOR_IP}:5300',
+            name='recursor',
+            sockets=4,
+            useClientSubnet=true
+        })
         setServerPolicy(firstAvailable)
 
         local pc = newPacketCache(500000, {
@@ -210,17 +235,47 @@ def generate_secondary_package_zip(
           dontAge=false,
           shuffle=true
         })
-        getPool(""):setCache(pc)
+        getPool(''):setCache(pc)
         setStaleCacheEntriesTTL(60)
 
-        local fs = newFrameStreamTcpLogger("dnstap-processor:6000", {
+        local fs = newFrameStreamTcpLogger('${DNSTAP_PROCESSOR_IP}:6000', {
           bufferHint=65536,
           flushTimeout=1,
           outputQueueSize=64,
           queueNotifyThreshold=32,
           reopenInterval=5
         })
-        addResponseAction(AllRule(), DnstapLogResponseAction("powerblockade-dnsdist", fs))
+        addResponseAction(AllRule(), DnstapLogResponseAction('powerblockade-dnsdist', fs))
+        """
+    )
+
+    docker_entrypoint = textwrap.dedent(
+        """\
+        #!/bin/bash
+        set -e
+
+        RECURSOR_IP="${RECURSOR_IP:-172.30.0.10}"
+        DNSTAP_PROCESSOR_IP="${DNSTAP_PROCESSOR_IP:-172.30.0.20}"
+
+        sed -e "s/\\${RECURSOR_IP}/$RECURSOR_IP/g" \\
+            -e "s/\\${DNSTAP_PROCESSOR_IP}/$DNSTAP_PROCESSOR_IP/g" \\
+            /etc/dnsdist/dnsdist.conf.template > /tmp/dnsdist.conf
+
+        echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP"
+
+        # Wait for recursor to be reachable
+        timeout=${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}
+        elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+            if bash -c "echo >/dev/tcp/$RECURSOR_IP/5300" 2>/dev/null; then
+                echo "recursor is ready (${elapsed}s)"
+                break
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+
+        exec dnsdist --supervised -C /tmp/dnsdist.conf
         """
     )
 
@@ -242,11 +297,12 @@ def generate_secondary_package_zip(
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.writestr("docker-compose.yml", compose)
+        z.writestr("docker-compose.ghcr.yml", compose)
         z.writestr(".env", env)
         z.writestr("README.md", readme)
         z.writestr("config/recursor.conf", recursor_conf)
-        z.writestr("config/dnsdist.conf", dnsdist_conf)
+        z.writestr("config/dnsdist.conf.template", dnsdist_conf_template)
+        z.writestr("docker-entrypoint.sh", docker_entrypoint)
         z.writestr("config/rpz.lua", rpz_lua)
         z.writestr("config/forward-zones.conf", forward_zones)
         z.writestr("rpz/.gitkeep", "")

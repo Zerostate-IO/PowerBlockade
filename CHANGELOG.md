@@ -9,6 +9,96 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-04-17
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.6 for fresher blocked-event classification and release publication fixes
+
+### Changed
+
+- dnstap-processor now reloads RPZ and allowlist sets at most once per second instead of every five seconds, reducing stale blocked-event tagging after config changes
+- Release automation now uses a blocking runtime gate that avoids GitHub-hosted runner port-53 conflicts while keeping the full install-path smoke test as advisory verification
+
+### Documentation
+
+- Updated version-pinning and upgrade examples to target v0.7.7
+- Clarified help text to match trigger-driven recursor reload behavior
+
+### Upgrade Instructions
+
+```bash
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
+```
+
+## [0.7.6] - 2026-04-15
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.5 for environments that rely on forward-zone live reloads
+
+### Fixed
+
+- Recursor reloader sidecar now correctly detects changes to bind-mounted `forward-zones.conf` (inotify watch was not firing for bind-mounted files on Docker hosts)
+
+### Upgrade Instructions
+
+v0.7.6 is the recommended rollout target for all environments. Environments that use forward-zone live reloads should upgrade from v0.7.5.
+
+```bash
+POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml up -d
+```
+
+## [0.7.5] - 2026-04-15
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.4 secondary-package generation was broken; use v0.7.5 for any secondary node deployments. For forward-zone live reloads, use v0.7.6 instead.
+
+### Fixed
+
+- Generated secondary node packages now produce correct dnsdist backend addressing (was emitting invalid listen/bind configuration that prevented dnsdist startup on secondary nodes)
+- Generated secondary node packages now use the correct static-IP and network contract so the secondary node's dnsdist binds to the intended LAN address instead of failing or binding to the wrong interface
+- Node generator (`admin-ui/app/services/node_generator.py`) now matches the canonical compose health and dependency contract validated in v0.7.3
+
+### Upgrade Instructions
+
+Secondary nodes deployed from v0.7.4 generated packages must be re-deployed from a fresh v0.7.5 package.
+
+```bash
+POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.5 docker compose -f docker-compose.ghcr.yml up -d
+```
+
+## [0.7.4] - 2026-04-15
+
+> **Release Type**: Patch Release
+> **Upgrade Safety**: Safe upgrade for primary nodes. Secondary node packages generated from v0.7.4 contain dnsdist addressing bugs; upgrade to v0.7.5 before deploying any secondary nodes.
+
+### Added
+
+- Dedicated `recursor-reloader` sidecar watches RPZ files and `forward-zones.conf` via inotify and runs `rec_control reload-lua-config` only when files actually change, eliminating unnecessary recursor load
+- `powerblockade-recursor-reloader` image published to GHCR alongside existing component images
+
+### Changed
+
+- RPZ files on the primary are now written with `atomic_write()` (atomic replace via temp file) so the reloader sidecar sees clean inotify events instead of partial writes
+- `forward-zones.conf` is now written with `safe_write()` (in-place overwrite preserving inode) so Docker file bind mounts stay consistent
+- Generated secondary node packages now reference the official `powerblockade-recursor-reloader` GHCR image and use `docker-compose.ghcr.yml` as the compose file
+
+### Fixed
+
+- Replaced continuous 5-second `rec_control` polling with a dedicated file-watch sidecar that reloads the recursor only when config files change
+
+### Upgrade Instructions
+
+```bash
+POWERBLOCKADE_VERSION=0.7.4 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.4 docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## [0.7.3] - 2026-04-03
 
 > **Release Type**: Patch Release

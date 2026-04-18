@@ -20,6 +20,7 @@ from app.models.manual_entry import ManualEntry
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
 from app.models.settings import get_health_offline_minutes, get_health_stale_minutes
+from app.services.atomic_write import atomic_write
 from app.services.blocklist_manager import fetch_and_parse_blocklist
 from app.services.blocklist_scheduler import run_schedule_check
 from app.services.retention import run_retention_job
@@ -151,10 +152,14 @@ def regenerate_rpz(db) -> None:
 
     effective_blocked = blocked_domains - allow_domains
 
-    with open(os.path.join(out_dir, "blocklist-combined.rpz"), "w", encoding="utf-8") as f:
-        f.write(render_rpz_zone(effective_blocked, policy_name="blocklist-combined"))
-    with open(os.path.join(out_dir, "whitelist.rpz"), "w", encoding="utf-8") as f:
-        f.write(render_rpz_whitelist(allow_domains))
+    atomic_write(
+        os.path.join(out_dir, "blocklist-combined.rpz"),
+        render_rpz_zone(effective_blocked, policy_name="blocklist-combined"),
+    )
+    atomic_write(
+        os.path.join(out_dir, "whitelist.rpz"),
+        render_rpz_whitelist(allow_domains),
+    )
 
     removed = len(blocked_domains) - len(effective_blocked)
     log.info(

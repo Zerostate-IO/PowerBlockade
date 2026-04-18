@@ -57,9 +57,9 @@
         Blocklists and forward zones defined on the primary are synchronized to all secondary nodes:
       </p>
       <ul class="mt-2 list-disc pl-5 text-sm text-slate-300 space-y-1">
-        <li>Primary generates RPZ zone files → shared volume → recursor-reloader reloads</li>
+        <li>Primary generates RPZ zone files → shared volume → recursor-reloader reloads on trigger</li>
         <li>sync-agent on secondaries pulls latest RPZ files and forward zones from primary</li>
-        <li>Secondary recursor reloads when files change (polling every 5 seconds)</li>
+        <li>Secondary recursor reloads immediately when files change (trigger-driven)</li>
       </ul>
       <div class="mt-3 rounded-lg border border-green-500/30 bg-green-500/10 p-3">
         <p class="text-sm text-green-200">

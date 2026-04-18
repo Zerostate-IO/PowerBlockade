@@ -112,7 +112,7 @@ Secondary nodes pull configuration from the primary.
 **Flow:**
 1. `sync-agent` GETs configuration from primary's `/api/node-sync/config`
 2. Primary returns RPZ files, forward zones, and settings
-3. Secondary writes files locally and triggers recursor reload
+3. Secondary writes files locally and triggers recursor reload via sentinel file
 
 **Code References:**
 - Provider: `admin-ui/app/routers/node_sync.py` — `config()` endpoint
