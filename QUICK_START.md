@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional version pin:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.6
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.7
 ```
 
 The installer asks questions, detects missing prerequisites, handles Docker/Compose installation, runs `init-env.sh`, and starts the stack.
@@ -166,7 +166,7 @@ To pin to a specific version instead of `latest`:
 
 ```bash
 # Pin to a specific release
-POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Step 4: Access the Admin UI
@@ -287,8 +287,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 ### Update to a specific version
 
 ```bash
-POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.6 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ### Check status
