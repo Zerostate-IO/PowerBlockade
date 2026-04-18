@@ -8,14 +8,10 @@ regeneration, emergency blocking) produce correct RPZ zone files via
 from __future__ import annotations
 
 import os
-import textwrap
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.services.atomic_write import atomic_write
 from app.services.rpz import render_rpz_whitelist, render_rpz_zone
-
 
 # ---------------------------------------------------------------------------
 # Helpers
