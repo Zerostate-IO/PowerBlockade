@@ -1,7 +1,7 @@
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/dmachard/go-powerdns-protobuf v0.0.0-20260102091002-3c206a8733ec h1:R+vVroSaprHFczTQQWHiuAwt7UFIyHXWnavXaXzAJxU=
-github.com/dmachard/go-powerdns-protobuf v0.0.0-20260102091002-3c206a8733ec/go.mod h1:9gSUHMzdoveVhZjHpR41+lL8fd1gT8mkzaIn+xGV6lM=
+github.com/dmachard/go-powerdns-protobuf v1.6.1 h1:x7+Edg4Ug+8sL7Oy7Zgm9PlD0k+ETSDgigKEwStU0KA=
+github.com/dmachard/go-powerdns-protobuf v1.6.1/go.mod h1:9gSUHMzdoveVhZjHpR41+lL8fd1gT8mkzaIn+xGV6lM=
 github.com/dnstap/golang-dnstap v0.4.0 h1:KRHBoURygdGtBjDI2w4HifJfMAhhOqDuktAokaSa234=
 github.com/dnstap/golang-dnstap v0.4.0/go.mod h1:FqsSdH58NAmkAvKcpyxht7i4FoBjKu8E4JUPt8ipSUs=
 github.com/farsightsec/golang-framestream v0.3.0 h1:/spFQHucTle/ZIPkYqrfshQqPe2VQEzesH243TjIwqA=
