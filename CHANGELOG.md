@@ -9,6 +9,27 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-04-20
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+> **Supersedes**: v0.7.7 for admin-ui compatibility with newer FastAPI/Starlette template rendering APIs
+
+### Fixed
+
+- Admin UI server-rendered pages now render correctly when the container resolves newer FastAPI/Starlette versions that require the `TemplateResponse(request, name, context=...)` calling convention
+
+### Changed
+
+- Release runtime gate now verifies anonymous `GET /` and `GET /login` before publishing images so page-render regressions are caught before release
+
+### Upgrade Instructions
+
+```bash
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ## [0.7.7] - 2026-04-17
 
 > **Release Type**: Patch Release (Bugfix)
