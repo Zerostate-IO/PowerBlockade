@@ -24,7 +24,7 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to a specific release
-export POWERBLOCKADE_VERSION=0.7.7
+export POWERBLOCKADE_VERSION=0.7.8
 
 # Pull and restart
 docker compose -f docker-compose.ghcr.yml pull
@@ -34,8 +34,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 Or in a single command:
 
 ```bash
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml pull && \
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull && \
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Migration Guide

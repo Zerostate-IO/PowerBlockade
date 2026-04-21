@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional version pin:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.7
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.8
 ```
 
 This flow is interactive and includes prerequisites, Docker/Compose setup, `init-env.sh` prompts, and startup checks.
@@ -56,7 +56,7 @@ This flow is interactive and includes prerequisites, Docker/Compose setup, `init
 
 3. **Start with pre-built images:**
    ```bash
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. Note the generated admin password from the `init-env.sh` output.
@@ -83,7 +83,7 @@ POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
 
 3. **Start the secondary stack:**
    ```bash
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
    ```
 
 4. Verify on celsate:
@@ -95,16 +95,16 @@ POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml --profile 
 ### Primary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 
 ### Secondary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
 ```
 
 ### Recommended: Upgrade Secondaries First
@@ -119,11 +119,11 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to specific version
-export POWERBLOCKADE_VERSION=0.7.7
+export POWERBLOCKADE_VERSION=0.7.8
 docker compose -f docker-compose.ghcr.yml up -d
 
 # Or inline
-POWERBLOCKADE_VERSION=0.7.7 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Troubleshooting
