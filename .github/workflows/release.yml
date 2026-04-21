@@ -293,6 +293,20 @@ jobs:
         run: |
           sleep 5
 
+          ROOT_RESPONSE=$(curl -s -i "http://localhost:18080/" 2>/dev/null || true)
+          ROOT_CODE=$(printf "%s" "$ROOT_RESPONSE" | awk 'NR==1 {print $2}')
+          if [[ "$ROOT_CODE" != "200" ]]; then
+            printf "%s\n" "$ROOT_RESPONSE" | sed -n '1,20p'
+            exit 1
+          fi
+
+          LOGIN_PAGE_RESPONSE=$(curl -s -i "http://localhost:18080/login" 2>/dev/null || true)
+          LOGIN_PAGE_CODE=$(printf "%s" "$LOGIN_PAGE_RESPONSE" | awk 'NR==1 {print $2}')
+          if [[ "$LOGIN_PAGE_CODE" != "200" ]]; then
+            printf "%s\n" "$LOGIN_PAGE_RESPONSE" | sed -n '1,20p'
+            exit 1
+          fi
+
           LOGIN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -F "username=$TEST_ADMIN_USERNAME" \
             -F "password=$TEST_ADMIN_PASSWORD" \
