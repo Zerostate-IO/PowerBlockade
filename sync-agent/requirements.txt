@@ -1,2 +1,2 @@
 requests>=2.32
-dnspython>=2.6
+dnspython>=2.8.0
