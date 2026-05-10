@@ -166,6 +166,9 @@ jobs:
           - image: sync-agent
             context: ./sync-agent
             dockerfile: ./sync-agent/Dockerfile
+          - image: recursor-reloader
+            context: ./recursor-reloader
+            dockerfile: ./recursor-reloader/Dockerfile
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -217,6 +220,7 @@ jobs:
           docker pull ghcr.io/zerostate-io/powerblockade-recursor:$VERSION
           docker pull ghcr.io/zerostate-io/powerblockade-dnstap-processor:$VERSION
           docker pull ghcr.io/zerostate-io/powerblockade-sync-agent:$VERSION
+          docker pull ghcr.io/zerostate-io/powerblockade-recursor-reloader:$VERSION
 
       - name: Prepare runtime gate environment
         run: |
@@ -239,7 +243,9 @@ jobs:
           cat > "$RUNNER_TEMP/runtime-gate.override.yml" <<'EOF'
           services:
             dnsdist:
-              ports: []
+              ports:
+                - "127.0.0.1:1053:53/udp"
+                - "127.0.0.1:1053:53/tcp"
             admin-ui:
               ports:
                 - "18080:8080"
@@ -357,6 +363,7 @@ jobs:
           docker pull ghcr.io/zerostate-io/powerblockade-recursor:$VERSION
           docker pull ghcr.io/zerostate-io/powerblockade-dnstap-processor:$VERSION
           docker pull ghcr.io/zerostate-io/powerblockade-sync-agent:$VERSION
+          docker pull ghcr.io/zerostate-io/powerblockade-recursor-reloader:$VERSION
 
       - name: Run fresh install smoke test
         id: smoke_run
