@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.dns_query_event import DNSQueryEvent
 from app.models.node import Node
 from app.models.node_metrics import NodeMetrics
+from app.services.rollups import get_dashboard_stats
 
 router = APIRouter()
 
@@ -34,56 +32,21 @@ def _get_latest_node_metrics(db: Session) -> list[tuple[str, NodeMetrics]]:
 
 @router.get("/metrics")
 def metrics(db: Session = Depends(get_db)):
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    stats = get_dashboard_stats(db, hours=24)
 
-    total = (
-        db.query(sa.func.count(DNSQueryEvent.id)).filter(DNSQueryEvent.ts >= since).scalar() or 0
-    )
-    blocked = (
-        db.query(sa.func.count(DNSQueryEvent.id))
-        .filter(DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True))
-        .scalar()
-        or 0
-    )
+    total = max(int(stats.get("total_queries", 0)), 0)
+    blocked = int(stats.get("blocked_queries", 0))
+    cache_hits = int(stats.get("cache_hits", 0))
+    time_saved_ms = float(stats.get("time_saved_ms", 0))
+    qps = float(stats.get("qps", 0))
+    blocked_pct = float(stats.get("blocked_pct", 0))
+    cache_hit_pct = float(stats.get("cache_hit_pct", 0))
+    time_saved_seconds = int(time_saved_ms / 1000)
 
-    cache_hits = (
-        db.query(sa.func.count(DNSQueryEvent.id))
-        .filter(
-            DNSQueryEvent.ts >= since,
-            DNSQueryEvent.blocked.is_(False),
-            DNSQueryEvent.latency_ms < 5,
-        )
-        .scalar()
-        or 0
-    )
-
-    time_saved_total = 0
-    if cache_hits > 0:
-        avg_latency_miss = (
-            db.query(sa.func.avg(DNSQueryEvent.latency_ms))
-            .filter(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms >= 5,
-            )
-            .scalar()
-            or 0
-        )
-        avg_latency_hit = (
-            db.query(sa.func.avg(DNSQueryEvent.latency_ms))
-            .filter(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms < 5,
-            )
-            .scalar()
-            or 0
-        )
-        time_saved_total = (avg_latency_miss - avg_latency_hit) * cache_hits
-
-    hit_rate = (cache_hits / total * 100) if total > 0 else 0
-    block_rate = (blocked / total * 100) if total > 0 else 0
-    qps = total / 86400 if total > 0 else 0
+    # Metadata from bounded stats cache
+    cache_age = float(stats.get("cache_age_seconds", 0))
+    rollup_lag = float(stats.get("rollup_lag_seconds", 0))
+    edge_delta = int(stats.get("edge_delta_total", 0))
 
     lines = [
         "# HELP powerblockade_queries_total Total DNS queries in 24h",
@@ -96,7 +59,7 @@ def metrics(db: Session = Depends(get_db)):
         "",
         "# HELP powerblockade_block_rate Block percentage",
         "# TYPE powerblockade_block_rate gauge",
-        f"powerblockade_block_rate {block_rate:.2f}",
+        f"powerblockade_block_rate {blocked_pct:.2f}",
         "",
         "# HELP powerblockade_cache_hits_total Estimated cache hits in 24h",
         "# TYPE powerblockade_cache_hits_total gauge",
@@ -104,15 +67,27 @@ def metrics(db: Session = Depends(get_db)):
         "",
         "# HELP powerblockade_cache_hit_rate Cache hit percentage",
         "# TYPE powerblockade_cache_hit_rate gauge",
-        f"powerblockade_cache_hit_rate {hit_rate:.2f}",
+        f"powerblockade_cache_hit_rate {cache_hit_pct:.2f}",
         "",
         "# HELP powerblockade_time_saved_seconds Time saved by cache",
         "# TYPE powerblockade_time_saved_seconds gauge",
-        f"powerblockade_time_saved_seconds {int(time_saved_total / 1000)}",
+        f"powerblockade_time_saved_seconds {time_saved_seconds}",
         "",
         "# HELP powerblockade_qps Queries per second (24h avg)",
         "# TYPE powerblockade_qps gauge",
         f"powerblockade_qps {qps:.2f}",
+        "",
+        "# HELP powerblockade_stats_cache_age_seconds Age of the cached stats in seconds",
+        "# TYPE powerblockade_stats_cache_age_seconds gauge",
+        f"powerblockade_stats_cache_age_seconds {cache_age:.1f}",
+        "",
+        "# HELP powerblockade_rollup_lag_seconds Seconds since last included rollup bucket",
+        "# TYPE powerblockade_rollup_lag_seconds gauge",
+        f"powerblockade_rollup_lag_seconds {rollup_lag:.1f}",
+        "",
+        "# HELP powerblockade_stats_edge_delta_total Raw edge events included in this sample",
+        "# TYPE powerblockade_stats_edge_delta_total gauge",
+        f"powerblockade_stats_edge_delta_total {edge_delta}",
     ]
 
     node_metrics = _get_latest_node_metrics(db)

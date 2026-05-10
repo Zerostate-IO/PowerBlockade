@@ -21,6 +21,7 @@ from app.models.node_metrics import NodeMetrics
 from app.models.settings import get_blocking_state, get_timezone
 from app.routers.auth import get_current_user
 from app.routers.system import compute_health_warnings, load_health_thresholds
+from app.services.rollups import get_dashboard_stats
 from app.template_utils import get_templates
 
 router = APIRouter()
@@ -65,57 +66,10 @@ def index_page(request: Request, db: Session = Depends(get_db)):
 
         return login_get(request)
 
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
-
-    total = (
-        db.query(sa.func.count(DNSQueryEvent.id)).filter(DNSQueryEvent.ts >= since).scalar() or 0
-    )
-    blocked = (
-        db.query(sa.func.count(DNSQueryEvent.id))
-        .filter(DNSQueryEvent.ts >= since, DNSQueryEvent.blocked.is_(True))
-        .scalar()
-        or 0
-    )
-
-    cache_hits = (
-        db.query(sa.func.count(DNSQueryEvent.id))
-        .filter(
-            DNSQueryEvent.ts >= since,
-            DNSQueryEvent.blocked.is_(False),
-            DNSQueryEvent.latency_ms < 5,
-        )
-        .scalar()
-        or 0
-    )
-
-    time_saved_total = 0
-    if cache_hits > 0:
-        avg_latency_miss = (
-            db.query(sa.func.avg(DNSQueryEvent.latency_ms))
-            .filter(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms >= 5,
-            )
-            .scalar()
-            or 0
-        )
-        avg_latency_hit = (
-            db.query(sa.func.avg(DNSQueryEvent.latency_ms))
-            .filter(
-                DNSQueryEvent.ts >= since,
-                DNSQueryEvent.blocked.is_(False),
-                DNSQueryEvent.latency_ms < 5,
-            )
-            .scalar()
-            or 0
-        )
-        time_saved_total = (avg_latency_miss - avg_latency_hit) * cache_hits
+    stats = get_dashboard_stats(db, hours=24)
 
     nodes = db.query(Node).filter(Node.status == "active").all()
     node_data = []
-    total_cache_hits = 0
-    total_cache_misses = 0
     for node in nodes:
         latest = (
             db.query(NodeMetrics)
@@ -124,12 +78,6 @@ def index_page(request: Request, db: Session = Depends(get_db)):
             .first()
         )
         node_data.append({"node": node, "metrics": latest})
-        if latest:
-            total_cache_hits += latest.cache_hits
-            total_cache_misses += latest.cache_misses
-
-    total_cache_queries = total_cache_hits + total_cache_misses
-    real_hit_rate = (total_cache_hits / total_cache_queries * 100) if total_cache_queries > 0 else 0
 
     thresholds = load_health_thresholds(db)
     warnings = compute_health_warnings(node_data, thresholds)
@@ -144,10 +92,10 @@ def index_page(request: Request, db: Session = Depends(get_db)):
         {
             "request": request,
             "user": user,
-            "total": total,
-            "blocked": blocked,
-            "hit_rate": real_hit_rate,
-            "time_saved": time_saved_total,
+            "total": stats["total_queries"],
+            "blocked": stats["blocked_queries"],
+            "hit_rate": stats["cache_hit_pct"],
+            "time_saved": stats["time_saved_ms"],
             "node_count": len(nodes),
             "critical_count": critical_count,
             "warning_count": warning_count,
