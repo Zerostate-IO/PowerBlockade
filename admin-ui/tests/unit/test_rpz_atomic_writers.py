@@ -137,8 +137,8 @@ class TestBlocklistsApplyAtomicWrite:
             # Patch get_current_user to return our mock user
             with patch("app.routers.blocklists.get_current_user", return_value=mock_user):
                 with patch("app.routers.blocklists.get_setting", return_value="UTC"):
-                    with patch("app.routers.blocklists.get_templates") as mock_tmpl:
-                        mock_tmpl.return_value.TemplateResponse.return_value = MagicMock()
+                    with patch("app.routers.blocklists.templates") as mock_tmpl:
+                        mock_tmpl.TemplateResponse.return_value = MagicMock()
                         blocklists_apply(mock_request, mock_db)
 
         # Verify RPZ files were written atomically (no temp files)
