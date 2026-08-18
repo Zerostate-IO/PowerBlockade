@@ -22,6 +22,7 @@ import (
 
 	"github.com/powerblockade/dnstap-processor/internal/buffer"
 	"github.com/powerblockade/dnstap-processor/internal/config"
+	"github.com/powerblockade/dnstap-processor/internal/netutil"
 )
 
 var (
@@ -33,6 +34,20 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	// Client subnets considered "internal" (docker network etc.); their
+	// queries are flagged is_internal and excluded from user-facing analytics.
+	// Supplied by the deployment via INTERNAL_SUBNETS (compose defaults it to
+	// DOCKER_SUBNET); no subnet assumptions live in this binary.
+	internalNets, err := netutil.ParseSubnets(strings.Join(cfg.InternalSubnets, ","))
+	if err != nil {
+		log.Fatalf("invalid INTERNAL_SUBNETS %q: %v", strings.Join(cfg.InternalSubnets, ","), err)
+	}
+	if len(internalNets) > 0 {
+		log.Printf("internal client subnets: %v (their queries are flagged is_internal)", cfg.InternalSubnets)
+	} else {
+		log.Printf("no INTERNAL_SUBNETS configured; is_internal flagging disabled")
 	}
 
 	if cfg.Primary.APIKey == "" {
@@ -145,14 +160,15 @@ func main() {
 		eid := hex.EncodeToString(h[:])
 
 		ev := buffer.Event{
-			Ts:        ts.Format(time.RFC3339Nano),
-			ClientIP:  clientIP,
-			QName:     qname,
-			QType:     qtype,
-			RCode:     rcode,
-			Blocked:   isBlocked,
-			LatencyMS: latencyMS,
-			EventID:   eid,
+			Ts:         ts.Format(time.RFC3339Nano),
+			ClientIP:   clientIP,
+			QName:      qname,
+			QType:      qtype,
+			RCode:      rcode,
+			Blocked:    isBlocked,
+			LatencyMS:  latencyMS,
+			EventID:    eid,
+			IsInternal: netutil.ContainsIP(internalNets, clientIP),
 		}
 		if isBlocked {
 			ev.BlockReason = "rpz"

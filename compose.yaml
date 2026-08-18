@@ -116,6 +116,9 @@ services:
       DNSTAP_LISTEN: ${DNSTAP_LISTEN:-0.0.0.0:6000}
       DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
       PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
+      # Client subnets flagged is_internal (excluded from analytics).
+      # Defaults to the docker subnet; comma-separated to add more.
+      INTERNAL_SUBNETS: ${INTERNAL_SUBNETS:-${DOCKER_SUBNET:-172.30.0.0/24}}
       PRIMARY_URL: ${PRIMARY_URL:-http://admin-ui:8080}
       LOCAL_NODE_API_KEY: ${LOCAL_NODE_API_KEY:-}
       PRIMARY_API_KEY: ${PRIMARY_API_KEY:-}

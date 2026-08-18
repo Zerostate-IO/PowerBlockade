@@ -60,14 +60,15 @@ type BufferConfig struct {
 }
 
 type Config struct {
-	NodeName       string        `yaml:"node_name"`
-	DnstapSocket   string        `yaml:"dnstap_socket"`
-	DnstapListen   string        `yaml:"dnstap_listen"` // TCP listener for dnstap (optional, overrides socket)
-	ProtobufListen string        `yaml:"protobuf_listen"`
-	Primary        PrimaryConfig `yaml:"primary"`
-	GELF           GELFConfig    `yaml:"gelf"`
-	Buffer         BufferConfig  `yaml:"buffer"`
-	Debug          bool          `yaml:"debug"`
+	NodeName        string        `yaml:"node_name"`
+	DnstapSocket    string        `yaml:"dnstap_socket"`
+	DnstapListen    string        `yaml:"dnstap_listen"` // TCP listener for dnstap (optional, overrides socket)
+	ProtobufListen  string        `yaml:"protobuf_listen"`
+	Primary         PrimaryConfig `yaml:"primary"`
+	GELF            GELFConfig    `yaml:"gelf"`
+	Buffer          BufferConfig  `yaml:"buffer"`
+	Debug           bool          `yaml:"debug"`
+	InternalSubnets []string      `yaml:"internal_subnets"` // client IPs in these subnets are flagged is_internal
 }
 
 func defaultConfig() Config {
@@ -85,7 +86,8 @@ func defaultConfig() Config {
 			MaxBytes: 100 * 1024 * 1024, // 100MB
 			MaxAge:   86400,             // 24 hours
 		},
-		Debug: false,
+		Debug:           false,
+		InternalSubnets: nil, // deployment-provided via INTERNAL_SUBNETS (compose defaults it to the docker subnet)
 	}
 }
 
@@ -140,6 +142,18 @@ func Load() (Config, error) {
 
 	if v := strings.TrimSpace(os.Getenv("DEBUG_DNSTAP")); v != "" {
 		cfg.Debug = v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+	}
+
+	// Comma-separated CIDR list of "internal" client subnets (docker network
+	// and anything else that should be excluded from user-facing analytics).
+	if v := strings.TrimSpace(os.Getenv("INTERNAL_SUBNETS")); v != "" {
+		cfg.InternalSubnets = nil
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				cfg.InternalSubnets = append(cfg.InternalSubnets, s)
+			}
+		}
 	}
 
 	if v := strings.TrimSpace(os.Getenv("BUFFER_PATH")); v != "" {

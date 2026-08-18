@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import Row, func
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -56,6 +56,26 @@ def _resolve_user_timezone(db: Session) -> tuple[str, ZoneInfo]:
         return tz_name, ZoneInfo(tz_name)
     except Exception:
         return "UTC", ZoneInfo("UTC")
+
+
+def _exclude_internal(query, include_internal: bool = False):
+    """Exclude container-internal traffic (docker/VPN subnets, precache
+    warming) from user-facing analytics unless explicitly included."""
+    if include_internal:
+        return query
+    return query.filter(DNSQueryEvent.is_internal.is_(False))
+
+
+def _get_client_options(db: Session, include_internal: bool = False) -> list[Row]:
+    """Client dropdown rows: clients with at least one non-internal event,
+    unless internal traffic is explicitly included. Returns query rows; callers
+    convert to dicts."""
+    q = db.query(Client.ip, Client.display_name, Client.rdns_name)
+    if not include_internal:
+        q = q.join(DNSQueryEvent, DNSQueryEvent.client_id == Client.id).filter(
+            DNSQueryEvent.is_internal.is_(False)
+        )
+    return q.distinct().order_by(Client.display_name, Client.rdns_name, Client.ip).all()
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -174,6 +194,7 @@ def logs_page(
     blocklist: str | None = Query(None),
     view: str = Query("all"),
     top_filter: str = Query("all"),
+    include_internal: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -196,6 +217,7 @@ def logs_page(
             func.count().label("count"),
             func.sum(func.cast(DNSQueryEvent.blocked, sa.Integer())).label("blocked_count"),
         ).filter(DNSQueryEvent.ts >= since)
+        query = _exclude_internal(query, include_internal)
 
         if q:
             query = query.filter(DNSQueryEvent.qname.ilike(f"%{q}%"))
@@ -216,21 +238,22 @@ def logs_page(
         offset = (page - 1) * DEFAULT_PAGE_SIZE
         top_domains = query.offset(offset).limit(DEFAULT_PAGE_SIZE).all()
 
-        # Get distinct blocklist names for dropdown
-        blocklist_options = (
-            db.query(DNSQueryEvent.blocklist_name)
-            .filter(DNSQueryEvent.blocklist_name.isnot(None))
+        # Get distinct blocklist names for dropdown (non-internal events only)
+        blocklist_options = [
+            b[0]
+            for b in _exclude_internal(
+                db.query(DNSQueryEvent.blocklist_name).filter(
+                    DNSQueryEvent.blocklist_name.isnot(None)
+                ),
+                include_internal,
+            )
             .distinct()
             .order_by(DNSQueryEvent.blocklist_name)
             .all()
-        )
-        blocklist_options = [b[0] for b in blocklist_options if b[0]]
+            if b[0]
+        ]
 
-        all_clients = (
-            db.query(Client.ip, Client.display_name, Client.rdns_name)
-            .order_by(Client.display_name, Client.rdns_name, Client.ip)
-            .all()
-        )
+        all_clients = _get_client_options(db, include_internal)
         client_options = [
             {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
         ]
@@ -250,6 +273,7 @@ def logs_page(
                 "blocklist": blocklist or "",
                 "view": view,
                 "top_filter": top_filter,
+                "include_internal": include_internal,
                 "client_options": client_options,
                 "blocklist_options": blocklist_options,
                 "window_options": list(WINDOW_HOURS.keys()),
@@ -259,6 +283,7 @@ def logs_page(
 
     # Regular log view (all, blocked, failures)
     query = db.query(DNSQueryEvent).filter(DNSQueryEvent.ts >= since)
+    query = _exclude_internal(query, include_internal)
 
     if view == "failures":
         query = query.filter(DNSQueryEvent.rcode.in_([2, 3]), DNSQueryEvent.blocked.is_(False))
@@ -313,24 +338,23 @@ def logs_page(
             }
         )
 
-    all_clients = (
-        db.query(Client.ip, Client.display_name, Client.rdns_name)
-        .order_by(Client.display_name, Client.rdns_name, Client.ip)
-        .all()
-    )
+    all_clients = _get_client_options(db, include_internal)
     client_options = [
         {"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in all_clients
     ]
 
-    # Get distinct blocklist names for dropdown
-    blocklist_options = (
-        db.query(DNSQueryEvent.blocklist_name)
-        .filter(DNSQueryEvent.blocklist_name.isnot(None))
+    # Get distinct blocklist names for dropdown (non-internal events only)
+    blocklist_options = [
+        b[0]
+        for b in _exclude_internal(
+            db.query(DNSQueryEvent.blocklist_name).filter(DNSQueryEvent.blocklist_name.isnot(None)),
+            include_internal,
+        )
         .distinct()
         .order_by(DNSQueryEvent.blocklist_name)
         .all()
-    )
-    blocklist_options = [b[0] for b in blocklist_options if b[0]]
+        if b[0]
+    ]
 
     return templates.TemplateResponse(
         "logs.html",
@@ -349,6 +373,7 @@ def logs_page(
             "blocked": blocked or "",
             "blocklist": blocklist or "",
             "view": view,
+            "include_internal": include_internal,
             "client_options": client_options,
             "rcode_options": list(RCODE_NAMES.values()),
             "qtype_options": list(QTYPE_NAMES.values()),
@@ -363,6 +388,7 @@ def logs_page(
 def domains_page(
     request: Request,
     page: int = Query(1, ge=1),
+    include_internal: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -373,12 +399,14 @@ def domains_page(
     offset = (page - 1) * DEFAULT_PAGE_SIZE
 
     domains = (
-        db.query(
-            DNSQueryEvent.qname,
-            func.count().label("count"),
-            func.sum(func.cast(DNSQueryEvent.blocked, sa.Integer())).label("blocked"),
+        _exclude_internal(
+            db.query(
+                DNSQueryEvent.qname,
+                func.count().label("count"),
+                func.sum(func.cast(DNSQueryEvent.blocked, sa.Integer())).label("blocked"),
+            ).filter(DNSQueryEvent.ts >= since),
+            include_internal,
         )
-        .filter(DNSQueryEvent.ts >= since)
         .group_by(DNSQueryEvent.qname)
         .order_by(func.count().desc())
         .offset(offset)
@@ -388,32 +416,46 @@ def domains_page(
 
     return templates.TemplateResponse(
         "domains.html",
-        {"request": request, "user": user, "domains": domains, "page": page},
+        {
+            "request": request,
+            "user": user,
+            "domains": domains,
+            "page": page,
+            "include_internal": include_internal,
+        },
     )
 
 
 @router.get("/blocked", response_class=HTMLResponse)
 def blocked_page(
     request: Request,
+    include_internal: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    return RedirectResponse(url="/logs?view=blocked", status_code=302)
+    url = "/logs?view=blocked"
+    if include_internal:
+        url += "&include_internal=1"
+    return RedirectResponse(url=url, status_code=302)
 
 
 @router.get("/failures", response_class=HTMLResponse)
 def failures_page(
     request: Request,
+    include_internal: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
-    return RedirectResponse(url="/logs?view=failures", status_code=302)
+    url = "/logs?view=failures"
+    if include_internal:
+        url += "&include_internal=1"
+    return RedirectResponse(url=url, status_code=302)
 
 
 TimeWindow = Literal["1h", "6h", "12h", "24h", "3d", "7d"]
@@ -446,6 +488,7 @@ def _get_bucket_minutes(window: TimeWindow) -> int:
 def analytics_history(
     request: Request,
     window: TimeWindow = Query("24h"),
+    include_internal: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
@@ -465,7 +508,9 @@ def analytics_history(
         buckets.append(current)
         current = current + timedelta(minutes=bucket_minutes)
 
-    sql = sa.text("""
+    internal_clause = "" if include_internal else " AND is_internal = false"
+
+    sql = sa.text(f"""
         SELECT
             date_trunc('minute', ts) -
                 (EXTRACT(minute FROM ts)::int % :bucket_min) * interval '1 minute' as bucket,
@@ -473,7 +518,7 @@ def analytics_history(
             COUNT(*) FILTER (WHERE blocked = true) as blocked,
             COUNT(*) FILTER (WHERE blocked = false AND latency_ms < 5) as cached
         FROM dns_query_events
-        WHERE ts >= :since
+        WHERE ts >= :since{internal_clause}
         GROUP BY bucket
         ORDER BY bucket
     """)

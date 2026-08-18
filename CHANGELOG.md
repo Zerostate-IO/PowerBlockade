@@ -9,6 +9,17 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ## [Unreleased]
 
+### Added
+
+- **Internal-traffic flag (`is_internal`, issue #48)**: dnstap-processor flags
+  events whose client is in an internal subnet (docker network etc.); the
+  analytics views (logs, domains, blocked, failures, history) and dashboard
+  rollups exclude them by default, with a "Show internal" toggle
+  (`?include_internal=1`) and per-node config via `INTERNAL_SUBNETS` (defaults
+  to `DOCKER_SUBNET`). Secondary precache warming no longer drowns the query
+  log with container IPs. Regression gate's internal-exclusion check fixed
+  (missing column + missing `::inet` cast).
+
 ### Fixed
 
 - Fresh installs no longer fail postgres authentication: `init-env.sh` now

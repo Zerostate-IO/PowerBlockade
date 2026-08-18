@@ -80,6 +80,50 @@ class TestNodeSyncRoutes:
         )
         assert response.status_code == 200
 
+    def test_ingest_persists_is_internal_flag(self, sync_client, sync_db_session):
+        from app.models.dns_query_event import DNSQueryEvent
+
+        node = Node(name="test_node", api_key="test_key", status="active")
+        sync_db_session.add(node)
+        sync_db_session.commit()
+
+        events = [
+            {
+                "event_id": "uuid-internal",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "client_ip": "172.30.0.3",
+                "qname": "internal.example.com",
+                "qtype": 1,
+                "rcode": 0,
+                "blocked": False,
+                "is_internal": True,
+            },
+            {
+                "event_id": "uuid-external",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "client_ip": "10.5.5.50",
+                "qname": "external.example.com",
+                "qtype": 1,
+                "rcode": 0,
+                "blocked": False,
+                "is_internal": False,
+            },
+        ]
+
+        response = sync_client.post(
+            "/api/node-sync/ingest", json={"events": events}, headers=self._headers("test_key")
+        )
+        assert response.status_code == 200
+
+        by_event_id = {
+            e.event_id: e
+            for e in sync_db_session.query(DNSQueryEvent)
+            .filter(DNSQueryEvent.event_id.in_(["uuid-internal", "uuid-external"]))
+            .all()
+        }
+        assert by_event_id["uuid-internal"].is_internal is True
+        assert by_event_id["uuid-external"].is_internal is False
+
     def test_ingest_returns_401_for_invalid_key(self, sync_client):
         events = [{"event_id": "uuid-1", "qname": "example.com"}]
 

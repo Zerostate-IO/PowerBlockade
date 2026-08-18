@@ -105,3 +105,87 @@ class TestAnalyticsRoutes:
         metrics_path = pathlib.Path(__file__).resolve().parent.parent.parent / "app" / "routers" / "metrics.py"
         source = metrics_path.read_text()
         assert "DNSQueryEvent" not in source
+
+
+class TestInternalTrafficFiltering:
+    """is_internal events are excluded from analytics by default (issue #48)."""
+
+    @staticmethod
+    def _seed_events(sync_db_session) -> None:
+        from app.models.client import Client
+        from app.models.dns_query_event import DNSQueryEvent
+
+        external_client = Client(ip="10.5.5.50")
+        internal_client = Client(ip="172.30.0.3")
+        sync_db_session.add_all([external_client, internal_client])
+        sync_db_session.flush()
+
+        now = datetime.now(timezone.utc)
+        sync_db_session.add_all(
+            [
+                DNSQueryEvent(
+                    event_id="internal-1",
+                    ts=now,
+                    client_ip="172.30.0.3",
+                    client_id=internal_client.id,
+                    qname="internal.example.com",
+                    qtype=1,
+                    rcode=0,
+                    blocked=False,
+                    is_internal=True,
+                ),
+                DNSQueryEvent(
+                    event_id="external-1",
+                    ts=now,
+                    client_ip="10.5.5.50",
+                    client_id=external_client.id,
+                    qname="external.example.com",
+                    qtype=1,
+                    rcode=0,
+                    blocked=False,
+                    is_internal=False,
+                ),
+            ]
+        )
+        sync_db_session.commit()
+
+    def test_logs_exclude_internal_by_default(self, authenticated_client, sync_db_session):
+        self._seed_events(sync_db_session)
+        response = authenticated_client.get("/logs?view=all&window=24h")
+        assert response.status_code == 200
+        assert "external.example.com" in response.text
+        assert "internal.example.com" not in response.text
+
+    def test_logs_include_internal_with_param(self, authenticated_client, sync_db_session):
+        self._seed_events(sync_db_session)
+        response = authenticated_client.get("/logs?view=all&window=24h&include_internal=1")
+        assert response.status_code == 200
+        assert "internal.example.com" in response.text
+
+    def test_domains_exclude_internal_by_default(self, authenticated_client, sync_db_session):
+        self._seed_events(sync_db_session)
+        response = authenticated_client.get("/domains")
+        assert response.status_code == 200
+        assert "external.example.com" in response.text
+        assert "internal.example.com" not in response.text
+
+    def test_history_excludes_internal_by_default(self, authenticated_client, sync_db_session):
+        from app.services.rollups import reset_stats_cache
+
+        reset_stats_cache()
+        self._seed_events(sync_db_session)
+        response = authenticated_client.get("/api/analytics/history?window=24h")
+        assert response.status_code == 200
+        data = response.json()
+        # Internal event excluded: only the external event is counted.
+        assert sum(data["series"]["total"]) == 1
+
+    def test_history_includes_internal_with_param(self, authenticated_client, sync_db_session):
+        from app.services.rollups import reset_stats_cache
+
+        reset_stats_cache()
+        self._seed_events(sync_db_session)
+        response = authenticated_client.get("/api/analytics/history?window=24h&include_internal=1")
+        assert response.status_code == 200
+        data = response.json()
+        assert sum(data["series"]["total"]) == 2

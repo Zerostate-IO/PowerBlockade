@@ -127,6 +127,9 @@ def generate_secondary_package_zip(
               PRIMARY_URL: ${PRIMARY_URL}
               PRIMARY_API_KEY: ${PRIMARY_API_KEY}
               DNSTAP_LISTEN: "0.0.0.0:6000"
+              # Client subnets flagged is_internal (excluded from analytics).
+              # Defaults to the docker subnet; comma-separated to add more.
+              INTERNAL_SUBNETS: ${INTERNAL_SUBNETS:-${DOCKER_SUBNET:-172.30.0.0/24}}
             networks:
               default:
                 ipv4_address: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}

@@ -30,6 +30,11 @@ class DNSQueryEvent(Base):
     client_id: Mapped[int | None] = mapped_column(
         sa.BigInteger(), sa.ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
     )
+    # True when the querying client is inside an internal subnet (docker
+    # network, VPN ranges); excluded from user-facing analytics by default.
+    is_internal: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.text("false"), index=True
+    )
 
     qname: Mapped[str] = mapped_column(sa.Text())
     qtype: Mapped[int] = mapped_column(sa.Integer())

@@ -335,6 +335,7 @@ class IngestEvent(BaseModel):
     latency_ms: int | None = None
     event_id: str | None = None
     event_seq: int | None = None
+    is_internal: bool = False
 
 
 def _background_resolve_clients(ips: list[str]) -> None:
@@ -414,6 +415,7 @@ def ingest(
                 "block_reason": ev.block_reason,
                 "blocklist_name": ev.blocklist_name,
                 "latency_ms": ev.latency_ms,
+                "is_internal": ev.is_internal,
             }
         )
 
