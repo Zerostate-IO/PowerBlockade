@@ -114,29 +114,51 @@ jobs:
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
           if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
-            TAGGED_SHA=$(git ls-remote --tags origin "$VERSION" | awk '{print $1}')
+            # Peel annotated tags: ls-remote returns the tag object sha for
+            # annotated tags; the workflow creates annotated tags.
+            git fetch -q origin "refs/tags/$VERSION:refs/tags/tmp-check-$VERSION"
+            TAGGED_SHA=$(git rev-list -n 1 "refs/tags/tmp-check-$VERSION")
+            git tag -d "tmp-check-$VERSION" >/dev/null 2>&1 || true
             if [[ "$TAGGED_SHA" == "${{ github.sha }}" ]]; then
               echo "⚠️ Tag $VERSION exists at the exact dispatched SHA - treating as resumable release"
             else
-              echo "❌ Tag $VERSION exists at $TAGGED_SHA (not the dispatched SHA ${{ github.sha }}). Refusing."
+              echo "❌ Tag $VERSION exists at commit $TAGGED_SHA (not the dispatched SHA ${{ github.sha }}). Refusing."
               exit 1
             fi
           else
             echo "✅ No competing git tag $VERSION"
           fi
 
-      - name: Assert no existing GHCR version tags (allow if they match the gated candidates later)
+      - name: Assert no existing GHCR version tags (allow if resuming an exact-SHA release)
         env:
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1 || { echo "❌ GHCR login failed"; exit 1; }
+          # Fail closed: only a definitive 'not found' counts as absent.
           EXISTING=""
           for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
-            if docker buildx imagetools inspect "ghcr.io/zerostate-io/powerblockade-${img}:${VERSION}" >/dev/null 2>&1; then
-              EXISTING="$EXISTING $img"
-            fi
+            ref="ghcr.io/zerostate-io/powerblockade-${img}:${VERSION}"
+            out=$(docker buildx imagetools inspect "$ref" 2>&1) && exists=1 || {
+              if echo "$out" | grep -qiE "not found|manifest unknown|404|no such manifest"; then exists=0; else
+                echo "❌ Registry check failed for $ref (cannot determine absence):"
+                echo "$out" | head -5
+                exit 1
+              fi
+            }
+            if [[ "$exists" == "1" ]]; then EXISTING="$EXISTING $img"; fi
           done
           if [[ -n "$EXISTING" ]]; then
+            # A rerun of a partially completed release is only allowed when the
+            # git tag already exists at the exact dispatched SHA.
+            if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
+              git fetch -q origin "refs/tags/$VERSION:refs/tags/tmp-resume-$VERSION"
+              RESUMING_SHA=$(git rev-list -n 1 "refs/tags/tmp-resume-$VERSION")
+              git tag -d "tmp-resume-$VERSION" >/dev/null 2>&1 || true
+              if [[ "$RESUMING_SHA" == "${{ github.sha }}" ]]; then
+                echo "⚠️ GHCR $VERSION tags exist AND git tag $VERSION == dispatched SHA - resuming a partial release"
+                exit 0
+              fi
+            fi
             echo "❌ GHCR version tags already exist for:${EXISTING}"
             echo "   An existing release version cannot be overwritten. If a previous promotion"
             echo "   partially completed, delete the GHCR tags via the package UI, or release a new version."
@@ -200,11 +222,9 @@ jobs:
           build-args: |
             PB_VERSION=${{ needs.validate.outputs.version }}
 
-      - name: Record candidate digest
+      - name: Record candidate tag
         run: |
           echo "candidate_tag=${{ env.CANDIDATE_TAG }}" >> "$GITHUB_ENV"
-          # Build-push-action exposes the pushed digest for this image
-          echo "digest_${{ matrix.image }}=${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
           echo "✅ ${{ matrix.image }} built: ${{ steps.build.outputs.digest }}"
 
   # ---------------------------------------------------------------------------
@@ -410,9 +430,16 @@ jobs:
             docker logs powerblockade-sync-agent --tail 20 2>&1 || true
             exit 1
           fi
-          # Give it a heartbeat cycle, then verify it is still up (not crash-looping)
+          # Give it a heartbeat cycle, then require a genuinely running,
+          # non-restarting container (missing/exited/dead/restarting must fail).
           sleep 15
-          docker inspect -f '{{.State.Status}} {{.State.Restarting}}' powerblockade-sync-agent 2>/dev/null | grep -qE "^running false" && { echo "❌ sync-agent restarting after start"; exit 1; } || echo "✅ sync-agent stable after heartbeat window"
+          state=$(docker inspect -f '{{.State.Status}}|{{.State.Restarting}}' powerblockade-sync-agent 2>/dev/null || echo "missing|1")
+          if [[ "$state" != "running|0" ]]; then
+            echo "❌ sync-agent not stable after heartbeat window: $state"
+            docker logs powerblockade-sync-agent --tail 20 2>&1 || true
+            exit 1
+          fi
+          echo "✅ sync-agent stable after heartbeat window (running, no restarts)"
 
       - name: Dump runtime-gate diagnostics
         if: failure()
