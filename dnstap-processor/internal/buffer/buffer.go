@@ -27,6 +27,7 @@ type Event struct {
 	LatencyMS   int    `json:"latency_ms,omitempty"`
 	EventID     string `json:"event_id,omitempty"`
 	BlockReason string `json:"block_reason,omitempty"`
+	IsInternal  bool   `json:"is_internal,omitempty"`
 }
 
 type Buffer struct {
