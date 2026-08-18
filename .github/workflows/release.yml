@@ -319,6 +319,16 @@ jobs:
             exit 1
           fi
 
+          # The app uses Double-Submit CSRF (csrf_token cookie + form field).
+          # Obtain the cookie from the login page, then echo it back on POST.
+          COOKIE_JAR="$RUNNER_TEMP/gate-cookies.txt"
+          rm -f "$COOKIE_JAR"
+          curl -s -c "$COOKIE_JAR" "http://localhost:18080/login" >/dev/null 2>&1 || true
+          CSRF_TOKEN=$(awk '$6 == "csrf_token" {print $7}' "$COOKIE_JAR" 2>/dev/null | tail -1)
+          if [[ -z "$CSRF_TOKEN" ]]; then
+            echo "WARNING: no csrf_token cookie obtained from GET /login"
+          fi
+
           LOGIN_PAGE_RESPONSE=$(curl -s -i "http://localhost:18080/login" 2>/dev/null || true)
           LOGIN_PAGE_CODE=$(printf "%s" "$LOGIN_PAGE_RESPONSE" | awk 'NR==1 {print $2}')
           if [[ "$LOGIN_PAGE_CODE" != "200" ]]; then
@@ -329,6 +339,8 @@ jobs:
           LOGIN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -F "username=$TEST_ADMIN_USERNAME" \
             -F "password=$TEST_ADMIN_PASSWORD" \
+            -F "csrf_token=$CSRF_TOKEN" \
+            -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
             "http://localhost:18080/login" 2>/dev/null || echo -e "\n000")
 
           LOGIN_BODY=$(echo "$LOGIN_RESPONSE" | head -n -1)
