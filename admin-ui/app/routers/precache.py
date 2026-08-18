@@ -42,7 +42,10 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
     since = datetime.now(timezone.utc) - timedelta(hours=24)
 
     total = (
-        db.query(sa.func.count(DNSQueryEvent.id)).filter(DNSQueryEvent.ts >= since).scalar() or 0
+        db.query(sa.func.count(DNSQueryEvent.id))
+        .filter(DNSQueryEvent.ts >= since, DNSQueryEvent.is_internal.is_(False))
+        .scalar()
+        or 0
     )
 
     cache_hits = (
@@ -51,6 +54,7 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             DNSQueryEvent.ts >= since,
             DNSQueryEvent.blocked.is_(False),
             DNSQueryEvent.latency_ms < threshold,
+            DNSQueryEvent.is_internal.is_(False),
         )
         .scalar()
         or 0
@@ -65,6 +69,7 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             DNSQueryEvent.ts >= since,
             DNSQueryEvent.blocked.is_(False),
             DNSQueryEvent.latency_ms < threshold,
+            DNSQueryEvent.is_internal.is_(False),
         )
         .scalar()
         or 0
@@ -76,6 +81,7 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             DNSQueryEvent.ts >= since,
             DNSQueryEvent.blocked.is_(False),
             DNSQueryEvent.latency_ms >= threshold,
+            DNSQueryEvent.is_internal.is_(False),
         )
         .scalar()
         or 0
@@ -90,6 +96,7 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             DNSQueryEvent.ts >= since,
             DNSQueryEvent.blocked.is_(False),
             DNSQueryEvent.latency_ms < threshold,
+            DNSQueryEvent.is_internal.is_(False),
         )
         .group_by(DNSQueryEvent.qname)
         .order_by(sa.desc("count"))

@@ -47,7 +47,13 @@ def _fetch_recent_events(last_id: int, limit: int = 50) -> list[dict]:
     try:
         stmt = (
             select(DNSQueryEvent)
-            .where(DNSQueryEvent.id > last_id)
+            .where(
+                DNSQueryEvent.id > last_id,
+                # Exclude container-internal traffic (precache warming etc.)
+                # from the live dashboard stream; SQL-side filtering lets the
+                # cursor skip internal rows without stalling.
+                DNSQueryEvent.is_internal.is_(False),
+            )
             .order_by(DNSQueryEvent.id.asc())
             .limit(limit)
         )

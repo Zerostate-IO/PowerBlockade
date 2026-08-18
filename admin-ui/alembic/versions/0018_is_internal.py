@@ -6,7 +6,7 @@ precache warming (issue #48).
 
 Revision ID: 0018
 Revises: 0017
-Create Date: 2026-08-18
+Create Date: 2026-08-17
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0018_is_internal"
-down_revision = "0017"
+down_revision = "0017_node_metrics_longterm_index"
 branch_labels = None
 depends_on = None
 

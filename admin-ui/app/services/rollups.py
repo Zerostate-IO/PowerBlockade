@@ -202,7 +202,13 @@ def _raw_edge_aggregate(db: Session, start: datetime, end: datetime) -> dict[str
             func.sum(DNSQueryEvent.latency_ms).label("latency_sum"),
             func.count(func.distinct(DNSQueryEvent.qname)).label("unique_domains"),
         )
-        .filter(DNSQueryEvent.ts >= start, DNSQueryEvent.ts < end)
+        .filter(
+            DNSQueryEvent.ts >= start,
+            DNSQueryEvent.ts < end,
+            # Dashboard aggregates exclude container-internal traffic so the
+            # numbers reflect real clients (consistent with hourly rollups).
+            DNSQueryEvent.is_internal.is_(False),
+        )
         .one()
     )
     total = row.total or 0

@@ -261,7 +261,13 @@ gate_external_completeness() {
 
 gate_internal_exclusion() {
     log_section "Gate 2: Internal Container Exclusion"
-    
+
+    # Validate the subnet format before interpolating into SQL.
+    if ! echo "$DOCKER_SUBNET" | grep -qE '^[0-9a-fA-F:\.]+/[0-9]{1,3}$'; then
+        record_gate "internal_exclusion" "failed" "Invalid --docker-subnet format: ${DOCKER_SUBNET}"
+        return 1
+    fi
+
     local query="
         SELECT COUNT(*) 
         FROM dns_query_events 

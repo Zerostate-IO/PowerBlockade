@@ -67,7 +67,12 @@ def get_node_query_stats(db: Session) -> dict[int, tuple[int, int]]:
             func.count(DNSQueryEvent.id).label("total"),
             func.count().filter(DNSQueryEvent.blocked.is_(True)).label("blocked"),
         )
-        .filter(DNSQueryEvent.node_id.isnot(None))
+        .filter(
+            DNSQueryEvent.node_id.isnot(None),
+            # User-facing node stats exclude container-internal traffic
+            # (precache warming etc.), consistent with the analytics views.
+            DNSQueryEvent.is_internal.is_(False),
+        )
         .group_by(DNSQueryEvent.node_id)
         .all()
     )

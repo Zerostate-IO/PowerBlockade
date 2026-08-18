@@ -112,7 +112,13 @@ class TestInternalTrafficFiltering:
 
     @staticmethod
     def _seed_events(sync_db_session) -> None:
+        from app.models.client import Client
         from app.models.dns_query_event import DNSQueryEvent
+
+        external_client = Client(ip="10.5.5.50")
+        internal_client = Client(ip="172.30.0.3")
+        sync_db_session.add_all([external_client, internal_client])
+        sync_db_session.flush()
 
         now = datetime.now(timezone.utc)
         sync_db_session.add_all(
@@ -121,6 +127,7 @@ class TestInternalTrafficFiltering:
                     event_id="internal-1",
                     ts=now,
                     client_ip="172.30.0.3",
+                    client_id=internal_client.id,
                     qname="internal.example.com",
                     qtype=1,
                     rcode=0,
@@ -131,6 +138,7 @@ class TestInternalTrafficFiltering:
                     event_id="external-1",
                     ts=now,
                     client_ip="10.5.5.50",
+                    client_id=external_client.id,
                     qname="external.example.com",
                     qtype=1,
                     rcode=0,

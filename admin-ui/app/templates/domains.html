@@ -3,6 +3,14 @@
   <h1 class="text-xl font-semibold">Domains</h1>
   <p class="mt-1 text-sm text-slate-400">Most frequently queried domains (24h)</p>
 
+  <form method="get" action="/domains" class="mt-4 flex flex-wrap items-end gap-3">
+    <label class="flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-400">
+      <input type="checkbox" name="include_internal" value="1" {% if include_internal %}checked{% endif %} class="accent-cyan-500">
+      Show internal
+    </label>
+    <button type="submit" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium hover:bg-cyan-500">Filter</button>
+  </form>
+
   <div class="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-bg-800">
     <table class="min-w-full text-sm">
       <thead class="bg-bg-900 text-slate-300">
@@ -26,8 +34,8 @@
 
   <div class="mt-4 flex items-center justify-end gap-2">
     {% if page > 1 %}
-    <a href="/domains?page={{ page - 1 }}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Previous</a>
+    <a href="/domains?page={{ page - 1 }}{% if include_internal %}&include_internal=1{% endif %}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Previous</a>
     {% endif %}
-    <a href="/domains?page={{ page + 1 }}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Next</a>
+    <a href="/domains?page={{ page + 1 }}{% if include_internal %}&include_internal=1{% endif %}" class="rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm hover:bg-bg-700">Next</a>
   </div>
 {% endblock %}

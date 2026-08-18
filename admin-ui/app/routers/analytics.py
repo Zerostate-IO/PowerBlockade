@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import Row, func
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -66,16 +66,16 @@ def _exclude_internal(query, include_internal: bool = False):
     return query.filter(DNSQueryEvent.is_internal.is_(False))
 
 
-def _get_client_options(db: Session, include_internal: bool = False) -> list[dict]:
-    """Client dropdown: clients with at least one non-internal event, unless
-    internal traffic is explicitly included."""
+def _get_client_options(db: Session, include_internal: bool = False) -> list[Row]:
+    """Client dropdown rows: clients with at least one non-internal event,
+    unless internal traffic is explicitly included. Returns query rows; callers
+    convert to dicts."""
     q = db.query(Client.ip, Client.display_name, Client.rdns_name)
     if not include_internal:
         q = q.join(DNSQueryEvent, DNSQueryEvent.client_id == Client.id).filter(
             DNSQueryEvent.is_internal.is_(False)
         )
-    rows = q.distinct().order_by(Client.display_name, Client.rdns_name, Client.ip).all()
-    return [{"ip": c.ip, "label": c.display_name or c.rdns_name or c.ip} for c in rows]
+    return q.distinct().order_by(Client.display_name, Client.rdns_name, Client.ip).all()
 
 
 @router.get("/", response_class=HTMLResponse)

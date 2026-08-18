@@ -203,7 +203,7 @@
             <td class="px-3 py-3 whitespace-nowrap text-slate-600 dark:text-slate-300 text-xs">{{ e.ts }}</td>
             <td class="px-3 py-3 text-slate-600 dark:text-slate-300">{{ e.node_name }}</td>
             <td class="px-3 py-3 text-slate-700 dark:text-slate-200 max-w-[140px] truncate" title="{{ e.client_label }}">
-              <a href="/logs?view={{ view }}&client={{ e.client_ip }}&window={{ window }}" class="hover:text-cyan-400">{{ e.client_label }}</a>
+              <a href="/logs?view={{ view }}&client={{ e.client_ip }}&window={{ window }}{% if include_internal %}&include_internal=1{% endif %}" class="hover:text-cyan-400">{{ e.client_label }}</a>
             </td>
             <td class="px-2 py-3 text-slate-600 dark:text-slate-300">{{ e.qtype }}</td>
             <td class="px-2 py-3">
@@ -228,7 +228,7 @@
   {% endif %}
 
   {% if total_pages > 1 %}
-  {% set filter_params = "view=" ~ view ~ "&window=" ~ window ~ ("&q=" ~ q if q else "") ~ ("&client=" ~ client if client else "") ~ ("&rcode=" ~ rcode if rcode else "") ~ ("&qtype=" ~ qtype if qtype else "") ~ ("&blocked=" ~ blocked if blocked else "") ~ ("&blocklist=" ~ blocklist if blocklist else "") %}
+  {% set filter_params = "view=" ~ view ~ "&window=" ~ window ~ ("&q=" ~ q if q else "") ~ ("&client=" ~ client if client else "") ~ ("&rcode=" ~ rcode if rcode else "") ~ ("&qtype=" ~ qtype if qtype else "") ~ ("&blocked=" ~ blocked if blocked else "") ~ ("&blocklist=" ~ blocklist if blocklist else "") ~ ("&include_internal=1" if include_internal else "") %}
   <div class="mt-4 flex items-center justify-between">
     <div class="text-sm text-slate-400">Page {{ page }} of {{ total_pages }}</div>
     <div class="flex gap-2">
