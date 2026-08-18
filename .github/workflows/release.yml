@@ -240,14 +240,17 @@ jobs:
 
       - name: Create compose override for CI runtime gate
         run: |
+          # NOTE: use 'ports: !override' — a plain ports list is *appended* by
+          # compose merge, so the base '0.0.0.0:53' mapping would stay bound and
+          # fail on runners where port 53 is taken (observed 2026-08-18).
           cat > "$RUNNER_TEMP/runtime-gate.override.yml" <<'EOF'
           services:
             dnsdist:
-              ports:
+              ports: !override
                 - "127.0.0.1:1053:53/udp"
                 - "127.0.0.1:1053:53/tcp"
             admin-ui:
-              ports:
+              ports: !override
                 - "18080:8080"
           EOF
 
