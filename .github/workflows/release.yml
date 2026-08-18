@@ -302,9 +302,9 @@ jobs:
         run: |
           # admin-ui runs 'alembic upgrade head' before uvicorn listens, and has
           # no healthcheck, so container 'Up' status is not enough. Poll /health
-          # for up to 60s before the one-shot page checks (observed flake on
+          # for up to 90s before the one-shot page checks (observed flake on
           # the v0.8.0 dispatch, 2026-08-18).
-          for i in $(seq 1 30); do
+          for i in $(seq 1 45); do
             health_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:18080/health" 2>/dev/null || echo "000")
             if [[ "$health_code" == "200" ]]; then
               echo "admin-ui /health OK after $((i * 2))s"
@@ -348,6 +348,23 @@ jobs:
           if [[ "$HEALTH_CODE" != "200" ]]; then
             exit 1
           fi
+
+      - name: Dump runtime-gate diagnostics
+        if: failure()
+        run: |
+          echo "=== compose ps ==="
+          docker compose \
+            -f docker-compose.ghcr.yml \
+            -f "$RUNNER_TEMP/runtime-gate.override.yml" \
+            ps -a --format "{{.Name}} | {{.Status}}" 2>&1 || true
+          for c in powerblockade-admin-ui powerblockade-recursor powerblockade-dnsdist powerblockade-postgres powerblockade-init-permissions; do
+            echo "=== $c logs (tail 40) ==="
+            docker logs "$c" --tail 40 2>&1 || true
+          done
+          echo "=== /health raw ==="
+          curl -s -i "http://localhost:18080/health" 2>&1 | head -20 || true
+          echo "=== / raw ==="
+          curl -s -i "http://localhost:18080/" 2>&1 | head -10 || true
 
       - name: Cleanup runtime gate stack
         if: always()
