@@ -2,6 +2,13 @@
 # PowerBlockade Secondary Node Deployment (Self-Contained)
 # Usage: curl -fsSL ... | bash -s -- PRIMARY_URL API_KEY NODE_NAME
 # Example: curl -fsSL ... | bash -s -- http://192.168.1.10:8080 abc123... bowlister
+#
+# ⚠️ DEPRECATED: this script runs the canonical compose with --profile secondary,
+# which only profile-gates sync-agent — postgres, admin-ui, prometheus, and
+# grafana start too (the "secondary runs the full stack" bug). Secondary nodes
+# must be deployed from the Admin UI generated thin package instead:
+# primary Admin UI → Nodes → Add Node → Generate Deployment Package.
+# Kept for historical reference only.
 
 set -e
 

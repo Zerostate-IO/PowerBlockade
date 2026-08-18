@@ -1,6 +1,13 @@
 #!/bin/bash
 # PowerBlockade Deployment Script for Secondary Node
 # Usage: ./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]
+#
+# ⚠️ DEPRECATED: this script runs the canonical compose with --profile secondary,
+# which only profile-gates sync-agent — postgres, admin-ui, prometheus, and
+# grafana start too (the "secondary runs the full stack" bug). Secondary nodes
+# must be deployed from the Admin UI generated thin package instead:
+# primary Admin UI → Nodes → Add Node → Generate Deployment Package.
+# Kept for historical reference only.
 
 set -e
 

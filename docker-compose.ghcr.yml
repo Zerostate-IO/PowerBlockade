@@ -2,7 +2,11 @@
 #
 # Usage:
 #   Primary node: docker compose -f docker-compose.ghcr.yml up -d
-#   Secondary:   docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+#
+# NOTE: This file is for PRIMARY nodes. Secondary nodes must be deployed from
+# the Admin UI generated thin package (Nodes -> Add Node -> Generate Deployment
+# Package). Running this file with '--profile secondary' only profile-gates
+# sync-agent, so postgres/admin-ui/prometheus/grafana start on the secondary too.
 #
 # Version pinning (recommended for production):
 #

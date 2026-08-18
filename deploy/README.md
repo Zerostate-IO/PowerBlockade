@@ -8,8 +8,17 @@ This directory contains scripts for deploying PowerBlockade to production server
 |--------|---------|-------|
 | `deploy-primary-one-liner.sh` | Interactive single-host easy start | `curl -fsSL .../deploy-primary-one-liner.sh \| bash` |
 | `deploy-primary.sh` | Deploy primary node | `./deploy-primary.sh [version]` |
-| `deploy-secondary.sh` | Deploy secondary node | `./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]` |
+| `deploy-secondary.sh` | ⚠️ **Deprecated** — see note below | `./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]` |
 | `upgrade.sh` | Upgrade existing deployment | `./upgrade.sh [version]` |
+
+> ⚠️ **Secondary nodes must use the Admin UI generated thin package, not the
+> `deploy-secondary*.sh` scripts.** Those scripts run the canonical compose with
+> `--profile secondary`, which only profile-gates `sync-agent` — postgres,
+> admin-ui, prometheus, and grafana start too (the "secondary runs the full
+> stack" bug). The thin package (dnsdist, recursor, recursor-reloader,
+> dnstap-processor, sync-agent) is produced by **Nodes → Add Node → Generate
+> Deployment Package** on the primary. The scripts are kept for historical
+> reference only.
 
 ## Single-Host Easy Start
 
@@ -102,10 +111,13 @@ POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml up -d
 
 
 ### Secondary Node
+
+Secondary nodes use the Admin UI generated thin package (see the warning above):
+
 ```bash
-cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+cd ~/bowlister
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ### Recommended: Upgrade Secondaries First
@@ -217,9 +229,10 @@ cd /opt/powerblockade
 # Get previous version from state
 PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
 
-# Rollback
+# Rollback (thin-package layout; adjust dir for your deployment)
+cd ~/bowlister
 POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml up -d
 
 # Verify
 docker compose -f docker-compose.ghcr.yml ps
