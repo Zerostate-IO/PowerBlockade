@@ -4,6 +4,8 @@ import io
 import textwrap
 import zipfile
 
+from app.settings import get_settings
+
 
 def generate_secondary_package_zip(
     *,
@@ -19,7 +21,7 @@ def generate_secondary_package_zip(
     env = textwrap.dedent(
         f"""\
         POWERBLOCKADE_REPO=zerostate-io
-        POWERBLOCKADE_VERSION=latest
+        POWERBLOCKADE_VERSION={get_settings().pb_version}
         NODE_NAME={safe_node}
         PRIMARY_URL={primary_url}
         PRIMARY_API_KEY={node_api_key}
@@ -37,7 +39,7 @@ def generate_secondary_package_zip(
         """\
         services:
           dnsdist:
-            image: powerdns/dnsdist-20:2.0.3
+            image: powerdns/dnsdist-20:2.0.8
             restart: unless-stopped
             entrypoint: ["/docker-entrypoint.sh"]
             environment:
@@ -141,6 +143,7 @@ def generate_secondary_package_zip(
             volumes:
               - ./config:/config
               - ./rpz:/rpz
+              - metrics-buffer:/var/lib/powerblockade
             depends_on:
               recursor:
                 condition: service_healthy
@@ -148,6 +151,7 @@ def generate_secondary_package_zip(
         volumes:
           dnstap-socket:
           recursor-control-socket:
+          metrics-buffer:
 
         networks:
           default:
@@ -170,7 +174,7 @@ def generate_secondary_package_zip(
            - `DNSDIST_LISTEN_ADDRESS` - Set to host's LAN IP if port 53 conflicts
         3. Run:
 
-           docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+           docker compose -f docker-compose.ghcr.yml up -d
 
         ## Architecture
 
@@ -263,17 +267,24 @@ def generate_secondary_package_zip(
 
         echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP"
 
-        # Wait for recursor to be reachable
+        # Wait for recursor to be reachable; fail closed so Docker retries
         timeout=${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}
         elapsed=0
+        recursor_ready=false
         while [ $elapsed -lt $timeout ]; do
             if bash -c "echo >/dev/tcp/$RECURSOR_IP/5300" 2>/dev/null; then
                 echo "recursor is ready (${elapsed}s)"
+                recursor_ready=true
                 break
             fi
             sleep 1
             elapsed=$((elapsed + 1))
         done
+
+        if [ "$recursor_ready" != "true" ]; then
+            echo "ERROR: recursor not ready after ${timeout}s; refusing to start dnsdist without a backend" >&2
+            exit 1
+        fi
 
         exec dnsdist --supervised -C /tmp/dnsdist.conf
         """
