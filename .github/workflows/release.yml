@@ -300,7 +300,18 @@ jobs:
 
       - name: Verify admin runtime health
         run: |
-          sleep 5
+          # admin-ui runs 'alembic upgrade head' before uvicorn listens, and has
+          # no healthcheck, so container 'Up' status is not enough. Poll /health
+          # for up to 60s before the one-shot page checks (observed flake on
+          # the v0.8.0 dispatch, 2026-08-18).
+          for i in $(seq 1 30); do
+            health_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:18080/health" 2>/dev/null || echo "000")
+            if [[ "$health_code" == "200" ]]; then
+              echo "admin-ui /health OK after $((i * 2))s"
+              break
+            fi
+            sleep 2
+          done
 
           ROOT_RESPONSE=$(curl -s -i "http://localhost:18080/" 2>/dev/null || true)
           ROOT_CODE=$(printf "%s" "$ROOT_RESPONSE" | awk 'NR==1 {print $2}')
