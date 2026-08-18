@@ -27,6 +27,13 @@ mkdir -p /var/run/pdns-recursor
 chmod 0777 /var/run/dnstap || true
 chmod 0777 /var/run/pdns-recursor || true
 
+# Remove stale control-socket/pid files left by an unclean shutdown. A leftover
+# socket file makes pdns_recursor fail to bind its control socket, which breaks
+# the rec_control healthcheck and with it the whole stack's readiness gating.
+# The reloader sidecar only connects to this socket; it never creates files.
+rm -f /var/run/pdns-recursor/pdns_recursor.controlsocket \
+      /var/run/pdns-recursor/pdns_recursor.pid 2>/dev/null || true
+
 # Ensure RPZ zone files exist (empty-but-valid zones)
 # The RPZ files are bind-mounted from ./recursor/rpz
 mkdir -p /etc/pdns-recursor/rpz

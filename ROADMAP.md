@@ -215,3 +215,19 @@ Likely scope:
 - PowerBlockade Grafana dashboard (node variable, key panels)
 - System Health page in admin-ui (iframe embed)
 - Remove Prometheus/Grafana external ports
+
+### Work Order H: Lighten the observability stack (post-v0.8.0, planned)
+Replace Prometheus + Grafana with **VictoriaMetrics single-node + vmui** to cut
+two containers (~300-600 MB) down to one (~50-150 MB):
+
+- Swap `prom/prometheus` + `grafana/grafana` for `victoriametrics/victoria-metrics`
+  (Prometheus-compatible scraping; current stable v1.150.x)
+- Evaluate `vmalert` for alerting (Alertmanager-compatible rules) and the fate of
+  the profile-gated alertmanager
+- Remove the admin-ui `/grafana` proxy + iframe embeds
+  (`grafana_proxy.py`, `metrics_dashboard.html`, `system.html`)
+- Accept the tradeoff: vmui has no persistent multi-panel dashboards/templating;
+  the admin-ui's Postgres-backed analytics already covers query analytics natively
+- Update docs and dashboards provisioning accordingly
+
+Tracked as issue #40 (metrics stack evaluation).

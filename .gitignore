@@ -16,3 +16,4 @@
 **/.coverage
 .gitnexus
 .staging/
+/.playwright-cli/

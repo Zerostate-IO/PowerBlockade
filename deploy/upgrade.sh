@@ -156,10 +156,14 @@ echo "✓ Services stopped"
 echo ""
 echo "Starting services with version $NEW_VERSION..."
 if [ "$IS_SECONDARY" = "true" ]; then
-    "${COMPOSE_CMD[@]}" --profile secondary up -d
-else
-    "${COMPOSE_CMD[@]}" up -d
+    echo "⚠️  Cannot upgrade a secondary node with this script." >&2
+    echo "    Secondary nodes must use the Admin UI generated thin package:" >&2
+    echo "    primary Admin UI → Nodes → Add Node → Generate Deployment Package" >&2
+    echo "    The old '--profile secondary' layout runs the full primary stack" >&2
+    echo "    (postgres, admin-ui, prometheus, grafana) and is deprecated." >&2
+    exit 1
 fi
+"${COMPOSE_CMD[@]}" up -d
 echo "✓ Services started"
 
 # Wait for health

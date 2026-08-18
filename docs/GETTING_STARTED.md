@@ -454,32 +454,27 @@ For complete architecture details, see [Multi-Node Architecture](MULTI_NODE_ARCH
 
 ### Step 2: Set Up the Secondary Node
 
-On the secondary server:
+> **Use the generated thin package.** A secondary deployed from a repo clone
+> runs the full primary stack (postgres, admin-ui, prometheus, grafana) because
+> the canonical compose files only profile-gate `sync-agent`. The Admin UI
+> package generator produces a thin package (dnsdist, recursor,
+> recursor-reloader, dnstap-processor, sync-agent only).
+
+On the secondary server, unpack the downloaded ZIP:
 
 ```bash
-# Clone the repository
-git clone https://github.com/Zerostate-IO/PowerBlockade.git
-cd PowerBlockade
-
-# Generate base environment file
-./scripts/init-env.sh
+unzip secondary-package.zip -d ~/secondary
+cd ~/secondary
 ```
 
-Now edit `.env` on the secondary to add the primary connection settings:
+Review `.env` (node name, primary URL, API key are pre-filled by the generator;
+set `DNSDIST_LISTEN_ADDRESS` if port 53 conflicts on this host), then start:
 
 ```bash
-# Edit .env and add/update these values:
-NODE_NAME=bowlister                    # Name you registered in step 1
-PRIMARY_URL=http://PRIMARY_IP:8080    # URL of your primary node
-PRIMARY_API_KEY=your-api-key-here     # From the deployment package in step 1
+docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-Then start with the sync-agent profile:
-
-```bash
-# Build and start (sync-agent profile enabled)
-docker compose --profile sync-agent up -d --build
-```
+*Developer note:* for local builds from the repo, `docker compose --profile sync-agent up -d --build` starts the sync-agent plus the full dev stack — it is **not** a thin secondary.
 
 ### Step 3: Verify Sync
 

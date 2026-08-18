@@ -181,7 +181,8 @@ class TestReadmeContent:
         z = _make_zip()
         readme = z.read("README.md").decode()
         assert "docker compose -f docker-compose.ghcr.yml" in readme
-        assert "--profile secondary" in readme
+        # The generated compose defines no profiles, so no --profile flag
+        assert "--profile secondary" not in readme
 
     def test_readme_no_legacy_command(self) -> None:
         z = _make_zip()
@@ -253,3 +254,42 @@ class TestZipStructure:
             assert "POWERBLOCKADE_VERSION" in line, (
                 f"GHCR image line missing version variable: {line}"
             )
+
+    def test_env_embeds_release_version_not_latest(self) -> None:
+        """Generated .env must pin the app's own release version, not 'latest'."""
+        from app.settings import get_settings
+
+        z = _make_zip()
+        env = z.read(".env").decode()
+        expected = f"POWERBLOCKADE_VERSION={get_settings().pb_version}"
+        assert expected in env, f"expected {expected!r} in .env"
+        assert "POWERBLOCKADE_VERSION=latest" not in env
+        # Sanity: it must look like a semver tag, not a stale fixed value
+        version = get_settings().pb_version
+        assert version.startswith("v") and version.count(".") == 2
+
+    def test_compose_pins_dnsdist_patch(self) -> None:
+        """The embedded dnsdist must be version-pinned (security advisory line)."""
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        assert "powerdns/dnsdist-20:2.0.8" in compose
+        assert "dnsdist-20:latest" not in compose
+
+    def test_entrypoint_fails_closed_without_backend(self) -> None:
+        """dnsdist must refuse to start when the recursor is not ready."""
+        z = _make_zip()
+        entrypoint = z.read("docker-entrypoint.sh").decode()
+        # The fail-closed guard: ready flag checked, then exit 1 before exec
+        assert 'if [ "$recursor_ready" != "true" ]; then' in entrypoint
+        assert "refusing to start dnsdist without a backend" in entrypoint
+        assert "exit 1" in entrypoint
+        # The timeout loop must track readiness, not just sleep through it
+        assert "recursor_ready=true" in entrypoint
+
+    def test_compose_has_metrics_buffer_volume(self) -> None:
+        """sync-agent metrics buffer must survive container recreation."""
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        sync_section = compose[compose.index("sync-agent:") :]
+        assert "metrics-buffer:/var/lib/powerblockade" in sync_section
+        assert "metrics-buffer:" in compose[compose.index("volumes:") :]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.7.6"
+VERSION="0.8.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="$PROJECT_DIR/.powerblockade"
@@ -33,11 +33,17 @@ get_current_version() {
 }
 
 get_compose_files() {
-    local files="-f compose.yaml"
-    if [[ -f "$PROJECT_DIR/compose.user.yaml" ]]; then
-        files="$files -f compose.user.yaml"
+    local files=""
+    # Prefer the canonical GHCR compose file when present (production deploys).
+    if [[ -f "$PROJECT_DIR/docker-compose.ghcr.yml" ]]; then
+        files="-f docker-compose.ghcr.yml"
+    elif [[ -f "$PROJECT_DIR/compose.yaml" ]]; then
+        files="-f compose.yaml"
     elif [[ -f "$PROJECT_DIR/docker-compose.yml" ]]; then
         files="-f docker-compose.yml"
+    fi
+    if [[ -f "$PROJECT_DIR/compose.user.yaml" ]]; then
+        files="$files -f compose.user.yaml"
     fi
     echo "$files"
 }
@@ -75,23 +81,37 @@ get_image_digests() {
     echo "$digests"
 }
 
+get_pg_creds() {
+    # Resolve postgres user/db from .env (defaults: powerblockade/powerblockade)
+    local pg_user pg_db
+    pg_user=$(grep -E '^POSTGRES_USER=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_user="${pg_user:-powerblockade}"
+    pg_db=$(grep -E '^POSTGRES_DB=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_db="${pg_db:-powerblockade}"
+    echo "$pg_user|$pg_db"
+}
+
 backup_database() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
     local backup_file="$BACKUP_DIR/pre-upgrade-$timestamp.sql"
-    
-    log_info "Backing up database to $backup_file..."
-    
+    local pg_user pg_db
+    IFS='|' read -r pg_user pg_db <<< "$(get_pg_creds)"
+
+    log_info "Backing up database to $backup_file..." >&2
+
     cd "$PROJECT_DIR"
     local compose_files
     compose_files=$(get_compose_files)
-    
-    if $COMPOSE_CMD $compose_files exec -T postgres pg_dump -U powerblockade powerblockade > "$backup_file" 2>/dev/null; then
-        log_success "Database backup complete: $backup_file"
+
+    if $COMPOSE_CMD $compose_files exec -T postgres pg_dump -U "$pg_user" "$pg_db" > "$backup_file" 2>/dev/null; then
+        log_success "Database backup complete: $backup_file" >&2
         echo "$backup_file"
+        return 0
     else
-        log_warn "Database backup failed (postgres may not be running)"
-        echo ""
+        rm -f "$backup_file" 2>/dev/null || true
+        log_error "Database backup failed (postgres may not be running)" >&2
+        return 1
     fi
 }
 
@@ -99,21 +119,29 @@ backup_config() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
     local backup_file="$BACKUP_DIR/config-$timestamp.tar.gz"
-    
-    log_info "Backing up config files..."
-    
+
+    log_info "Backing up config files..." >&2
+
     cd "$PROJECT_DIR"
     local files_to_backup=""
-    [[ -d shared/rpz ]] && files_to_backup="$files_to_backup shared/rpz"
-    [[ -d shared/forward-zones ]] && files_to_backup="$files_to_backup shared/forward-zones"
+    [[ -d recursor/rpz ]] && files_to_backup="$files_to_backup recursor/rpz"
+    [[ -f recursor/forward-zones.conf ]] && files_to_backup="$files_to_backup recursor/forward-zones.conf"
     [[ -f .env ]] && files_to_backup="$files_to_backup .env"
-    
+
     if [[ -n "$files_to_backup" ]]; then
-        tar -czf "$backup_file" $files_to_backup 2>/dev/null || true
-        log_success "Config backup complete: $backup_file"
-        echo "$backup_file"
+        if tar -czf "$backup_file" $files_to_backup; then
+            log_success "Config backup complete: $backup_file" >&2
+            echo "$backup_file"
+            return 0
+        else
+            rm -f "$backup_file" 2>/dev/null || true
+            log_error "Config backup failed" >&2
+            return 1
+        fi
     else
+        log_warn "No config files found to back up" >&2
         echo ""
+        return 0
     fi
 }
 
@@ -584,9 +612,11 @@ cmd_rollback() {
         log_info "Restoring database from $db_backup..."
         $COMPOSE_CMD $compose_files up -d postgres
         sleep 5
-        
-        $COMPOSE_CMD $compose_files exec -T postgres psql -U powerblockade -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" powerblockade 2>/dev/null || true
-        $COMPOSE_CMD $compose_files exec -T postgres psql -U powerblockade powerblockade < "$db_backup"
+
+        local pg_user pg_db
+        IFS='|' read -r pg_user pg_db <<< "$(get_pg_creds)"
+        $COMPOSE_CMD $compose_files exec -T postgres psql -U "$pg_user" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" "$pg_db" 2>/dev/null || true
+        $COMPOSE_CMD $compose_files exec -T postgres psql -U "$pg_user" "$pg_db" < "$db_backup"
         log_success "Database restored"
     fi
     
@@ -604,12 +634,14 @@ cmd_rollback() {
 cmd_backup() {
     ensure_dirs
     check_docker
-    
+
+    # Both helpers log to stderr and echo only the path on stdout; a failing
+    # backup returns nonzero, so set -e aborts here instead of claiming success.
     local db_backup
     db_backup=$(backup_database)
     local config_backup
     config_backup=$(backup_config)
-    
+
     echo ""
     log_success "Backup complete!"
     [[ -n "$db_backup" ]] && echo "Database: $db_backup"

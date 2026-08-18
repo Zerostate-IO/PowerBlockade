@@ -143,11 +143,16 @@ get_current_version() {
 
 get_compose_files() {
     local project_dir="${PROJECT_DIR:-}"
-    local files="-f compose.yaml"
-    if [[ -f "$project_dir/compose.user.yaml" ]]; then
-        files="$files -f compose.user.yaml"
+    local files=""
+    if [[ -f "$project_dir/docker-compose.ghcr.yml" ]]; then
+        files="-f docker-compose.ghcr.yml"
+    elif [[ -f "$project_dir/compose.yaml" ]]; then
+        files="-f compose.yaml"
     elif [[ -f "$project_dir/docker-compose.yml" ]]; then
         files="-f docker-compose.yml"
+    fi
+    if [[ -f "$project_dir/compose.user.yaml" ]]; then
+        files="$files -f compose.user.yaml"
     fi
     echo "$files"
 }
@@ -183,6 +188,16 @@ save_state() {
 EOF
 }
 
+get_pg_creds() {
+    local project_dir="${PROJECT_DIR:-}"
+    local pg_user pg_db
+    pg_user=$(grep -E '^POSTGRES_USER=' "$project_dir/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_user="${pg_user:-powerblockade}"
+    pg_db=$(grep -E '^POSTGRES_DB=' "$project_dir/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_db="${pg_db:-powerblockade}"
+    echo "$pg_user|$pg_db"
+}
+
 backup_config() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
@@ -192,15 +207,21 @@ backup_config() {
     
     cd "$project_dir"
     local files_to_backup=""
-    [[ -d shared/rpz ]] && files_to_backup="$files_to_backup shared/rpz"
-    [[ -d shared/forward-zones ]] && files_to_backup="$files_to_backup shared/forward-zones"
+    [[ -d recursor/rpz ]] && files_to_backup="$files_to_backup recursor/rpz"
+    [[ -f recursor/forward-zones.conf ]] && files_to_backup="$files_to_backup recursor/forward-zones.conf"
     [[ -f .env ]] && files_to_backup="$files_to_backup .env"
     
     if [[ -n "$files_to_backup" ]]; then
-        tar -czf "$backup_file" $files_to_backup 2>/dev/null || true
-        echo "$backup_file"
+        if tar -czf "$backup_file" $files_to_backup 2>/dev/null; then
+            echo "$backup_file"
+            return 0
+        else
+            rm -f "$backup_file" 2>/dev/null || true
+            return 1
+        fi
     else
         echo ""
+        return 0
     fi
 }
 FUNCS
@@ -263,6 +284,23 @@ test_get_compose_files_legacy_docker_compose() {
     assert_eq "-f docker-compose.yml" "$files" "should fallback to docker-compose.yml"
 }
 
+test_get_compose_files_prefers_ghcr() {
+    source_pb_functions
+    touch "$TEST_TMP/docker-compose.ghcr.yml"
+    local files
+    files=$(get_compose_files)
+    assert_eq "-f docker-compose.ghcr.yml" "$files" "should prefer docker-compose.ghcr.yml"
+}
+
+test_get_compose_files_ghcr_with_user_override() {
+    source_pb_functions
+    touch "$TEST_TMP/docker-compose.ghcr.yml"
+    touch "$TEST_TMP/compose.user.yaml"
+    local files
+    files=$(get_compose_files)
+    assert_eq "-f docker-compose.ghcr.yml -f compose.user.yaml" "$files" "should append user override to ghcr file"
+}
+
 test_check_disk_space_sufficient() {
     source_pb_functions
     # Test tmp always has space
@@ -319,23 +357,65 @@ test_backup_config_with_env() {
     assert_file_exists "$result" "backup file should be created"
 }
 
-test_backup_config_with_shared_dirs() {
+test_backup_config_with_real_paths() {
     source_pb_functions
-    mkdir -p "$TEST_TMP/shared/rpz"
-    echo "*.ads.example.com" > "$TEST_TMP/shared/rpz/blocklist.rpz"
-    mkdir -p "$TEST_TMP/shared/forward-zones"
-    echo "example.com=8.8.8.8" > "$TEST_TMP/shared/forward-zones/custom.conf"
+    mkdir -p "$TEST_TMP/recursor/rpz"
+    echo "*.ads.example.com" > "$TEST_TMP/recursor/rpz/blocklist.rpz"
+    echo "example.com=8.8.8.8" > "$TEST_TMP/recursor/forward-zones.conf"
     
     local result
     result=$(backup_config)
     assert_contains "$result" "config-" "should return backup filename"
     assert_file_exists "$result" "backup file should be created"
     
-    # Verify contents
+    # Verify contents use the real paths
     local contents
     contents=$(tar -tzf "$result" 2>/dev/null || echo "")
-    assert_contains "$contents" "shared/rpz" "backup should contain rpz dir"
-    assert_contains "$contents" "shared/forward-zones" "backup should contain forward-zones dir"
+    assert_contains "$contents" "recursor/rpz" "backup should contain rpz dir"
+    assert_contains "$contents" "recursor/forward-zones.conf" "backup should contain forward-zones.conf"
+    # Legacy nonexistent paths must never appear
+    if [[ "$contents" == *"shared/rpz"* || "$contents" == *"shared/forward-zones"* ]]; then
+        echo -e "${RED}ASSERTION FAILED${NC}: backup contains legacy shared/ paths"
+        return 1
+    fi
+}
+
+test_backup_config_tar_failure_propagates() {
+    source_pb_functions
+    mkdir -p "$TEST_TMP/recursor/rpz"
+    echo "*.ads.example.com" > "$TEST_TMP/recursor/rpz/blocklist.rpz"
+    # Make the backup dir unwritable so tar fails
+    chmod 555 "$BACKUP_DIR"
+    
+    local result rc
+    result=$(backup_config) 2>/dev/null
+    rc=$?
+    chmod 755 "$BACKUP_DIR"
+    assert_eq "1" "$rc" "backup_config should return nonzero on tar failure"
+    assert_eq "" "$result" "backup_config should not report a path on failure"
+    # No partial archive left behind
+    if ls "$BACKUP_DIR"/config-*.tar.gz >/dev/null 2>&1; then
+        echo -e "${RED}ASSERTION FAILED${NC}: partial archive left behind"
+        return 1
+    fi
+}
+
+test_get_pg_creds_defaults() {
+    source_pb_functions
+    local creds
+    creds=$(get_pg_creds)
+    assert_eq "powerblockade|powerblockade" "$creds" "should default to powerblockade/powerblockade"
+}
+
+test_get_pg_creds_custom_names() {
+    source_pb_functions
+    cat > "$TEST_TMP/.env" <<EOF
+POSTGRES_USER=customuser
+POSTGRES_DB=customdb
+EOF
+    local creds
+    creds=$(get_pg_creds)
+    assert_eq "customuser|customdb" "$creds" "should honor POSTGRES_USER/POSTGRES_DB from .env"
 }
 
 test_pb_help_command() {
@@ -428,12 +508,17 @@ run_test "get_current_version - malformed JSON" test_get_current_version_malform
 run_test "get_compose_files - default" test_get_compose_files_default || true
 run_test "get_compose_files - with user override" test_get_compose_files_with_user_override || true
 run_test "get_compose_files - legacy docker-compose.yml" test_get_compose_files_legacy_docker_compose || true
+run_test "get_compose_files - prefers ghcr" test_get_compose_files_prefers_ghcr || true
+run_test "get_compose_files - ghcr with user override" test_get_compose_files_ghcr_with_user_override || true
 run_test "check_disk_space - sufficient" test_check_disk_space_sufficient || true
 run_test "save_state - creates valid JSON" test_save_state_creates_valid_json || true
 run_test "save_state - overwrites existing" test_save_state_overwrites_existing || true
 run_test "backup_config - no files" test_backup_config_no_files || true
 run_test "backup_config - with .env" test_backup_config_with_env || true
-run_test "backup_config - with shared dirs" test_backup_config_with_shared_dirs || true
+run_test "backup_config - with real paths" test_backup_config_with_real_paths || true
+run_test "backup_config - tar failure propagates" test_backup_config_tar_failure_propagates || true
+run_test "get_pg_creds - defaults" test_get_pg_creds_defaults || true
+run_test "get_pg_creds - custom names" test_get_pg_creds_custom_names || true
 run_test "state file preserves digests" test_state_file_preserves_digests || true
 run_test "upgrade timestamp format" test_upgrade_timestamp_format || true
 

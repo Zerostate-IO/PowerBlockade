@@ -2,8 +2,27 @@
 # PowerBlockade Secondary Node Deployment (Self-Contained)
 # Usage: curl -fsSL ... | bash -s -- PRIMARY_URL API_KEY NODE_NAME
 # Example: curl -fsSL ... | bash -s -- http://192.168.1.10:8080 abc123... bowlister
+#
+# ⚠️ DEPRECATED: this script runs the canonical compose with --profile secondary,
+# which only profile-gates sync-agent — postgres, admin-ui, prometheus, and
+# grafana start too (the "secondary runs the full stack" bug). Secondary nodes
+# must be deployed from the Admin UI generated thin package instead:
+# primary Admin UI → Nodes → Add Node → Generate Deployment Package.
+# Kept for historical reference only.
 
 set -e
+
+# ⚠️ DEPRECATED — refuse to run: this script would deploy the FULL primary
+# stack to a secondary (only sync-agent is profile-gated in the canonical
+# compose). Secondary nodes must use the Admin UI generated thin package:
+# primary Admin UI → Nodes → Add Node → Generate Deployment Package.
+echo "⚠️  DEPRECATED: deploy-secondary-one-liner.sh is intentionally disabled." >&2
+echo "    It ran the canonical compose with --profile secondary, which starts" >&2
+echo "    postgres, admin-ui, prometheus, and grafana on the secondary (the" >&2
+echo "    'secondary runs the full stack' bug)." >&2
+echo "    Use the Admin UI generated thin package instead:" >&2
+echo "    primary Admin UI → Nodes → Add Node → Generate Deployment Package" >&2
+exit 1
 
 VERSION="${VERSION:-v0.5.5}"
 PRIMARY_URL="${1:-}"

@@ -70,7 +70,7 @@ On each server (celsate, bowlister):
 
 3. **Start the stack with pre-built images:**
    ```bash
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. **Save the admin password** printed by `init-env.sh`.
@@ -98,28 +98,34 @@ POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
 
 ### Deployment Steps
 
+> **Use the generated thin package.** A repo clone or `--profile secondary`
+> against the raw compose runs the *full* primary stack (postgres, admin-ui,
+> prometheus, grafana) because those services are not profile-gated. The thin
+> secondary ships only dnsdist, recursor, recursor-reloader, dnstap-processor
+> and sync-agent.
+
 1. **On celsate (primary), generate node package:**
    - Go to Admin UI → Nodes → Add Node
    - Enter name: `bowlister`
-   - Click "Generate Deployment Package"
-   - Note the API key and primary URL
+   - Click "Generate Deployment Package" and download the ZIP
 
 2. **SSH to bowlister:**
    ```bash
    ssh user@bowlister
    ```
 
-3. **Clone the repository and configure for secondary:**
+3. **Unpack and configure the package:**
    ```bash
-   git clone https://github.com/Zerostate-IO/PowerBlockade.git /opt/powerblockade
-   cd /opt/powerblockade
-   ./scripts/init-env.sh
+   unzip bowlister-package.zip -d ~/bowlister
+   cd ~/bowlister
    ```
-   Set `NODE_NAME=bowlister`, `PRIMARY_URL=http://CELSATE_IP:8080`, and `PRIMARY_API_KEY` in `.env`.
+   Set `NODE_NAME=bowlister`, `PRIMARY_URL=http://CELSATE_IP:8080`, and
+   `PRIMARY_API_KEY` in `.env` (already filled in by the generator; review
+   `DNSDIST_LISTEN_ADDRESS` for port-53 conflicts).
 
-4. **Start the secondary stack:**
+4. **Start the thin secondary stack:**
    ```bash
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+   docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 5. **Verify on celsate:**
@@ -156,11 +162,11 @@ POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile 
 
 ### Recommended: Upgrade Secondaries First
 
-1. **Upgrade bowlister:**
+1. **Upgrade bowlister (thin package):**
    ```bash
-   cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+   cd ~/bowlister
+   docker compose -f docker-compose.ghcr.yml pull
+   docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 2. **Verify bowlister is online** in primary's Admin UI
@@ -168,8 +174,8 @@ POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile 
 3. **Upgrade celsate:**
    ```bash
    cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. **Validate Recursor settings migration output:**
@@ -250,6 +256,8 @@ cat backups/backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v0.8.0 | 2026-08-17 | Power-cycle DNS reliability, thin-secondary package fixes, image pins, pb fixes |
+| v0.7.9 | 2026-05-10 | Bugfix: bounded rollup-backed stats service, reduced scrape pressure, reloader image in release builds |
 | v0.7.8 | 2026-04-20 | Bugfix: admin-ui template rendering compatibility with newer FastAPI/Starlette runtimes |
 | v0.7.6 | 2026-04-15 | Bugfix: reloader detection of bind-mounted forward-zones.conf changes |
 | v0.7.5 | 2026-04-15 | Bugfix: secondary-package dnsdist addressing and static-IP/network contract |

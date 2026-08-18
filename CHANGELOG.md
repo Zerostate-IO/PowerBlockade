@@ -7,7 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantees.
 
-## [Unreleased]
+## [0.8.0] - 2026-08-17
+
+> **Release Type**: Minor Release
+> **Upgrade Safety**: Safe upgrade; secondary nodes should be re-deployed from a
+> freshly generated thin package (see docs). No database migrations.
+
+### Fixed
+
+- **Power-cycle DNS outages**: dnsdist now waits for the recursor first and fails closed (exits instead of serving SERVFAIL without a backend); the dnstap-monitor restart loop that killed/restarted dnsdist repeatedly during boot (observed 4+ times in one boot on celsate) is removed — the framestream logger reconnects on its own
+- **Stale recursor control socket**: recursor entrypoint removes leftover `pdns_recursor.controlsocket`/`pdns_recursor.pid` files from unclean shutdowns, which previously broke the `rec_control` healthcheck and the stack's readiness gating
+- **Secondary node packages**: generated packages now pin dnsdist 2.0.8 (2.0.x has a mandatory April 2026 security advisory), pin `POWERBLOCKADE_VERSION` to the release instead of `latest`, fail closed when the recursor is unavailable, drop the no-op `--profile secondary` startup command, and persist the sync-agent metrics buffer
+- **`pb` CLI**: version was stale (0.7.6), compose-file selection ignored `docker-compose.ghcr.yml`, and config backups targeted nonexistent `shared/` paths (producing empty archives); backup paths, compose selection, and DB/user name handling corrected
+- Restored the missing v0.7.9 changelog entry
+
+### Changed
+
+- Image pins refreshed (audited 2026-08-17): dnsdist 2.0.8, postgres 16.15-alpine, prometheus v3.13.2, alertmanager v0.34.0, grafana 13.0.6, traefik v3.7.10, busybox 1.38.0, pdns-recursor-53 base 5.3.10
+- dnsdist container raises its file-descriptor limit (default 65536) to match its >10000-FD configuration needs
+
+### Security
+
+- dnsdist updated to 2.0.8 (mandatory advisory: powerdns-advisory-for-dnsdist-2026-04)
+- Recursor base image pinned to 5.3.10 (celsate's locally-built recursor was running 5.1.9 with a mandatory security advisory due to a stale cached `latest` base)
+
+## [0.7.9] - 2026-05-10
+
+> **Release Type**: Patch Release (Bugfix)
+> **Upgrade Safety**: Safe upgrade, no manual steps required
+
+### Fixed
+
+- Dashboard and Prometheus stats now come from bounded rollup-backed stats service, avoiding unbounded aggregation queries under load
+- Reduced Prometheus scrape pressure by serving dashboard stats from bounded rollups
+
+### Changed
+
+- Release workflow now builds the `powerblockade-recursor-reloader` image for releases (was missing from the GHCR manifest)
+- RPZ tests patch the bound templates instance to stay compatible with newer template runtimes
 
 ## [0.7.8] - 2026-04-20
 

@@ -1,5 +1,9 @@
 # PowerBlockade Roadmap
 
+> **STALE** — this document is outdated (last updated for v0.4.0). The canonical
+> roadmap lives in [`ROADMAP.md`](../ROADMAP.md) at the repository root. This
+> file is kept for historical reference only.
+
 **Current Version:** 0.4.0  
 **Updated:** 2026-02-03
 

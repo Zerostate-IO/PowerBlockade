@@ -8,8 +8,17 @@ This directory contains scripts for deploying PowerBlockade to production server
 |--------|---------|-------|
 | `deploy-primary-one-liner.sh` | Interactive single-host easy start | `curl -fsSL .../deploy-primary-one-liner.sh \| bash` |
 | `deploy-primary.sh` | Deploy primary node | `./deploy-primary.sh [version]` |
-| `deploy-secondary.sh` | Deploy secondary node | `./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]` |
+| `deploy-secondary.sh` | ⚠️ **Deprecated** — see note below | `./deploy-secondary.sh [version] [primary_url] [api_key] [node_name]` |
 | `upgrade.sh` | Upgrade existing deployment | `./upgrade.sh [version]` |
+
+> ⚠️ **Secondary nodes must use the Admin UI generated thin package, not the
+> `deploy-secondary*.sh` scripts.** Those scripts run the canonical compose with
+> `--profile secondary`, which only profile-gates `sync-agent` — postgres,
+> admin-ui, prometheus, and grafana start too (the "secondary runs the full
+> stack" bug). The thin package (dnsdist, recursor, recursor-reloader,
+> dnstap-processor, sync-agent) is produced by **Nodes → Add Node → Generate
+> Deployment Package** on the primary. The scripts are kept for historical
+> reference only.
 
 ## Single-Host Easy Start
 
@@ -22,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional version pin:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.8
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.8.0
 ```
 
 This flow is interactive and includes prerequisites, Docker/Compose setup, `init-env.sh` prompts, and startup checks.
@@ -56,7 +65,7 @@ This flow is interactive and includes prerequisites, Docker/Compose setup, `init
 
 3. **Start with pre-built images:**
    ```bash
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml up -d
    ```
 
 4. Note the generated admin password from the `init-env.sh` output.
@@ -67,44 +76,48 @@ POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
 
 ## Deploy Secondary Node (bowlister)
 
+> **Use the generated thin package — not a raw clone.** Deploying a secondary
+> from a repo clone or `deploy-secondary*.sh` runs the *full* primary stack
+> (postgres, admin-ui, prometheus, grafana) because those services are not
+> profile-gated in `docker-compose.ghcr.yml`. The thin secondary (dnsdist,
+> recursor, recursor-reloader, dnstap-processor, sync-agent only) is produced
+> by the primary's Admin UI package generator. See
+> [GETTING_STARTED.md](../docs/GETTING_STARTED.md) for the full walkthrough.
+
 1. On celsate, generate a node package:
    - Go to **Nodes** → **Add Node**
    - Enter name: `bowlister`
-   - Click **Generate Deployment Package**
-   - Note the API key
-
-2. **Clone the repository on bowlister:**
+   - Click **Generate Deployment Package** — download the ZIP
+2. Copy the ZIP to bowlister and unpack it into a folder (e.g. `~/bowlister`).
+3. Review `.env`: set `DNSDIST_LISTEN_ADDRESS` to bowlister's LAN IP if port 53
+   conflicts, and confirm `PRIMARY_URL` points at the primary admin-ui.
+4. Start the thin stack:
    ```bash
-   git clone https://github.com/Zerostate-IO/PowerBlockade.git /opt/powerblockade
-   cd /opt/powerblockade
-   ./scripts/init-env.sh
+   docker compose -f docker-compose.ghcr.yml up -d
    ```
-   Set `NODE_NAME=bowlister`, `PRIMARY_URL=http://CELSATE_IP:8080`, and `PRIMARY_API_KEY` in `.env`.
-
-3. **Start the secondary stack:**
-   ```bash
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
-   ```
-
-4. Verify on celsate:
+5. Verify on celsate:
    - Go to **Nodes**
    - bowlister should show as "Online"
+6. Verify DNS on bowlister: `dig @BOWLISTER_LAN_IP google.com`
 
 ## Upgrading
 
 ### Primary Node
 ```bash
 cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml pull
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 
 ### Secondary Node
+
+Secondary nodes use the Admin UI generated thin package (see the warning above):
+
 ```bash
-cd /opt/powerblockade
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+cd ~/bowlister
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ### Recommended: Upgrade Secondaries First
@@ -119,11 +132,11 @@ Always pin to a specific version in production:
 
 ```bash
 # Pin to specific version
-export POWERBLOCKADE_VERSION=0.7.8
+export POWERBLOCKADE_VERSION=0.8.0
 docker compose -f docker-compose.ghcr.yml up -d
 
 # Or inline
-POWERBLOCKADE_VERSION=0.7.8 docker compose -f docker-compose.ghcr.yml up -d
+POWERBLOCKADE_VERSION=0.8.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## Troubleshooting
@@ -216,9 +229,10 @@ cd /opt/powerblockade
 # Get previous version from state
 PREV_VERSION=$(jq -r '.previous_version' .powerblockade/state.json)
 
-# Rollback
+# Rollback (thin-package layout; adjust dir for your deployment)
+cd ~/bowlister
 POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml pull
-POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml --profile secondary up -d
+POWERBLOCKADE_VERSION="$PREV_VERSION" docker compose -f docker-compose.ghcr.yml up -d
 
 # Verify
 docker compose -f docker-compose.ghcr.yml ps
