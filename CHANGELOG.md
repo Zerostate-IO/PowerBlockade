@@ -15,6 +15,21 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
   regenerates `DATABASE_URL` in sync with the generated `POSTGRES_PASSWORD`
   (previously the `.env.example` default `change-me` was left in the URL,
   breaking admin-ui against a freshly initialized database)
+- `init-env.sh` `set_kv` no longer interpolates `@`/`$` in perl substitution
+  (values like `postgresql+psycopg://...@postgres:...` were corrupted)
+- Generated secondary packages now unpack with correct file modes
+  (entrypoint 0755, configs 0644, `.env` 0600) and include the
+  `init-permissions` ownership bootstrap, so containers running as non-root
+  users (`pdns`, uid 1000) can read/write the mounted configs — observed on
+  the bowlister v0.8.0 deploy
+
+### Changed
+
+- admin-ui now has a `/health` readiness healthcheck in both compose files
+  (it runs alembic migrations before uvicorn listens)
+- Release runtime gate: `!override` port mapping (was appending and binding
+  `0.0.0.0:53` on runners), 240s admin-health poll, failure diagnostics dump,
+  CSRF-aware login POST (urlencoded)
 
 ## [0.8.0] - 2026-08-17
 
