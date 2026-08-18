@@ -336,10 +336,13 @@ jobs:
             exit 1
           fi
 
+          # POST as application/x-www-form-urlencoded: curl -F sends multipart,
+          # which the app's CSRF middleware does not parse (browser forms are
+          # urlencoded). Send the csrf_token cookie value back as a field.
           LOGIN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -F "username=$TEST_ADMIN_USERNAME" \
-            -F "password=$TEST_ADMIN_PASSWORD" \
-            -F "csrf_token=$CSRF_TOKEN" \
+            --data-urlencode "username=$TEST_ADMIN_USERNAME" \
+            --data-urlencode "password=$TEST_ADMIN_PASSWORD" \
+            --data-urlencode "csrf_token=$CSRF_TOKEN" \
             -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
             "http://localhost:18080/login" 2>/dev/null || echo -e "\n000")
 
