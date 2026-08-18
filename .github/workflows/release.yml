@@ -18,10 +18,10 @@ on:
         type: boolean
         default: false
 
-# Serialize dispatches per version: a second dispatch for the same version
-# waits for the first, so candidates and the eventual promotion cannot race.
+# Serialize ALL releases of this release unit: every run writes the same
+# version + latest tags, so only one may be in flight at a time.
 concurrency:
-  group: release-${{ github.event.inputs.version }}
+  group: release
   cancel-in-progress: false
 
 permissions:
@@ -31,14 +31,16 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: zerostate-io/powerblockade
-  # Immutable candidate tag: never reused, never published as version/latest.
-  CANDIDATE_TAG: candidate-${{ github.sha }}-${{ github.run_id }}
+  # Immutable candidate tag: unique per run AND rerun attempt so a rerun can
+  # never replace a candidate that a previous attempt gated.
+  CANDIDATE_TAG: candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   # ---------------------------------------------------------------------------
   # Phase 0: Validate. The version bump + CHANGELOG entry are done on main
-  # BEFORE dispatch (this workflow no longer mutates the repo or pushes tags
-  # early). Asserts the version surfaces agree and no competing tag exists.
+  # BEFORE dispatch. Asserts version-surface consistency, main-branch origin,
+  # forward progression, no competing git tag, and no existing GHCR version
+  # tags. No repo mutation.
   # ---------------------------------------------------------------------------
   validate:
     runs-on: ubuntu-latest
@@ -51,10 +53,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Pass the raw dispatch input through env (string context, no shell
+      # evaluation) - never interpolate it into generated shell source.
       - name: Validate version format
         id: validate
+        env:
+          RAW_VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="$RAW_VERSION"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Invalid version format: $VERSION (expected vX.Y.Z)"
             exit 1
@@ -64,14 +70,21 @@ jobs:
           echo "version_plain=$VERSION_PLAIN" >> "$GITHUB_OUTPUT"
           echo "✅ Version format valid: $VERSION"
 
-      - name: Assert version surfaces are consistent
+      - name: Assert dispatch is from main
         run: |
-          VERSION="${{ github.event.inputs.version }}"
-          VERSION_PLAIN="${VERSION#v}"
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "❌ Releases must be dispatched from refs/heads/main (got ${{ github.ref }})"
+            exit 1
+          fi
+          echo "✅ Dispatch from main"
+
+      - name: Assert version surfaces are consistent
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+          VERSION_PLAIN: ${{ steps.validate.outputs.version_plain }}
+        run: |
           set -e
-          # CHANGELOG must have the release heading
           grep -q "^## \[$VERSION_PLAIN\]" CHANGELOG.md || { echo "❌ CHANGELOG.md missing '## [$VERSION_PLAIN]'"; exit 1; }
-          # Version surfaces must all match
           grep -q "^version = \"$VERSION_PLAIN\"$" admin-ui/pyproject.toml || { echo "❌ admin-ui/pyproject.toml not at $VERSION_PLAIN"; exit 1; }
           grep -q "^    pb_version: str = \"$VERSION\"$" admin-ui/app/settings.py || { echo "❌ settings.py pb_version not at $VERSION"; exit 1; }
           for f in admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile; do
@@ -79,18 +92,61 @@ jobs:
           done
           echo "✅ Version surfaces consistent: changelog, pyproject, pb_version, Dockerfiles"
 
-      - name: Assert no competing tag
+      - name: Assert forward version progression
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          HIGHEST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          if [[ -n "$HIGHEST" && "$HIGHEST" != "$VERSION" ]]; then
+            IFS='.' read -ra a <<< "${VERSION#v}"
+            IFS='.' read -ra b <<< "${HIGHEST#v}"
+            if (( ${a[0]} < ${b[0]} \
+                  || (${a[0]} == ${b[0]} && ${a[1]} < ${b[1]}) \
+                  || (${a[0]} == ${b[0]} && ${a[1]} == ${b[1]} && ${a[2]} < ${b[2]}) )); then
+              echo "❌ $VERSION is older than the latest release tag $HIGHEST; refusing non-forward release"
+              exit 1
+            fi
+          fi
+          echo "✅ Version $VERSION is forward of existing tags"
+
+      - name: Assert no competing git tag (allow exact-SHA recovery)
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
           if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
-            echo "❌ Tag $VERSION already exists on origin. Refusing to release a version that is already published."
+            TAGGED_SHA=$(git ls-remote --tags origin "$VERSION" | awk '{print $1}')
+            if [[ "$TAGGED_SHA" == "${{ github.sha }}" ]]; then
+              echo "⚠️ Tag $VERSION exists at the exact dispatched SHA - treating as resumable release"
+            else
+              echo "❌ Tag $VERSION exists at $TAGGED_SHA (not the dispatched SHA ${{ github.sha }}). Refusing."
+              exit 1
+            fi
+          else
+            echo "✅ No competing git tag $VERSION"
+          fi
+
+      - name: Assert no existing GHCR version tags (allow if they match the gated candidates later)
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1
+          EXISTING=""
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+            if docker buildx imagetools inspect "ghcr.io/zerostate-io/powerblockade-${img}:${VERSION}" >/dev/null 2>&1; then
+              EXISTING="$EXISTING $img"
+            fi
+          done
+          if [[ -n "$EXISTING" ]]; then
+            echo "❌ GHCR version tags already exist for:${EXISTING}"
+            echo "   An existing release version cannot be overwritten. If a previous promotion"
+            echo "   partially completed, delete the GHCR tags via the package UI, or release a new version."
             exit 1
           fi
-          echo "✅ No competing tag $VERSION"
+          echo "✅ No existing GHCR $VERSION tags"
 
   # ---------------------------------------------------------------------------
   # Phase 1: Build candidates under immutable tags. NEVER push version/latest
-  # here - promotion happens only after the runtime gate passes.
+  # here. Records each image's digest for gate + promotion.
   # ---------------------------------------------------------------------------
   build-candidates:
     runs-on: ubuntu-latest
@@ -132,6 +188,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build and push candidate image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
@@ -143,26 +200,53 @@ jobs:
           build-args: |
             PB_VERSION=${{ needs.validate.outputs.version }}
 
-      - name: Record candidate reference
+      - name: Record candidate digest
         run: |
-          echo "Candidate: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image }}:${{ env.CANDIDATE_TAG }}"
           echo "candidate_tag=${{ env.CANDIDATE_TAG }}" >> "$GITHUB_ENV"
+          # Build-push-action exposes the pushed digest for this image
+          echo "digest_${{ matrix.image }}=${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
+          echo "✅ ${{ matrix.image }} built: ${{ steps.build.outputs.digest }}"
 
   # ---------------------------------------------------------------------------
-  # Phase 2: Runtime gate against the CANDIDATES (not already-published tags).
+  # Phase 2: Runtime gate against the CANDIDATES. Covers all five images:
+  # the primary stack (incl. dnstap-processor + recursor-reloader) and the
+  # secondary profile (sync-agent). Records the gated digests for promotion.
   # ---------------------------------------------------------------------------
   runtime-gate:
     runs-on: ubuntu-latest
     needs: [validate, build-candidates]
     if: github.event.inputs.skip_docker != 'true'
+    outputs:
+      digest_admin_ui: ${{ steps.record_digests.outputs.digest_admin_ui }}
+      digest_recursor: ${{ steps.record_digests.outputs.digest_recursor }}
+      digest_dnstap_processor: ${{ steps.record_digests.outputs.digest_dnstap_processor }}
+      digest_sync_agent: ${{ steps.record_digests.outputs.digest_sync_agent }}
+      digest_recursor_reloader: ${{ steps.record_digests.outputs.digest_recursor_reloader }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull candidate images
         run: |
           for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
             docker pull ghcr.io/zerostate-io/powerblockade-$img:${{ env.CANDIDATE_TAG }}
+          done
+
+      - name: Record gated digests
+        id: record_digests
+        run: |
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+            key="digest_${img//-/_}"
+            d=$(docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/zerostate-io/powerblockade-${img}:${{ env.CANDIDATE_TAG }}" 2>/dev/null | cut -d'@' -f2)
+            echo "${key}=$d" >> "$GITHUB_OUTPUT"
+            echo "gated ${img} digest: $d"
           done
 
       - name: Prepare runtime gate environment
@@ -200,23 +284,23 @@ jobs:
       - name: Start runtime gate stack (candidate images)
         run: |
           export POWERBLOCKADE_VERSION="${{ env.CANDIDATE_TAG }}"
-          # Point the compose image tags at the candidates via a sed-free
-          # override: the ghcr compose uses ${POWERBLOCKADE_VERSION:-latest}.
           docker compose \
             -f docker-compose.ghcr.yml \
             -f "$RUNNER_TEMP/runtime-gate.override.yml" \
             up -d
 
-      - name: Wait for core services
+      - name: Wait for core services (all five images)
         run: |
           waited=0
-          healthy=false
           while [[ $waited -lt 180 ]]; do
             containers_status=$(docker compose \
               -f docker-compose.ghcr.yml \
               -f "$RUNNER_TEMP/runtime-gate.override.yml" \
               ps --format "{{.Names}}:{{.Status}}" 2>/dev/null || echo "")
-            required=("powerblockade-dnsdist" "powerblockade-recursor" "powerblockade-postgres" "powerblockade-admin-ui")
+            required=(
+              "powerblockade-dnsdist" "powerblockade-recursor" "powerblockade-postgres"
+              "powerblockade-admin-ui" "powerblockade-dnstap-processor" "powerblockade-recursor-reloader"
+            )
             healthy_count=0
             for container in "${required[@]}"; do
               if echo "$containers_status" | grep -qE "${container}.*(healthy|running|Up)"; then
@@ -224,13 +308,13 @@ jobs:
               fi
             done
             if [[ $healthy_count -eq ${#required[@]} ]]; then
-              healthy=true
+              echo "✅ All core containers up after $((waited * 2))s"
               break
             fi
             sleep 2
             waited=$((waited + 2))
           done
-          if [[ "$healthy" != "true" ]]; then
+          if [[ $healthy_count -ne ${#required[@]} ]]; then
             docker compose \
               -f docker-compose.ghcr.yml \
               -f "$RUNNER_TEMP/runtime-gate.override.yml" \
@@ -304,6 +388,32 @@ jobs:
           fi
           echo "✅ Runtime gate passed: admin-ui reachable, login works, /health 200"
 
+      - name: Gate the secondary profile (sync-agent)
+        run: |
+          export POWERBLOCKADE_VERSION="${{ env.CANDIDATE_TAG }}"
+          docker compose \
+            -f docker-compose.ghcr.yml \
+            -f "$RUNNER_TEMP/runtime-gate.override.yml" \
+            --profile secondary \
+            up -d sync-agent 2>&1 | tail -3
+          waited=0
+          while [[ $waited -lt 60 ]]; do
+            status=$(docker inspect -f '{{.State.Status}} {{.State.Running}}' powerblockade-sync-agent 2>/dev/null || echo "missing")
+            if echo "$status" | grep -qE "^running true"; then
+              echo "✅ sync-agent (secondary profile) running: $status"
+              break
+            fi
+            sleep 2
+            waited=$((waited + 2))
+          done
+          if ! echo "$status" | grep -qE "^running true"; then
+            docker logs powerblockade-sync-agent --tail 20 2>&1 || true
+            exit 1
+          fi
+          # Give it a heartbeat cycle, then verify it is still up (not crash-looping)
+          sleep 15
+          docker inspect -f '{{.State.Status}} {{.State.Restarting}}' powerblockade-sync-agent 2>/dev/null | grep -qE "^running false" && { echo "❌ sync-agent restarting after start"; exit 1; } || echo "✅ sync-agent stable after heartbeat window"
+
       - name: Dump runtime-gate diagnostics
         if: failure()
         run: |
@@ -312,7 +422,7 @@ jobs:
             -f docker-compose.ghcr.yml \
             -f "$RUNNER_TEMP/runtime-gate.override.yml" \
             ps -a --format "{{.Name}} | {{.Status}}" 2>&1 || true
-          for c in powerblockade-admin-ui powerblockade-recursor powerblockade-dnsdist powerblockade-postgres powerblockade-init-permissions; do
+          for c in powerblockade-admin-ui powerblockade-recursor powerblockade-dnsdist powerblockade-postgres powerblockade-dnstap-processor powerblockade-recursor-reloader powerblockade-sync-agent; do
             echo "=== $c logs (tail 40) ==="
             docker logs "$c" --tail 40 2>&1 || true
           done
@@ -325,6 +435,7 @@ jobs:
           docker compose \
             -f docker-compose.ghcr.yml \
             -f "$RUNNER_TEMP/runtime-gate.override.yml" \
+            --profile secondary \
             down -v --remove-orphans || true
 
   # ---------------------------------------------------------------------------
@@ -339,6 +450,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull candidate images
         run: |
@@ -361,8 +479,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Phase 4: Promote (ONLY after the gate passed; never in dry-run).
-  # Publishes version + latest tags BY DIGEST from the validated candidates,
-  # creates the immutable git tag at the exact built commit, then the release.
+  # Publishes version + latest tags BY the gated DIGEST, creates the immutable
+  # git tag at the exact built commit, then the release. Resumable: a rerun
+  # with the same SHA skips steps that already completed.
   # ---------------------------------------------------------------------------
   promote:
     runs-on: ubuntu-latest
@@ -378,42 +497,101 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Promote candidate images to version + latest (by digest)
+      - name: Verify all gated digests before promoting anything
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
-            CANDIDATE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${img}:${{ env.CANDIDATE_TAG }}"
-            echo "Promoting $CANDIDATE -> $VERSION + latest"
-            # Re-verify the candidate exists, then tag it (multi-arch manifest)
-            docker buildx imagetools inspect "$CANDIDATE" >/dev/null || { echo "❌ candidate missing: $CANDIDATE"; exit 1; }
-            docker buildx imagetools create \
-              --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${img}:${VERSION}" \
-              --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${img}:latest" \
-              "$CANDIDATE"
+          declare -A DIGESTS=(
+            [admin-ui]="${{ needs.runtime-gate.outputs.digest_admin_ui }}"
+            [recursor]="${{ needs.runtime-gate.outputs.digest_recursor }}"
+            [dnstap-processor]="${{ needs.runtime-gate.outputs.digest_dnstap_processor }}"
+            [sync-agent]="${{ needs.runtime-gate.outputs.digest_sync_agent }}"
+            [recursor-reloader]="${{ needs.runtime-gate.outputs.digest_recursor_reloader }}"
+          )
+          for img in "${!DIGESTS[@]}"; do
+            d="${DIGESTS[$img]}"
+            if [[ -z "$d" ]]; then echo "❌ no gated digest for $img"; exit 1; fi
+            # The gated digest must still resolve from the candidate tag
+            resolved=$(docker buildx imagetools inspect "ghcr.io/zerostate-io/powerblockade-${img}:${{ env.CANDIDATE_TAG }}" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1)
+            if [[ "$resolved" != "$d" ]]; then
+              echo "❌ $img candidate digest changed (expected $d, got $resolved)"
+              exit 1
+            fi
+            echo "✅ $img candidate verified: $d"
           done
-          echo "✅ All 5 images promoted to $VERSION + latest (by digest)"
+
+      - name: Promote all images to version + latest (by gated digest)
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          declare -A DIGESTS=(
+            [admin-ui]="${{ needs.runtime-gate.outputs.digest_admin_ui }}"
+            [recursor]="${{ needs.runtime-gate.outputs.digest_recursor }}"
+            [dnstap-processor]="${{ needs.runtime-gate.outputs.digest_dnstap_processor }}"
+            [sync-agent]="${{ needs.runtime-gate.outputs.digest_sync_agent }}"
+            [recursor-reloader]="${{ needs.runtime-gate.outputs.digest_recursor_reloader }}"
+          )
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+            d="${DIGESTS[$img]}"
+            echo "Promoting $img -> $VERSION + latest (digest $d)"
+            docker buildx imagetools create \
+              --tag "ghcr.io/zerostate-io/powerblockade-${img}:${VERSION}" \
+              --tag "ghcr.io/zerostate-io/powerblockade-${img}:latest" \
+              "ghcr.io/zerostate-io/powerblockade-${img}@${d}"
+          done
+
+      - name: Verify promoted tags match the gated digests
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          declare -A DIGESTS=(
+            [admin-ui]="${{ needs.runtime-gate.outputs.digest_admin_ui }}"
+            [recursor]="${{ needs.runtime-gate.outputs.digest_recursor }}"
+            [dnstap-processor]="${{ needs.runtime-gate.outputs.digest_dnstap_processor }}"
+            [sync-agent]="${{ needs.runtime-gate.outputs.digest_sync_agent }}"
+            [recursor-reloader]="${{ needs.runtime-gate.outputs.digest_recursor_reloader }}"
+          )
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+            d="${DIGESTS[$img]}"
+            for tag in "${VERSION}" latest; do
+              got=$(docker buildx imagetools inspect "ghcr.io/zerostate-io/powerblockade-${img}:${tag}" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1)
+              if [[ "$got" != "$d" ]]; then
+                echo "❌ $img:${tag} digest mismatch (expected $d, got $got)"
+                exit 1
+              fi
+            done
+            echo "✅ $img version+latest == gated digest $d"
+          done
 
       - name: Checkout code (for tag + release notes)
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Create and push immutable git tag
+      - name: Create and push immutable git tag (idempotent)
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Tag the exact commit that was built and gated
-          git tag -a "$VERSION" -m "Release $VERSION
-
-          Automated release created after candidate build + runtime gate passed." "${{ github.sha }}"
-          git push origin "$VERSION"
-          echo "✅ Tag $VERSION pushed at $(git rev-parse --short "$VERSION")"
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            TAGGED_SHA=$(git rev-list -n 1 "$VERSION")
+            if [[ "$TAGGED_SHA" != "${{ github.sha }}" ]]; then
+              echo "❌ Existing tag $VERSION points at $TAGGED_SHA, not ${{ github.sha }}"
+              exit 1
+            fi
+            echo "⚠️ Tag $VERSION already exists at the gated SHA - skipping creation (resume)"
+          else
+            git tag -a "$VERSION" -m "Release $VERSION (automated, gate-passed)" "${{ github.sha }}"
+            git push origin "$VERSION"
+            echo "✅ Tag $VERSION pushed at $(git rev-parse --short "$VERSION")"
+          fi
 
       - name: Generate changelog
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
-          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
           if [[ -z "$PREVIOUS_TAG" ]]; then
             echo "### Changes" > release-notes.md
             echo "Initial release or first tagged version" >> release-notes.md
@@ -425,23 +603,41 @@ jobs:
             } > release-notes.md
           fi
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (idempotent)
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
         uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
-            const version = '${{ needs.validate.outputs.version }}';
+            const version = process.env.VERSION;
             const changelog = fs.readFileSync('release-notes.md', 'utf8');
-            await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: version,
-              name: `Release ${version}`,
-              body: changelog,
-              draft: false,
-              prerelease: false
-            });
-            console.log(`✅ GitHub Release created for ${version}`);
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: version,
+              });
+              console.log(`⚠️ Release ${version} already exists - updating body (resume)`);
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: existing.data.id,
+                body: changelog,
+              });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: version,
+                name: `Release ${version}`,
+                body: changelog,
+                draft: false,
+                prerelease: false,
+              });
+              console.log(`✅ GitHub Release created for ${version}`);
+            }
 
   # ---------------------------------------------------------------------------
   # Summary
@@ -459,6 +655,9 @@ jobs:
           echo "✅ Candidate tag: ${{ env.CANDIDATE_TAG }}"
           echo "✅ Dry run: ${{ github.event.inputs.dry_run }}"
           echo "✅ Build candidates: ${{ needs.build-candidates.result }}"
-          echo "✅ Runtime gate: ${{ needs.runtime-gate.result }}"
+          echo "✅ Runtime gate (all 5 images + secondary profile): ${{ needs.runtime-gate.result }}"
           echo "✅ Advisory install smoke: ${{ needs.smoke-test.outputs.smoke_outcome || needs.smoke-test.result || 'skipped' }}"
-          echo "✅ Promote (version+latest tags, git tag, release): ${{ needs.promote.result || 'skipped (dry_run or gate not passed)' }}"
+          echo "✅ Promote (version+latest by digest, git tag, release): ${{ needs.promote.result || 'skipped (dry_run or gate not passed)' }}"
+          echo ""
+          echo "Note: candidate tags (candidate-<sha>-<run_id>-<run_attempt>) are immutable and left in"
+          echo "GHCR for audit; prune them via the package UI when they accumulate."
