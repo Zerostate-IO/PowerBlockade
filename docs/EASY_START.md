@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/dep
 Optional: pin to a specific image tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.7.0
+curl -fsSL https://raw.githubusercontent.com/Zerostate-IO/PowerBlockade/main/deploy/deploy-primary-one-liner.sh | bash -s -- v0.8.0
 ```
 
 ## What The Installer Does
