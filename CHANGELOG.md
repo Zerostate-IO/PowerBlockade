@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantees.
 
-## [Unreleased]
+## [0.8.0] - 2026-08-17
+
+> **Release Type**: Minor Release
+> **Upgrade Safety**: Safe upgrade; secondary nodes should be re-deployed from a
+> freshly generated thin package (see docs). No database migrations.
 
 ### Fixed
 
