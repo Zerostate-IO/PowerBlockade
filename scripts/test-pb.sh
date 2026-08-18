@@ -188,6 +188,16 @@ save_state() {
 EOF
 }
 
+get_pg_creds() {
+    local project_dir="${PROJECT_DIR:-}"
+    local pg_user pg_db
+    pg_user=$(grep -E '^POSTGRES_USER=' "$project_dir/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_user="${pg_user:-powerblockade}"
+    pg_db=$(grep -E '^POSTGRES_DB=' "$project_dir/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_db="${pg_db:-powerblockade}"
+    echo "$pg_user|$pg_db"
+}
+
 backup_config() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
@@ -204,11 +214,14 @@ backup_config() {
     if [[ -n "$files_to_backup" ]]; then
         if tar -czf "$backup_file" $files_to_backup 2>/dev/null; then
             echo "$backup_file"
+            return 0
         else
-            echo ""
+            rm -f "$backup_file" 2>/dev/null || true
+            return 1
         fi
     else
         echo ""
+        return 0
     fi
 }
 FUNCS
@@ -367,6 +380,44 @@ test_backup_config_with_real_paths() {
     fi
 }
 
+test_backup_config_tar_failure_propagates() {
+    source_pb_functions
+    mkdir -p "$TEST_TMP/recursor/rpz"
+    echo "*.ads.example.com" > "$TEST_TMP/recursor/rpz/blocklist.rpz"
+    # Make the backup dir unwritable so tar fails
+    chmod 555 "$BACKUP_DIR"
+    
+    local result rc
+    result=$(backup_config) 2>/dev/null
+    rc=$?
+    chmod 755 "$BACKUP_DIR"
+    assert_eq "1" "$rc" "backup_config should return nonzero on tar failure"
+    assert_eq "" "$result" "backup_config should not report a path on failure"
+    # No partial archive left behind
+    if ls "$BACKUP_DIR"/config-*.tar.gz >/dev/null 2>&1; then
+        echo -e "${RED}ASSERTION FAILED${NC}: partial archive left behind"
+        return 1
+    fi
+}
+
+test_get_pg_creds_defaults() {
+    source_pb_functions
+    local creds
+    creds=$(get_pg_creds)
+    assert_eq "powerblockade|powerblockade" "$creds" "should default to powerblockade/powerblockade"
+}
+
+test_get_pg_creds_custom_names() {
+    source_pb_functions
+    cat > "$TEST_TMP/.env" <<EOF
+POSTGRES_USER=customuser
+POSTGRES_DB=customdb
+EOF
+    local creds
+    creds=$(get_pg_creds)
+    assert_eq "customuser|customdb" "$creds" "should honor POSTGRES_USER/POSTGRES_DB from .env"
+}
+
 test_pb_help_command() {
     local output
     output=$("$SCRIPT_DIR/pb" help 2>&1)
@@ -465,6 +516,9 @@ run_test "save_state - overwrites existing" test_save_state_overwrites_existing 
 run_test "backup_config - no files" test_backup_config_no_files || true
 run_test "backup_config - with .env" test_backup_config_with_env || true
 run_test "backup_config - with real paths" test_backup_config_with_real_paths || true
+run_test "backup_config - tar failure propagates" test_backup_config_tar_failure_propagates || true
+run_test "get_pg_creds - defaults" test_get_pg_creds_defaults || true
+run_test "get_pg_creds - custom names" test_get_pg_creds_custom_names || true
 run_test "state file preserves digests" test_state_file_preserves_digests || true
 run_test "upgrade timestamp format" test_upgrade_timestamp_format || true
 
