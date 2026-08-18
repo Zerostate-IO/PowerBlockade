@@ -1523,7 +1523,13 @@ echo "=== Health Check Complete ==="
 
 ## bowlister Rollback (Secondary Node)
 
-For secondary node deployed at `/opt/powerblockade`.
+> **Note (v0.8.0):** bowlister is now deployed from the Admin UI generated thin
+> package (`~/bowlister`), not a repo clone. The historical packs below apply
+> to the pre-v0.8.0 raw-clone + `--profile secondary` deployment. For the thin
+> package, rollback is: `docker compose -f docker-compose.ghcr.yml pull && up -d`
+> with `POWERBLOCKADE_VERSION` pinned to the previous version in `.env`.
+
+For secondary node deployed at `/opt/powerblockade` (pre-v0.8.0 layout).
 
 ### Pre-Conditions
 
