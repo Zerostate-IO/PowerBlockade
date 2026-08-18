@@ -23,7 +23,7 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 
 ### Changed
 
-- Image pins refreshed (audited 2026-08-17): dnsdist 2.0.8, postgres 16.15-alpine, prometheus v3.13.2, alertmanager v0.34.0, grafana 13.0.6, traefik v3.7.10, busybox 1.38.0, pdns-recursor-53 base 5.3.10
+- Image pins refreshed (audited 2026-08-17): dnsdist 2.0.8, postgres 16.15-alpine, prometheus v3.13.2, alertmanager v0.34.0, grafana 13.1.3, traefik v3.7.10, busybox 1.38.0, pdns-recursor-53 base 5.3.10
 - dnsdist container raises its file-descriptor limit (default 65536) to match its >10000-FD configuration needs
 
 ### Security
