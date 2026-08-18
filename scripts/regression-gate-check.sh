@@ -266,7 +266,7 @@ gate_internal_exclusion() {
         SELECT COUNT(*) 
         FROM dns_query_events 
         WHERE ts > now() - interval '1 hour'
-          AND client_ip <<= '${DOCKER_SUBNET}'
+          AND client_ip::inet <<= '${DOCKER_SUBNET}'::inet
           AND is_internal = false
     "
     

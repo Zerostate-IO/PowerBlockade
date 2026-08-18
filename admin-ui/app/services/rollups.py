@@ -48,7 +48,13 @@ def compute_hourly_rollup(db: Session, hour_start: datetime) -> int:
             func.avg(DNSQueryEvent.latency_ms).label("avg_latency"),
             func.count(func.distinct(DNSQueryEvent.qname)).label("unique_domains"),
         )
-        .filter(DNSQueryEvent.ts >= hour_start, DNSQueryEvent.ts < hour_end)
+        .filter(
+            DNSQueryEvent.ts >= hour_start,
+            DNSQueryEvent.ts < hour_end,
+            # User-facing dashboard stats exclude container-internal traffic
+            # (precache warming etc.) so the numbers reflect real clients.
+            DNSQueryEvent.is_internal.is_(False),
+        )
         .group_by(DNSQueryEvent.client_id, DNSQueryEvent.node_id)
         .all()
     )

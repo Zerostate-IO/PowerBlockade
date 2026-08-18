@@ -10,19 +10,19 @@
   </div>
 
   <div class="mt-4 flex gap-1 border-b border-slate-700">
-    <a href="/logs?view=all&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if rcode %}&rcode={{ rcode }}{% endif %}{% if qtype %}&qtype={{ qtype }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}" 
+    <a href="/logs?view=all&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if rcode %}&rcode={{ rcode }}{% endif %}{% if qtype %}&qtype={{ qtype }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}{% if include_internal %}&include_internal=1{% endif %}" 
        class="px-4 py-2 text-sm font-medium {% if view == 'all' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
       All
     </a>
-    <a href="/logs?view=blocked&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}" 
+    <a href="/logs?view=blocked&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}{% if include_internal %}&include_internal=1{% endif %}" 
        class="px-4 py-2 text-sm font-medium {% if view == 'blocked' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
       Blocked
     </a>
-    <a href="/logs?view=failures&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}" 
+    <a href="/logs?view=failures&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if include_internal %}&include_internal=1{% endif %}" 
        class="px-4 py-2 text-sm font-medium {% if view == 'failures' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
       Failures
     </a>
-    <a href="/logs?view=top&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}" 
+    <a href="/logs?view=top&window={{ window }}{% if q %}&q={{ q }}{% endif %}{% if client %}&client={{ client }}{% endif %}{% if blocklist %}&blocklist={{ blocklist }}{% endif %}{% if include_internal %}&include_internal=1{% endif %}" 
        class="px-4 py-2 text-sm font-medium {% if view == 'top' %}text-cyan-400 border-b-2 border-cyan-400{% else %}text-slate-400 hover:text-slate-200{% endif %}">
       Top Domains
     </a>
@@ -104,6 +104,10 @@
       </select>
     </div>
     <div class="flex gap-2">
+      <label class="flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-400">
+        <input type="checkbox" name="include_internal" value="1" {% if include_internal %}checked{% endif %} class="accent-cyan-500">
+        Show internal
+      </label>
       <button type="submit" class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium hover:bg-cyan-500">Filter</button>
       {% if q or client or rcode or qtype or blocked or blocklist or window != '24h' or top_filter != 'all' %}
       <a href="/logs?view={{ view }}" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-bg-900 px-4 py-2 text-sm hover:bg-bg-700">Clear</a>
