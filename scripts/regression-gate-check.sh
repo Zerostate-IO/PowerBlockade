@@ -259,12 +259,33 @@ gate_external_completeness() {
     fi
 }
 
+# Validate CIDR before interpolating into SQL: IPv4 octets + prefix range,
+# IPv6 shape + prefix range. Malformed values fail early instead of reaching
+# PostgreSQL's cast.
+validate_cidr() {
+    local cidr="$1" addr prefix o
+    if echo "$cidr" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+        addr="${cidr%/*}"
+        prefix="${cidr#*/}"
+        [ "$prefix" -le 32 ] || return 1
+        for o in $(echo "$addr" | tr '.' ' '); do
+            [ "$o" -le 255 ] || return 1
+        done
+        return 0
+    fi
+    if echo "$cidr" | grep -qE '^[0-9a-fA-F:]+/[0-9]{1,3}$'; then
+        prefix="${cidr#*/}"
+        [ "$prefix" -le 128 ] || return 1
+        return 0
+    fi
+    return 1
+}
+
 gate_internal_exclusion() {
     log_section "Gate 2: Internal Container Exclusion"
 
-    # Validate the subnet format before interpolating into SQL.
-    if ! echo "$DOCKER_SUBNET" | grep -qE '^[0-9a-fA-F:\.]+/[0-9]{1,3}$'; then
-        record_gate "internal_exclusion" "failed" "Invalid --docker-subnet format: ${DOCKER_SUBNET}"
+    if ! validate_cidr "$DOCKER_SUBNET"; then
+        record_gate "internal_exclusion" "failed" "Invalid --docker-subnet CIDR: ${DOCKER_SUBNET}"
         return 1
     fi
 

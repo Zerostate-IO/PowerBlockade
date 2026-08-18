@@ -5,7 +5,7 @@ user-facing analytics can exclude container-internal traffic such as
 precache warming (issue #48).
 
 Revision ID: 0018
-Revises: 0017
+Revises: 0017_node_metrics_longterm_index
 Create Date: 2026-08-17
 """
 
