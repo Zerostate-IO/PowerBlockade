@@ -14,7 +14,7 @@ services:
   # ============================================
 
   dnsdist:
-    image: powerdns/dnsdist-20:2.0.3
+    image: powerdns/dnsdist-20:2.0.8
     container_name: powerblockade-dnsdist
     restart: unless-stopped
     entrypoint: ["/docker-entrypoint.sh"]
@@ -48,7 +48,7 @@ services:
       start_period: 10s
 
   init-permissions:
-    image: busybox:latest
+    image: busybox:1.38.0
     container_name: powerblockade-init-permissions
     command: sh -c "chown -R 1000:1000 /shared/rpz && chmod -R 775 /shared/rpz && touch /shared/rpz/.gitkeep && chown 1000:1000 /shared/forward-zones.conf && chmod 664 /shared/forward-zones.conf"
     volumes:
@@ -173,7 +173,7 @@ services:
   # These run by default - no profile needed
 
   postgres:
-    image: postgres:16.13-alpine
+    image: postgres:16.15-alpine
     container_name: powerblockade-postgres
     restart: unless-stopped
     environment:
@@ -221,7 +221,7 @@ services:
       - ./recursor/forward-zones.conf:/shared/forward-zones.conf
 
   prometheus:
-    image: prom/prometheus:v3.11.0
+    image: prom/prometheus:v3.13.2
     container_name: powerblockade-prometheus
     restart: unless-stopped
     command:
@@ -235,7 +235,7 @@ services:
       - "9090"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.0.6
     container_name: powerblockade-grafana
     restart: unless-stopped
     environment:
