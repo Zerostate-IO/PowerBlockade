@@ -468,7 +468,13 @@ set_kv "NODE_NAME" "$node_name"
 set_kv "ADMIN_USERNAME" "$admin_username"
 set_kv "ADMIN_PASSWORD" "$admin_password"
 set_kv "ADMIN_SECRET_KEY" "$(rand_b64 48)"
-set_kv "POSTGRES_PASSWORD" "$(rand_b64 24)"
+# Keep DATABASE_URL in sync with the generated postgres credentials, or fresh
+# installs fail auth (observed in the release runtime gate, 2026-08-18).
+PG_PASSWORD=$(rand_b64 24)
+PG_USER=$(get_kv "POSTGRES_USER" "powerblockade")
+PG_DB=$(get_kv "POSTGRES_DB" "powerblockade")
+set_kv "POSTGRES_PASSWORD" "$PG_PASSWORD"
+set_kv "DATABASE_URL" "postgresql+psycopg://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB}"
 set_kv "RECURSOR_API_KEY" "$(rand_b64 24)"
 set_kv "PRIMARY_API_KEY" "$(rand_b64 24)"
 set_kv "GRAFANA_ADMIN_PASSWORD" "$(rand_b64 18)"

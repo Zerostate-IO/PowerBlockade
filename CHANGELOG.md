@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantees.
 
+## [Unreleased]
+
+### Fixed
+
+- Fresh installs no longer fail postgres authentication: `init-env.sh` now
+  regenerates `DATABASE_URL` in sync with the generated `POSTGRES_PASSWORD`
+  (previously the `.env.example` default `change-me` was left in the URL,
+  breaking admin-ui against a freshly initialized database)
+
 ## [0.8.0] - 2026-08-17
+
 
 > **Release Type**: Minor Release
 > **Upgrade Safety**: Safe upgrade; secondary nodes should be re-deployed from a
