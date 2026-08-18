@@ -256,11 +256,17 @@ class TestZipStructure:
             )
 
     def test_env_embeds_release_version_not_latest(self) -> None:
-        """Generated .env must pin the release version, not 'latest'."""
+        """Generated .env must pin the app's own release version, not 'latest'."""
+        from app.settings import get_settings
+
         z = _make_zip()
         env = z.read(".env").decode()
-        assert "POWERBLOCKADE_VERSION=" in env
+        expected = f"POWERBLOCKADE_VERSION={get_settings().pb_version}"
+        assert expected in env, f"expected {expected!r} in .env"
         assert "POWERBLOCKADE_VERSION=latest" not in env
+        # Sanity: it must look like a semver tag, not a stale fixed value
+        version = get_settings().pb_version
+        assert version.startswith("v") and version.count(".") == 2
 
     def test_compose_pins_dnsdist_patch(self) -> None:
         """The embedded dnsdist must be version-pinned (security advisory line)."""
@@ -273,8 +279,12 @@ class TestZipStructure:
         """dnsdist must refuse to start when the recursor is not ready."""
         z = _make_zip()
         entrypoint = z.read("docker-entrypoint.sh").decode()
+        # The fail-closed guard: ready flag checked, then exit 1 before exec
+        assert 'if [ "$recursor_ready" != "true" ]; then' in entrypoint
         assert "refusing to start dnsdist without a backend" in entrypoint
         assert "exit 1" in entrypoint
+        # The timeout loop must track readiness, not just sleep through it
+        assert "recursor_ready=true" in entrypoint
 
     def test_compose_has_metrics_buffer_volume(self) -> None:
         """sync-agent metrics buffer must survive container recreation."""
