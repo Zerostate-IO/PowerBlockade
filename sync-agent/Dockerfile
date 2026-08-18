@@ -2,7 +2,7 @@ FROM python:3.14-alpine
 
 WORKDIR /app
 
-ARG PB_VERSION=v0.8.0
+ARG PB_VERSION=v0.9.0
 ARG PB_GIT_SHA=unknown
 ARG PB_BUILD_DATE=unknown
 

@@ -7,18 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantees.
 
-## [Unreleased]
+## [0.9.0] - 2026-08-18
+
+> **Release Type**: Minor Release
+> **Upgrade Safety**: Safe upgrade; migration 0018 (`is_internal` column) applies
+> automatically on admin-ui start. No manual steps. Secondary nodes should
+> re-deploy from a freshly generated thin package to pick up the
+> `INTERNAL_SUBNETS` wiring.
 
 ### Added
 
 - **Internal-traffic flag (`is_internal`, issue #48)**: dnstap-processor flags
   events whose client is in an internal subnet (docker network etc.); the
-  analytics views (logs, domains, blocked, failures, history) and dashboard
-  rollups exclude them by default, with a "Show internal" toggle
-  (`?include_internal=1`) and per-node config via `INTERNAL_SUBNETS` (defaults
-  to `DOCKER_SUBNET`). Secondary precache warming no longer drowns the query
-  log with container IPs. Regression gate's internal-exclusion check fixed
-  (missing column + missing `::inet` cast).
+  analytics views (logs, domains, blocked, failures, history), client
+  dropdowns, dashboard rollups and raw-edge aggregates, the live query stream,
+  node counts, and precache stats exclude them by default, with a "Show
+  internal" toggle (`?include_internal=1`) on logs and domains. Per-node
+  config via `INTERNAL_SUBNETS` (compose defaults it to `DOCKER_SUBNET`).
+  Secondary precache warming no longer drowns the query log with container
+  IPs. Regression gate's internal-exclusion check fixed (missing column +
+  missing `::inet` cast + CIDR validation).
 
 ### Fixed
 
@@ -41,6 +49,14 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 - Release runtime gate: `!override` port mapping (was appending and binding
   `0.0.0.0:53` on runners), 240s admin-health poll, failure diagnostics dump,
   CSRF-aware login POST (urlencoded)
+- Dependabot refresh: 25 dependency PRs merged/reapplied — GitHub Actions
+  bumps (checkout 6, setup-python 6, setup-go 6, setup-uv 7, build-push 7,
+  metadata 6, buildx 4, qemu 4, upload-artifact 7, github-script 8), Docker
+  base images (python 3.14-alpine, golang 1.26, alpine 3.23), and constraint
+  floors (fastapi 0.135.3, pydantic 2.12.5, psycopg 3.3.3, httpx 0.28.1,
+  pytest 9.0.3, apscheduler 3.11.2, jinja2 3.1.6, dnspython 2.8.0,
+  requests 2.33.1, miekg/dns 1.1.72, bbolt 1.4.3, go-powerdns-protobuf 1.6.1,
+  pytest-playwright 0.7.2, pytest-asyncio 1.3.0, python-multipart 0.0.26)
 
 ## [0.8.0] - 2026-08-17
 
