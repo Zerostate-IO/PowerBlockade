@@ -300,11 +300,10 @@ jobs:
 
       - name: Verify admin runtime health
         run: |
-          # admin-ui runs 'alembic upgrade head' before uvicorn listens, and has
-          # no healthcheck, so container 'Up' status is not enough. Poll /health
-          # for up to 90s before the one-shot page checks (observed flake on
-          # the v0.8.0 dispatch, 2026-08-18).
-          for i in $(seq 1 45); do
+          # admin-ui runs 'alembic upgrade head' before uvicorn listens; on a
+          # fresh DB the full migration batch takes 1-2 minutes. Poll /health
+          # for up to 240s before the one-shot page checks.
+          for i in $(seq 1 120); do
             health_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:18080/health" 2>/dev/null || echo "000")
             if [[ "$health_code" == "200" ]]; then
               echo "admin-ui /health OK after $((i * 2))s"

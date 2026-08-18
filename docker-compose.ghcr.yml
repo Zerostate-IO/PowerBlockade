@@ -213,6 +213,14 @@ services:
       - "${ADMIN_PORT:-8080}:8080"
     expose:
       - "8080"
+    healthcheck:
+      # admin-ui runs alembic migrations before uvicorn listens, so a
+      # readiness check must hit the app itself (no curl in the image).
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health', timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
     depends_on:
       init-permissions:
         condition: service_completed_successfully
