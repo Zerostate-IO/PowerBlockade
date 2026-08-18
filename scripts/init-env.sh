@@ -144,9 +144,11 @@ rand_b64() {
 set_kv() {
   local key="$1"
   local value="$2"
-  # Escape special characters in value for safe Perl substitution
+  # Escape special characters in value for safe Perl substitution.
+  # '&', '/', '\' are substitution metacharacters; '@' and '$' must also be
+  # escaped or perl interpolates them (e.g. @postgres -> empty array).
   local escaped_value
-  escaped_value=$(printf '%s' "$value" | sed 's/[&/\\]/\\&/g')
+  escaped_value=$(printf '%s' "$value" | sed 's/[&/\\@$]/\\&/g')
   # Remove existing key if present
   if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
     perl -0777 -i -pe "s|^${key}=.*\$|${key}=${escaped_value}|m" "$ENV_FILE"
