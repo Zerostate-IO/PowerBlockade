@@ -293,3 +293,32 @@ class TestZipStructure:
         sync_section = compose[compose.index("sync-agent:") :]
         assert "metrics-buffer:/var/lib/powerblockade" in sync_section
         assert "metrics-buffer:" in compose[compose.index("volumes:") :]
+
+    def test_zip_entry_modes(self) -> None:
+        """ZIP entries must unpack with usable permissions for non-root users.
+
+        dnsdist runs as 'pdns', sync-agent as uid 1000; restrictive default
+        modes broke the bowlister v0.8.0 deploy (entrypoint + configs).
+        """
+        z = _make_zip()
+
+        def mode(name: str) -> int:
+            return (z.getinfo(name).external_attr >> 16) & 0o777
+
+        assert mode("docker-entrypoint.sh") == 0o755
+        assert mode(".env") == 0o600  # secrets: owner-only
+        assert mode("config/recursor.conf") == 0o644
+        assert mode("config/dnsdist.conf.template") == 0o644
+        assert mode("config/forward-zones.conf") == 0o664
+        assert mode("config/rpz.lua") == 0o644
+        assert mode("rpz/") == 0o775  # sync-agent must be able to write RPZ files
+
+    def test_compose_has_init_permissions(self) -> None:
+        """Generated compose must bootstrap rpz/config ownership for uid 1000."""
+        z = _make_zip()
+        compose = z.read("docker-compose.ghcr.yml").decode()
+        assert "init-permissions:" in compose
+        assert "chown -R 1000:1000 /shared/rpz" in compose
+        sync_section = compose[compose.index("sync-agent:") :]
+        assert "init-permissions:" in sync_section
+        assert "service_completed_successfully" in sync_section

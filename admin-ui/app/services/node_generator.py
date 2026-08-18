@@ -38,6 +38,15 @@ def generate_secondary_package_zip(
     compose = textwrap.dedent(
         """\
         services:
+          init-permissions:
+            image: busybox:1.38.0
+            container_name: powerblockade-init-permissions
+            command: sh -c "chown -R 1000:1000 /shared/rpz && chmod -R 775 /shared/rpz && touch /shared/rpz/.gitkeep && chown 1000:1000 /shared/forward-zones.conf && chmod 664 /shared/forward-zones.conf"
+            volumes:
+              - ./rpz:/shared/rpz
+              - ./config/forward-zones.conf:/shared/forward-zones.conf
+            restart: "no"
+
           dnsdist:
             image: powerdns/dnsdist-20:2.0.8
             restart: unless-stopped
@@ -145,6 +154,8 @@ def generate_secondary_package_zip(
               - ./rpz:/rpz
               - metrics-buffer:/var/lib/powerblockade
             depends_on:
+              init-permissions:
+                condition: service_completed_successfully
               recursor:
                 condition: service_healthy
 
@@ -306,16 +317,28 @@ def generate_secondary_package_zip(
 
     forward_zones = "# managed by primary\n"
 
+    def _entry(name: str, content: str, mode: int) -> zipfile.ZipInfo:
+        """Zip entry with explicit permissions.
+
+        Default writestr() entries unpack with restrictive modes (0600) which
+        breaks containers running as non-root users (dnsdist runs as 'pdns',
+        sync-agent as uid 1000) - observed on the bowlister v0.8.0 deploy.
+        """
+        info = zipfile.ZipInfo(name)
+        info.external_attr = (mode & 0xFFFF) << 16
+        return info
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.writestr("docker-compose.ghcr.yml", compose)
-        z.writestr(".env", env)
-        z.writestr("README.md", readme)
-        z.writestr("config/recursor.conf", recursor_conf)
-        z.writestr("config/dnsdist.conf.template", dnsdist_conf_template)
-        z.writestr("docker-entrypoint.sh", docker_entrypoint)
-        z.writestr("config/rpz.lua", rpz_lua)
-        z.writestr("config/forward-zones.conf", forward_zones)
-        z.writestr("rpz/.gitkeep", "")
+        z.writestr(_entry("docker-compose.ghcr.yml", compose, 0o644), compose)
+        z.writestr(_entry(".env", env, 0o600), env)  # secrets: owner-only
+        z.writestr(_entry("README.md", readme, 0o644), readme)
+        z.writestr(_entry("config/recursor.conf", recursor_conf, 0o644), recursor_conf)
+        z.writestr(_entry("config/dnsdist.conf.template", dnsdist_conf_template, 0o644), dnsdist_conf_template)
+        z.writestr(_entry("docker-entrypoint.sh", docker_entrypoint, 0o755), docker_entrypoint)
+        z.writestr(_entry("config/rpz.lua", rpz_lua, 0o644), rpz_lua)
+        z.writestr(_entry("config/forward-zones.conf", forward_zones, 0o664), forward_zones)
+        z.writestr(_entry("rpz/", "", 0o775), "")
+        z.writestr(_entry("rpz/.gitkeep", "", 0o664), "")
 
     return buf.getvalue()
