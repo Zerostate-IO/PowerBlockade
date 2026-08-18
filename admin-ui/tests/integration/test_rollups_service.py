@@ -330,9 +330,16 @@ class TestGetDashboardStats:
         pg_session.add(rollup)
         pg_session.commit()
 
+        # Edge event must land in the CURRENT partial hour for the raw-edge
+        # aggregate to include it; clamp when the run straddles an hour
+        # boundary (now - 5min can fall into the previous hour, e.g. 08:02).
+        edge_ts = now - timedelta(minutes=5)
+        if edge_ts.hour != now.hour or edge_ts.date() != now.date():
+            edge_ts = now.replace(minute=1, second=0, microsecond=0)
+
         recent_event = DNSQueryEvent(
             id=9002,
-            ts=now - timedelta(minutes=5),
+            ts=edge_ts,
             client_ip="192.168.1.60",
             qname="recent.example.com",
             qtype=1,
