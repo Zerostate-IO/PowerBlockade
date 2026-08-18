@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.7.6"
+VERSION="0.8.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="$PROJECT_DIR/.powerblockade"
@@ -33,11 +33,17 @@ get_current_version() {
 }
 
 get_compose_files() {
-    local files="-f compose.yaml"
-    if [[ -f "$PROJECT_DIR/compose.user.yaml" ]]; then
-        files="$files -f compose.user.yaml"
+    local files=""
+    # Prefer the canonical GHCR compose file when present (production deploys).
+    if [[ -f "$PROJECT_DIR/docker-compose.ghcr.yml" ]]; then
+        files="-f docker-compose.ghcr.yml"
+    elif [[ -f "$PROJECT_DIR/compose.yaml" ]]; then
+        files="-f compose.yaml"
     elif [[ -f "$PROJECT_DIR/docker-compose.yml" ]]; then
         files="-f docker-compose.yml"
+    fi
+    if [[ -f "$PROJECT_DIR/compose.user.yaml" ]]; then
+        files="$files -f compose.user.yaml"
     fi
     echo "$files"
 }
@@ -79,14 +85,20 @@ backup_database() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
     local backup_file="$BACKUP_DIR/pre-upgrade-$timestamp.sql"
-    
+    # Honor non-default database/user names from .env
+    local pg_user pg_db
+    pg_user=$(grep -E '^POSTGRES_USER=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_user="${pg_user:-powerblockade}"
+    pg_db=$(grep -E '^POSTGRES_DB=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+    pg_db="${pg_db:-powerblockade}"
+
     log_info "Backing up database to $backup_file..."
-    
+
     cd "$PROJECT_DIR"
     local compose_files
     compose_files=$(get_compose_files)
-    
-    if $COMPOSE_CMD $compose_files exec -T postgres pg_dump -U powerblockade powerblockade > "$backup_file" 2>/dev/null; then
+
+    if $COMPOSE_CMD $compose_files exec -T postgres pg_dump -U "$pg_user" "$pg_db" > "$backup_file" 2>/dev/null; then
         log_success "Database backup complete: $backup_file"
         echo "$backup_file"
     else
@@ -104,15 +116,20 @@ backup_config() {
     
     cd "$PROJECT_DIR"
     local files_to_backup=""
-    [[ -d shared/rpz ]] && files_to_backup="$files_to_backup shared/rpz"
-    [[ -d shared/forward-zones ]] && files_to_backup="$files_to_backup shared/forward-zones"
+    [[ -d recursor/rpz ]] && files_to_backup="$files_to_backup recursor/rpz"
+    [[ -f recursor/forward-zones.conf ]] && files_to_backup="$files_to_backup recursor/forward-zones.conf"
     [[ -f .env ]] && files_to_backup="$files_to_backup .env"
     
     if [[ -n "$files_to_backup" ]]; then
-        tar -czf "$backup_file" $files_to_backup 2>/dev/null || true
-        log_success "Config backup complete: $backup_file"
-        echo "$backup_file"
+        if tar -czf "$backup_file" $files_to_backup; then
+            log_success "Config backup complete: $backup_file"
+            echo "$backup_file"
+        else
+            log_error "Config backup failed"
+            echo ""
+        fi
     else
+        log_warn "No config files found to back up"
         echo ""
     fi
 }
