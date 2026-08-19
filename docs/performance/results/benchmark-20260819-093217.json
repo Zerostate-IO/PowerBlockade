@@ -1,0 +1,270 @@
+{
+  "benchmark_id": "bm-20260819-093217",
+  "run_at": "2026-08-19T16:32:17Z",
+  "script_version": "2.0.0",
+  "config": {
+    "target": "127.0.0.1",
+    "port": 53,
+    "mode": "all",
+    "clear_mode": "console",
+    "corpus": "control-domains.txt",
+    "duration_seconds": 60
+  },
+  "environment": {
+    "hostname": "songbird",
+    "os": "Linux",
+    "kernel": "7.1.8-200.fc44.x86_64",
+    "dnsperf_version": "2.15.0"
+  },
+  "prerequisites": {
+    "dnsperf": {
+      "installed": true,
+      "version": "2.15.0"
+    },
+    "jq": {
+      "installed": true
+    },
+    "bc": {
+      "installed": true
+    },
+    "dig": {
+      "installed": true
+    },
+    "docker": {
+      "installed": true
+    },
+    "network_access": {
+      "ok": true,
+      "latency_ms": 97
+    }
+  },
+  "stats_sources": {
+    "dnsdist": "dnsdist-console",
+    "recursor": "rec_control"
+  },
+  "precache_pause": "restore-failed",
+  "phases": {
+    "cold_cache": {
+      "implemented": true,
+      "passed": true,
+      "metrics": {
+        "queries_sent": 51780,
+        "queries_completed": 51777,
+        "queries_lost": 3,
+        "run_time_s": 60.000038,
+        "qps_actual": 862.949453,
+        "avg_latency_ms": 1.577,
+        "min_latency_ms": 0.025,
+        "max_latency_ms": 1511.501,
+        "stddev_ms": 29.921,
+        "p50_latency_ms": 0.099,
+        "p95_latency_ms": 0.159,
+        "p99_latency_ms": 0.287,
+        "histogram_samples": 51777,
+        "percentile_method": "dnsperf -O latency-histogram buckets, bucket upper bound (ms)",
+        "success_rate_pct": 100
+      },
+      "counter_deltas": {
+        "dnsdist": {
+          "hits": 51488,
+          "misses": 292,
+          "total": 51780,
+          "hit_ratio_pct": 99.4
+        },
+        "recursor_packetcache": {
+          "hits": 61,
+          "misses": 291,
+          "total": 352,
+          "hit_ratio_pct": 17.3
+        },
+        "recursor_recordcache": {
+          "hits": 1,
+          "misses": 290,
+          "total": 291,
+          "hit_ratio_pct": 0.3
+        }
+      },
+      "thresholds": {
+        "p50_limit_ms": 20,
+        "p95_limit_ms": 100,
+        "p99_limit_ms": 200
+      },
+      "clear": {
+        "mode": "console",
+        "verified_empty": true,
+        "stats_sources": {
+          "dnsdist": "dnsdist-console",
+          "recursor": "rec_control"
+        }
+      },
+      "regressions": []
+    },
+    "warm_cache": {
+      "implemented": true,
+      "passed": true,
+      "metrics": {
+        "queries_sent": 259527,
+        "queries_completed": 259527,
+        "queries_lost": 0,
+        "run_time_s": 60.000030,
+        "qps_actual": 4325.447837,
+        "avg_latency_ms": 0.293,
+        "min_latency_ms": 0.019,
+        "max_latency_ms": 1501.189,
+        "stddev_ms": 18.631,
+        "p50_latency_ms": 0.049,
+        "p95_latency_ms": 0.093,
+        "p99_latency_ms": 0.147,
+        "histogram_samples": 259527,
+        "percentile_method": "dnsperf -O latency-histogram buckets, bucket upper bound (ms)",
+        "success_rate_pct": 100
+      },
+      "counter_deltas": {
+        "dnsdist": {
+          "hits": 259387,
+          "misses": 140,
+          "total": 259527,
+          "hit_ratio_pct": 99.9
+        },
+        "recursor_packetcache": {
+          "hits": 60,
+          "misses": 140,
+          "total": 200,
+          "hit_ratio_pct": 30
+        },
+        "recursor_recordcache": {
+          "hits": 0,
+          "misses": 140,
+          "total": 140,
+          "hit_ratio_pct": 0
+        }
+      },
+      "thresholds": {
+        "p50_limit_ms": 5,
+        "p95_limit_ms": 20,
+        "p99_limit_ms": 50,
+        "cache_hit_limit_pct": 90
+      },
+      "regressions": []
+    },
+    "saturation": {
+      "implemented": true,
+      "passed": true,
+      "method": "dnsperf-sustained",
+      "metrics": {
+        "queries_sent": 1037873,
+        "queries_completed": 1037747,
+        "queries_lost": 126,
+        "run_time_s": 122.136166,
+        "qps_actual": 8496.639726,
+        "avg_latency_ms": 0.554,
+        "min_latency_ms": 0.018,
+        "max_latency_ms": 3000.788,
+        "stddev_ms": 29.031,
+        "p50_latency_ms": 0.044,
+        "p95_latency_ms": 0.069,
+        "p99_latency_ms": 0.191,
+        "histogram_samples": 1037747,
+        "percentile_method": "dnsperf -O latency-histogram buckets, bucket upper bound (ms)",
+        "max_qps_sustained": 8496.639726,
+        "latency_at_50pct_ms": 0.044,
+        "error_rate_pct": 0.01,
+        "duration_seconds": 120
+      },
+      "thresholds": {
+        "min_qps": 5000
+      },
+      "regressions": []
+    },
+    "time_to_warm": null
+  },
+  "baseline": {
+    "cache_occupancy": {
+      "dnsdist_packetcache": {
+        "entries": 1,
+        "capacity": 500000,
+        "utilization_pct": 0
+      },
+      "recursor_recordcache": {
+        "entries": 70,
+        "capacity": 2000000,
+        "utilization_pct": 0
+      },
+      "recursor_packetcache": {
+        "entries": 2,
+        "capacity": 1000000,
+        "utilization_pct": 0
+      }
+    },
+    "containers": [
+      {
+        "name": "powerblockade-dnsdist",
+        "mem_usage": "40.09MiB / 30.86GiB",
+        "cpu_pct": "0.07%"
+      },
+      {
+        "name": "powerblockade-admin-ui",
+        "mem_usage": "107.1MiB / 30.86GiB",
+        "cpu_pct": "0.63%"
+      },
+      {
+        "name": "powerblockade-dnstap-processor",
+        "mem_usage": "14.01MiB / 30.86GiB",
+        "cpu_pct": "0.61%"
+      },
+      {
+        "name": "powerblockade-grafana",
+        "mem_usage": "140.2MiB / 30.86GiB",
+        "cpu_pct": "1.85%"
+      },
+      {
+        "name": "powerblockade-recursor-reloader",
+        "mem_usage": "2.031MiB / 30.86GiB",
+        "cpu_pct": "0.00%"
+      },
+      {
+        "name": "powerblockade-postgres",
+        "mem_usage": "33.71MiB / 30.86GiB",
+        "cpu_pct": "0.04%"
+      },
+      {
+        "name": "powerblockade-recursor",
+        "mem_usage": "22.28MiB / 30.86GiB",
+        "cpu_pct": "0.04%"
+      },
+      {
+        "name": "powerblockade-prometheus",
+        "mem_usage": "30.89MiB / 30.86GiB",
+        "cpu_pct": "0.17%"
+      }
+    ],
+    "host_memory": {
+      "mem_available_kb": 20713288,
+      "swap_free_kb": 5304344,
+      "swap_total_kb": 8388604,
+      "pswpin_pages": 46074,
+      "pswpout_pages": 829733
+    },
+    "recursor_threads_cpu_msec": {
+      "cpu_msec_thread_0": 243,
+      "cpu_msec_thread_1": 928,
+      "cpu_msec_thread_2": 966,
+      "cpu_msec_thread_3": 942,
+      "cpu_msec_thread_4": 981,
+      "cpu_msec_thread_5": 34,
+      "cpu_msec_thread_6": 36
+    },
+    "dnstap_processor": "healthy",
+    "stats_sources": {
+      "dnsdist": "dnsdist-console",
+      "recursor": "rec_control"
+    }
+  },
+  "summary": {
+    "passed": true,
+    "phases_run": 3,
+    "phases_passed": 3,
+    "phases_failed": 0,
+    "regressions": []
+  }
+}
