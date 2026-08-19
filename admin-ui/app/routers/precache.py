@@ -245,7 +245,9 @@ def update_precache_settings(
     set_setting(db, "precache_custom_refresh_minutes", str(custom_refresh))
     set_setting(db, "precache_dns_server", dns_server)
     set_setting(db, "precache_max_queries_per_pass", str(max_queries_per_pass))
-    set_setting(db, "precache_boot_burst_enabled", "true" if boot_burst_enabled == "true" else "false")
+    set_setting(
+        db, "precache_boot_burst_enabled", "true" if boot_burst_enabled == "true" else "false"
+    )
     set_setting(db, "precache_boot_burst_concurrency", str(boot_burst_concurrency))
     set_setting(db, "precache_boot_burst_qps", str(boot_burst_qps))
 
