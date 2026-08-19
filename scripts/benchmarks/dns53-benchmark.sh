@@ -2683,6 +2683,12 @@ main() {
             else
                 log_fail "Skipping saturation phase: aborted after earlier failure"
             fi
+            # Methodology defines Time-to-Warm as Phase 4; "all" runs it too.
+            if [[ "$ABORT_REMAINING_PHASES" != "true" ]]; then
+                run_ttw_phase || true
+            else
+                log_fail "Skipping time-to-warm phase: aborted after earlier failure"
+            fi
             ;;
     esac
 
