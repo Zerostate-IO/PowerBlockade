@@ -168,17 +168,49 @@ parallelism.**
 
 ---
 
-## E3 — `refresh-on-ttl-perc=10` (recursor)
+## E3 — `refresh-on-ttl-perc=10` (recursor) — **VERDICT: REVERT (no measurable benefit behind dnsdist)**
 
 - **Hypothesis:** near-expiry record/packet-cache entries get background
   refresh tasks, so future queries never wait on an expired entry.
-- **Shielding caveat:** behind a ~99.9% edge, only a trickle of queries reach
-  the recursor; refresh opportunities are correspondingly rare. "No measurable
-  benefit behind dnsdist" is an acceptable outcome.
-- **Verification plan:** setting accepted (recursor logs / `rec_control get
-  refresh-on-ttl-perc` if exposed); signal = `all-outqueries` delta without
-  matching cache-miss delta during steady corpus load.
-- **Change / numbers / verdict:** filled after measurement.
+- **Directive name verified** against the 5.3.10 sources
+  (`/tmp/opencode/pdns-rec-5.3.10`): `refresh-on-ttl-perc` (table.py
+  `refresh_on_ttl_perc`, added 4.5.0, default 0, no separate old-style name;
+  the upstream regression suite itself runs it with `--enable-old-settings`).
+  The container starts with `--enable-old-settings`; an unknown directive
+  aborts startup (rec-main.cc parse path), so "recreated + healthy + directive
+  present in the rendered config" proves acceptance. (A pre-existing
+  ERROR-level "YAML config found, but error occurred processing it" line
+  appears on every start of this ini-style setup and is unrelated.)
+- **Direct counter discovered:** `taskqueue-pushed` / `taskqueue-expired` /
+  `taskqueue-size` (recursor metrics) count refresh tasks pushed by
+  `pushRefreshTask` (recursor_cache.cc `fakeTTD`) — a refresh-firing signal
+  that needs no inference.
+- **Method:** identical 240 s steady loads at 500 QPS target (~432 QPS
+  effective) over the corpus, admin-ui precache job paused via the same
+  settings-row mechanism the harness uses (restored after). AFTER side primed
+  60 s first so its window is steady-state like BEFORE.
+- **Numbers (recursor `rec_control get` deltas over the 240 s window):**
+
+  | Window | all-outqueries Δ | cache-misses Δ | taskqueue-pushed Δ |
+  |---|---|---|---|
+  | BEFORE (refresh off) | +714 | +528 | +0 |
+  | AFTER (refresh=10) | +440 | +367 | **+0** |
+
+  One refresh task fired during the AFTER primer (taskqueue-pushed 0→1 in the
+  60 s fill), then zero additional tasks in the 240 s window (~104k queries
+  served). No outqueries-without-misses signal appeared in the window.
+- **Mechanism (why it cannot fire here):** dnsdist edge entries and recursor
+  record entries are created by the same miss at the same instant and age in
+  lockstep; when the edge entry finally expires, the query that reaches the
+  recursor finds the inner entry either still comfortably fresh or already
+  expired — almost never inside the "≤10% TTL remaining" band that triggers a
+  refresh task. The shielding caveat predicted exactly this.
+- **Verdict: REVERT.** Benefit ≈ one background refetch per 5 min (zero client
+  impact); cost ≈ zero — flat in both directions, so per the decision rule
+  (keep only measured wins) the directive is removed and the simpler config
+  retained. Rollback state: template restored (directive absent, diff clean),
+  recursor+dnsdist recreated and healthy, precache settings row removed
+  (app default re-applies).
 
 ---
 
