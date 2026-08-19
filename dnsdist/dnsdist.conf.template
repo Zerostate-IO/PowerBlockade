@@ -48,12 +48,17 @@ local pc = newPacketCache(500000, {
     maxTTL=86400,        -- 24h max cache (rollback: 3600)
     minTTL=1,            -- Minimum 1 second (unchanged)
     temporaryFailureTTL=5, -- Cache SERVFAIL briefly (unchanged)
-    staleTTL=60,         -- Serve stale for 60s during outage (rollback: 0)
+    staleTTL=300,        -- Serve stale for 300s during outage (rollback: 60)
     dontAge=false,       -- Entries age normally (unchanged)
-    shuffle=true         -- Randomize RR order (unchanged)
+    shuffle=true,        -- Randomize RR order (unchanged)
+    -- Required for staleTTL to actually deliver: without this the cache
+    -- cleaner purges expired entries on its ~60s cadence (before the stale
+    -- window can be used). With it, purging pauses while ALL backends of a
+    -- pool are down (dnsdist 2.0.8 dnsdist.cc cache-maintenance logic).
+    keepStaleData=true
 })
 getPool(''):setCache(pc)
-setStaleCacheEntriesTTL(60)  -- Max age of stale entries (rollback: 0)
+setStaleCacheEntriesTTL(300)  -- Max age of stale entries (rollback: 60)
 
 -- ============================================================
 -- DNSTAP LOGGING

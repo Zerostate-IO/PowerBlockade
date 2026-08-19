@@ -214,13 +214,60 @@ parallelism.**
 
 ---
 
-## E4 — Stale depth 60/60 → 300/300
+## E4 — Stale depth 60/60 → 300/300 — **VERDICT: KEEP (as 300/300 + `keepStaleData=true`)**
 
 - **Hypothesis:** `staleTTL=300` + `setStaleCacheEntriesTTL(300)` extends the
   stale-serving window after backend loss from ~60 s to ~300 s per entry.
-- **Test design:** recursor stopped → repeated `dig` of previously cached
-  domains through the edge → stale answers (decrementing TTLs) must continue
-  for up to ~300 s past expiry; error rate sampled over the outage window;
-  recursor restarted → fresh answers with restored TTLs (refreshed);
-  warm-mode benchmark afterwards proves no healthy-path regression.
-- **Change / numbers / verdict:** filled after measurement.
+- **Round A finding (300/300 alone is NOT enough):** with the raised values
+  but default `keepStaleData=false`, the first stale-test (recursor stopped at
+  entry-expiry+6 s) showed netflix.com (TTL 60) FAILING immediately while
+  unexpired entries served normally, and google.com serving stale only from
+  expiry until expiry+31 s, then purged. Source root cause: dnsdist's cache
+  maintenance thread purges expired entries every `cacheCleaningDelay` (60 s
+  default) *unless* the cache sets `keepStaleData=true` and the pool has all
+  backends down (dnsdist.cc cache-maintenance; `shouldKeepStaleData()` in
+  dnsdist-backend.cc returns true only when `countServers(true)==0`). The
+  stale lookup path itself is fine (`allowExpired = d_staleCacheEntriesTTL`
+  when no backend is selected; single-server `firstAvailable` falls through
+  `leastOutstanding`, which returns nullptr with all servers down). Practical
+  implication: **the stack's previous 60 s stale configuration never delivered
+  its 60 s — the effective window was at most one cleaning cycle (observed
+  ≤31 s).**
+- **Applied change:** `newPacketCache(..., staleTTL=300, keepStaleData=true)`
+  + `setStaleCacheEntriesTTL(300)`.
+- **Round B test (keepStaleData=true):** entries primed fresh at t0
+  (google 300 s / spotify 277 s / apple 900 s / microsoft 3600 s TTL), recursor
+  stopped at t0+310 s (10 s after google/spotify expiry), probe loop every
+  ~22 s through the window:
+
+  | t | google | spotify | apple | microsoft | uncached probe |
+  |---|---|---|---|---|---|
+  | +310 | FAIL | 300 (stale) | 588 | 3288 | FAIL |
+  | +334 … +555 | 300 (stale) | 300 (stale) | fresh, counting down | fresh, counting down | FAIL |
+  | +577 | 300 | FAIL (~285 s stale) | 345 | 3045 | FAIL |
+  | +601 | FAIL (~301 s stale) | FAIL | 295 | 2995 | FAIL |
+
+  Stale window = **the full 300 s per entry** (google: stale until 301 s past
+  expiry, then FAIL; spotify identical 25 s earlier). During the outage the
+  cache answered everything it had; uncached names failed as expected (no
+  backend, nothing to serve). Recovery: recursor restarted → uncached names
+  resolve again, TTLs restored fresh (google 300, netflix 60).
+- **Healthy-path regression check (official harness, warm):**
+
+  | Metric | Official baseline | Anchor | E4 (300/300+keepStale) |
+  |---|---|---|---|
+  | Warm p50 (ms) | 0.049 | 0.049 | 0.045 |
+  | Warm p95 (ms) | 0.093 | 0.101 | 0.105 |
+  | Warm p99 (ms) | 0.147 | 0.203 | 0.223 |
+  | Warm dnsdist hit % | 99.9 | 100.0 | 99.9 |
+  | Queries lost | 0 | 0 | 0 |
+
+  Phase passed; all percentiles inside the same-config noise band observed
+  across the battery (warm p99 spanned 0.135–0.223 on configs that measured
+  flat-to-better on every other axis).
+- **Verdict: KEEP.** Resilience win of 5× (300 s vs ≤31 s effective) with no
+  healthy-path regression. The keep includes `keepStaleData=true`, without
+  which the staleTTL raise is cosmetic — that interaction is the main finding
+  of this experiment. Rollback: restore `staleTTL=60`,
+  `setStaleCacheEntriesTTL(60)`, remove `keepStaleData=true`, recreate
+  dnsdist.
