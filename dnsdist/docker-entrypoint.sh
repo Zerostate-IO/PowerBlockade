@@ -64,7 +64,27 @@ sed -e "s/\${RECURSOR_IP}/$RECURSOR_IP_ESC/g" \
 # The generated config embeds the webserver password; keep it private.
 chmod 600 /tmp/dnsdist.conf
 
-echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP, webserver=$DNSDIST_WEB_ADDRESS:8083"
+# Optional console (off unless DNSDIST_CONSOLE_KEY is set).
+# Bound to 127.0.0.1 inside the container, so it is reachable only via
+# `docker exec` (never published). Used by scripts/benchmarks/dns53-benchmark.sh
+# for non-disruptive packet-cache clears and cache statistics.
+# Generate with: head -c 32 /dev/urandom | base64 -w0
+if [[ -n "$DNSDIST_CONSOLE_KEY" ]]; then
+    if [[ "$DNSDIST_CONSOLE_KEY" =~ ^[A-Za-z0-9+/=]+$ ]]; then
+        cat >> /tmp/dnsdist.conf <<CONF
+
+-- Console (opt-in via DNSDIST_CONSOLE_KEY; localhost-only inside container)
+setKey("$DNSDIST_CONSOLE_KEY")
+controlSocket("127.0.0.1:5199")
+CONF
+        echo "Console enabled on 127.0.0.1:5199 (key configured)"
+    else
+        echo "ERROR: DNSDIST_CONSOLE_KEY is not valid base64; refusing to enable console" >&2
+        exit 1
+    fi
+fi
+
+echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP, webserver=$DNSDIST_WEB_ADDRESS:8083$( [[ -n "$DNSDIST_CONSOLE_KEY" ]] && echo ', console=127.0.0.1:5199' )"
 
 check_dnstap() {
     timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_PROCESSOR_IP/$DNSTAP_PORT" 2>/dev/null

@@ -6,11 +6,15 @@ Repeatable benchmark procedures for PowerBlockade DNS performance testing. This 
 
 | Phase | Purpose | Cache State | Duration |
 |-------|---------|-------------|----------|
-| Cold Cache | Baseline resolution performance | Empty | 60s |
+| Cold Cache | Baseline resolution performance | Empty (both layers, verified) | 60s |
 | Warm Cache | Cached resolution performance | Primed | 60s |
 | Saturation | Maximum throughput / stress | Mixed | 120s |
+| Time-to-Warm | Cold -> stably-warm transition | Cleared -> warming | 5 x 30s windows (default) |
 
-**Tools required**: `dnsperf`, `resperf` (DNS-OARC), `dig`, `rec_control`
+**Tools required**: `dnsperf >= 2.14.0` (DNS-OARC), `dig`, `docker` (cache
+clearing and counters via the compose containers), `jq`, `bc`. dnsperf must
+be built with Concurrency Kit histograms (`-O latency-histogram`); the
+harness fails loudly when percentiles are unavailable.
 
 ## Corpus Construction
 
@@ -81,35 +85,78 @@ Measures baseline resolution performance with empty cache.
 
 **Pre-conditions**:
 - Recursor running for at least 30 seconds
-- No prior queries in cache
+- BOTH cache layers empty (dnsdist packet cache AND recursor caches) —
+  verified from live counters, never assumed
 
-**Flush procedure**:
+**Contract (fail-closed)**: every clearing step is verified before any
+traffic is sent; a failed or unverifiable clear aborts the phase instead of
+measuring a warm cache and calling it cold.
+
+**Prerequisite (console clearing)**: the dnsdist console must be enabled.
+Set `DNSDIST_CONSOLE_KEY` in `.env` (generate with
+`head -c 32 /dev/urandom | base64 -w0`) and recreate the dnsdist container;
+its entrypoint appends `setKey(...)` + `controlSocket("127.0.0.1:5199")` to
+the generated config. The console is reachable only via `docker exec`
+inside the container. Without it the harness fails closed with a fix-it
+message (the only alternative is the destructive restart mode below).
+
+**Flush procedure (non-disruptive, default)**:
 ```bash
-# Flush recursor cache via API
-rec_control --socket-dir=/var/run/pdns-recursor \
-  --apikey=${RECURSOR_API_KEY} \
-  wipe-cache '$'
+# 1. Recursor: wipe record + packet + negative caches
+docker compose exec recursor rec_control \
+  --socket-dir=/var/run/pdns-recursor wipe-cache '$'
 
-# Alternative: restart recursor (more thorough)
-docker compose restart recursor
-sleep 10  # Wait for recursor to be ready
+# 2. dnsdist: empty the packet cache of the default pool via the console.
+#    clearCache()/mvCacheToDownstream() do NOT exist in dnsdist 2.0.8;
+#    expunge(0) keeps 0 entries (verified against the 2.0.8 source).
+docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf \
+  -e "getPool(''):getCache():expunge(0)"
+
+# 3. Verify the floor from live counters (NOT from tool exit codes - the
+#    dnsdist console client exits 0 even on auth failure):
+#    dnsdist packet cache entries == 0
+#    recursor cache-entries and packetcache-entries <= 4 (tolerance for the
+#    recursor's background security-status poll, which repopulates 1-2
+#    entries for recursor-<v>.security-status.secpoll.powerdns.com within
+#    seconds of a wipe; those domains never intersect a benchmark corpus)
 ```
 
-**Run command**:
+**Restart clearing (destructive fallback)**: if console clearing is
+unavailable, the harness can clear via container restarts when invoked with
+the explicit opt-in `--clear-mode restart`. It refuses any other
+`--clear-mode` value, restarts ONLY the dnsdist and recursor containers,
+waits (bounded, default 180s) for BOTH to report healthy BEFORE any pre-run
+counters are taken, and then verifies both cache occupancies are at the
+floor. Manual checklist:
+
+| Step | Command / check | Gate |
+|------|-----------------|------|
+| 1 | Announce maintenance window (client connections drop) | operator |
+| 2 | `docker compose restart dnsdist recursor` | rc == 0 |
+| 3 | Poll `docker inspect --format='{{.State.Health.Status}}' dnsdist` until `healthy` | fail on timeout |
+| 4 | Same for `recursor` | fail on timeout |
+| 5 | Verify dnsdist entries == 0, recursor entries within housekeeping tolerance (<= 4) | fail closed |
+
+**Run command** (dnsperf has NO JSON output at any version; percentiles come
+from the latency histogram added in dnsperf 2.14.0 — the harness requires
+`dnsperf >= 2.14.0` and fails loudly on any unknown output format instead
+of nulling percentiles):
 ```bash
 dnsperf -s 127.0.0.1 -p 53 \
   -d docs/performance/corpus/control-domains.txt \
   -l 60 \
   -Q 1000 \
   -m udp \
-  -o json \
-  > results/cold-cache-$(date +%Y%m%d-%H%M%S).json
+  -O latency-histogram \
+  > results/cold-cache-$(date +%Y%m%d-%H%M%S).txt
 ```
 
 **Parameters**:
 - `-l 60`: 60 second duration
 - `-Q 1000`: Target 1000 queries/second (self-paced)
 - `-m udp`: UDP transport only (baseline)
+- `-O latency-histogram`: per-response latency buckets; p50/p95/p99 are
+  computed from the buckets (bucket upper bound, converted to ms)
 
 **Metrics collected**:
 | Metric | Description |
@@ -117,7 +164,7 @@ dnsperf -s 127.0.0.1 -p 53 \
 | `queries_sent` | Total queries issued |
 | `queries_completed` | Successful responses |
 | `queries_lost` | Timeouts/errors |
-| `avg_latency_ms` | Mean response time |
+| `avg_latency_ms` | Mean response time
 | `p50_latency_ms` | 50th percentile latency |
 | `p95_latency_ms` | 95th percentile latency |
 | `p99_latency_ms` | 99th percentile latency |
@@ -139,10 +186,6 @@ for i in 1 2 3; do
     > /dev/null
   sleep 2
 done
-
-# Verify cache hit ratio
-curl -s http://recursor:8082/api/v1/servers/localhost/statistics \
-  | jq '.[] | select(.name == "cache-hits") | .value'
 ```
 
 **Run command**:
@@ -152,63 +195,109 @@ dnsperf -s 127.0.0.1 -p 53 \
   -l 60 \
   -Q 5000 \
   -m udp \
-  -o json \
-  > results/warm-cache-$(date +%Y%m%d-%H%M%S).json
+  -O latency-histogram \
+  > results/warm-cache-$(date +%Y%m%d-%H%M%S).txt
 ```
 
 **Higher QPS target** reflects expected cache performance.
 
+**Cache hit ratios are computed from counter DELTAS**, never from absolute
+counters: a snapshot is taken immediately before the run and another after;
+per-layer ratio = `delta_hits / (delta_hits + delta_misses)`. This excludes
+warmup and background traffic from the measurement.
+
+| Layer | Counters | Pass gate (default) |
+|-------|----------|---------------------|
+| dnsdist packet cache | `hits`/`misses` from `getStats()` (console) or `/jsonstat` `pools[name=""]` | >= 90% (`DNS53_WARM_CACHE_HIT_PCT`) |
+| recursor packet cache | `packetcache-hits`/`packetcache-misses` | reported, not gated |
+| recursor record cache | `cache-hits`/`cache-misses` | reported, not gated |
+
+**Counter sources** (per layer, tried in order; the harness degrades with a
+clear message when a source is unavailable and fails closed if NO source
+works for a layer a phase needs):
+
+| Layer | Primary (works from the host on every branch) | Optional HTTP source |
+|-------|----------------------------------------------|----------------------|
+| dnsdist | console `getPool(''):getCache():getStats()` via `docker exec` (needs `DNSDIST_CONSOLE_KEY`) | `DNSDIST_STATS_URL` + `/jsonstat` with basic auth (`DNSDIST_WEB_PASSWORD`, any username; integration branch, compose-network only) |
+| recursor | `docker exec <recursor> rec_control --socket-dir=... get ...` (values-only output, order-preserving) | `RECURSOR_METRICS_URL` + `/metrics` with basic auth (`RECURSOR_WEB_PASSWORD`, any username) |
+
+**Warming quiesce**: the admin-ui precache warming job (fires every 5
+minutes) is paused during measurement by flipping
+`settings.precache_enabled` to `false` via psql in the postgres container —
+the same mechanism as the operations runbook's precache tuning. The job
+re-reads the setting each time it fires, so the pause takes effect at the
+next fire (bounded skew: a run already in flight when the flag flips can
+still finish; recorded in the result JSON as `precache_pause`). The HTTP
+alternative (`POST /precache/settings`) was rejected: it requires an
+authenticated admin session and rewrites every precache field with form
+defaults. The original setting is restored after the run (also on abnormal
+exit, via the harness's exit trap).
+
 **Additional metrics**:
 | Metric | Source |
 |--------|--------|
-| `cache_hit_ratio` | recursor API `/statistics` |
-| `cache_entries` | recursor API `/statistics` |
-| `cache_bytes` | recursor API `/statistics` |
-
-**Fetch cache statistics**:
-```bash
-curl -s http://recursor:8082/api/v1/servers/localhost/statistics \
-  -H "X-API-Key: ${RECURSOR_API_KEY}" \
-  | jq '{
-      cache_hits: (.[] | select(.name == "cache-hits") | .value),
-      cache_misses: (.[] | select(.name == "cache-misses") | .value),
-      cache_entries: (.[] | select(.name == "cache-entries") | .value)
-    }'
-```
+| `counter_deltas.dnsdist.hit_ratio_pct` | dnsdist console/jsonstat deltas |
+| `counter_deltas.recursor_packetcache.hit_ratio_pct` | recursor /metrics or rec_control deltas |
+| `counter_deltas.recursor_recordcache.hit_ratio_pct` | recursor /metrics or rec_control deltas |
+| `cache_entries` / occupancy | stats snapshot (baseline section) |
 
 ### Phase 3: Saturation
 
 Measures maximum throughput and behavior under load.
 
-**Run command (resperf)**:
-```bash
-resperf -s 127.0.0.1 -p 53 \
-  -d docs/performance/corpus/traffic-corpus-42.txt \
-  -m 100000 \
-  -i 1 \
-  -o json \
-  > results/saturation-$(date +%Y%m%d-%H%M%S).json
-```
+**Method**: sustained dnsperf load at fixed QPS (default 10000 for 2x the
+phase duration). resperf is NOT used: its text output could not be verified
+against a known format (the previous harness grepped for markers that do
+not exist in resperf's output and silently fell back); the repaired harness
+only parses formats it can validate and fails loudly otherwise.
 
-**Parameters**:
-- `-m 100000`: Maximum QPS target
-- `-i 1`: Increment QPS by 1 per second until failure
-
-**What it measures**:
-- Maximum sustainable QPS before degradation
-- Latency degradation curve under load
-- Error rate as load increases
-
-**Alternative: sustained high load with dnsperf**:
+**Run command**:
 ```bash
 dnsperf -s 127.0.0.1 -p 53 \
   -d docs/performance/corpus/traffic-corpus-42.txt \
   -l 120 \
   -Q 10000 \
   -m udp \
-  -o json \
-  > results/saturation-sustained-$(date +%Y%m%d-%H%M%S).json
+  -O latency-histogram \
+  > results/saturation-sustained-$(date +%Y%m%d-%H%M%S).txt
 ```
+
+**What it measures**:
+- Sustained throughput at the target rate (fallback: actual achieved QPS)
+- Latency degradation under load
+- Error/loss rate under load
+
+### Phase 4: Time-to-Warm
+
+Measures how long the stack takes to go from cold to stably-warm under
+continuous load.
+
+**Definition**: starting from a verified-cold state (both cache layers
+emptied and floor-verified, same procedure as Phase 1), drive continuous
+load in windows of `TTW_WINDOW_SECONDS` (default 30s) at `TTW_QPS`
+(default 500). A window **passes** when:
+
+- its dnsperf p99 <= `DNS53_TTW_P99_THRESHOLD_MS` (default 50ms), AND
+- the dnsdist packet-cache window hit ratio >= `DNS53_TTW_DNSDIST_HIT_PCT`
+  (default 90%), AND
+- the recursor packet-cache window hit ratio >=
+  `DNS53_TTW_PACKETCACHE_HIT_PCT` (default 90%), AND
+- the recursor record-cache window hit ratio >=
+  `DNS53_TTW_RECCACHE_HIT_PCT` (default 90%)
+
+All ratios are window-local counter DELTAS (snapshot at window boundaries).
+The stack counts as **warm** after `TTW_WINDOWS` (default 5) consecutive
+passing windows. **Time-to-warm** is the elapsed wall-clock time from the
+clear until the end of the final window of that streak. If no streak forms
+within `DNS53_TTW_MAX_WINDOWS` (default 40) windows, the phase fails with
+per-window diagnostics.
+
+Defaults: 5 windows x 30s = a criterion that must hold for 2.5 minutes of
+continuous load — long enough to ride out TTL/refresh transients, short
+enough for a practical maintenance-window measurement.
+
+The precache warming job is paused for this phase (same quiesce as Phase 2)
+so "warming" measures only the measurement load, not the admin-ui job.
 
 ## Output Schema
 
@@ -307,22 +396,23 @@ echo "Results: $RESULTS_DIR"
 
 # Pre-flight checks
 command -v dnsperf >/dev/null || { echo "ERROR: dnsperf not installed"; exit 1; }
-command -v rec_control >/dev/null || { echo "ERROR: rec_control not installed"; exit 1; }
+command -v jq >/dev/null || { echo "ERROR: jq not installed"; exit 1; }
+# dnsperf >= 2.14.0 required (-O latency-histogram; no JSON output exists)
 
-# Record baseline cache stats
-echo "Recording baseline..."
-curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
-  -H "X-API-Key: ${RECURSOR_API_KEY}" \
-  > "$RESULTS_DIR/baseline-stats.json"
+# Record baseline snapshot (occupancy, memory, threads, pipeline health)
+# ... dnsdist getStats() + recursor rec_control get + docker stats --no-stream
 
-# Phase 1: Cold Cache
+# Phase 1: Cold Cache (clear BOTH layers, verify floor, then measure)
 echo "Phase 1: Cold Cache"
-rec_control wipe-cache '$'
-sleep 2
+docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor wipe-cache '$'
+docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf \
+  -e "getPool(''):getCache():expunge(0)"
+# ... verify: dnsdist entries == 0, recursor entries within the
+#     housekeeping tolerance (abort if not)
 dnsperf -s 127.0.0.1 -p 53 \
   -d docs/performance/corpus/control-domains.txt \
-  -l 60 -Q 1000 -m udp -o json \
-  > "$RESULTS_DIR/cold-cache.json"
+  -l 60 -Q 1000 -m udp -O latency-histogram \
+  > "$RESULTS_DIR/cold-cache.txt"
 
 # Phase 2: Warm Cache
 echo "Phase 2: Warm Cache (warming up...)"
@@ -333,26 +423,23 @@ for i in 1 2 3; do
   sleep 2
 done
 
-curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
-  -H "X-API-Key: ${RECURSOR_API_KEY}" \
-  > "$RESULTS_DIR/pre-warm-stats.json"
+# Snapshot counters BEFORE the measured run (hit ratios use deltas)
+# ... record dnsdist getStats() + recursor rec_control get output
 
 dnsperf -s 127.0.0.1 -p 53 \
   -d docs/performance/corpus/control-domains.txt \
-  -l 60 -Q 5000 -m udp -o json \
-  > "$RESULTS_DIR/warm-cache.json"
+  -l 60 -Q 5000 -m udp -O latency-histogram \
+  > "$RESULTS_DIR/warm-cache.txt"
 
-curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
-  -H "X-API-Key: ${RECURSOR_API_KEY}" \
-  > "$RESULTS_DIR/post-warm-stats.json"
+# ... snapshot counters AFTER; compute per-layer delta hit ratios
 
-# Phase 3: Saturation (optional, requires larger corpus)
+# Phase 3: Saturation (sustained dnsperf; resperf output is not parsed)
 if [[ -f "docs/performance/corpus/traffic-corpus-42.txt" ]]; then
   echo "Phase 3: Saturation"
-  resperf -s 127.0.0.1 -p 53 \
+  dnsperf -s 127.0.0.1 -p 53 \
     -d docs/performance/corpus/traffic-corpus-42.txt \
-    -m 100000 -i 1 -o json \
-    > "$RESULTS_DIR/saturation.json"
+    -l 120 -Q 10000 -m udp -O latency-histogram \
+    > "$RESULTS_DIR/saturation.txt"
 else
   echo "Skipping Phase 3: traffic corpus not found"
 fi
@@ -421,7 +508,14 @@ USAGE:
 
 OPTIONS:
     --mode <mode>           Benchmark mode(s) to run (default: all)
-                            Values: cold, warm, saturation, all
+                            Values: cold, warm, saturation, time-to-warm, all
+
+    --clear-mode <mode>     Cache clearing for cold/time-to-warm (default: console)
+                              console - non-disruptive console + rec_control clear
+                                        (requires DNSDIST_CONSOLE_KEY; fails closed)
+                              restart - DESTRUCTIVE opt-in: docker restart both
+                                        containers, wait for health, verify floor;
+                                        any other value is refused (exit 3)
 
     --target <host>         DNS server address (default: 127.0.0.1)
 
@@ -432,14 +526,27 @@ OPTIONS:
     --duration <seconds>    Duration per phase in seconds (default: 60)
                             Saturation phase uses 2x this value
 
+    --warm-windows <n>      Time-to-warm: consecutive passing windows (default: 5)
+
+    --warm-window-seconds <s>
+                            Time-to-warm: window length (default: 30)
+
+    --ttw-qps <qps>         Time-to-warm: load level (default: 500)
+
+    --no-precache-pause     Skip pausing the admin-ui precache warming job
+
+    --strict-quiesce        Fail (exit 2) when precache cannot be paused
+
     --output <format>       Output format (default: json)
                             Values: json, markdown, both
 
     --results-dir <path>    Directory to save results (default: results/)
 
+    --self-test             Offline test suite (no docker, no dnsperf, no network)
+
     --help, -h              Show help message
 
-    --version, -v           Show version information
+    --version, -v           Show script version
 ```
 
 ### Exit Codes
@@ -447,9 +554,9 @@ OPTIONS:
 | Code | Meaning | Description |
 |------|---------|-------------|
 | 0 | SUCCESS | All phases passed, no regressions detected |
-| 1 | PHASE_FAILED | One or more phases failed (performance regression) |
-| 2 | PREREQ_FAILED | Prerequisites not met (missing tools, no network access) |
-| 3 | CONFIG_ERROR | Configuration error (invalid arguments, missing files) |
+| 1 | PHASE_FAILED | One or more phases failed (performance regression or output-parse failure) |
+| 2 | PREREQ_FAILED | Prerequisites not met (missing tools, no network access, failed/unverifiable cache clear, missing counter source) |
+| 3 | CONFIG_ERROR | Configuration error (invalid arguments, missing files, unrecognized --clear-mode) |
 
 **Usage in CI/CD**:
 ```bash
@@ -480,26 +587,32 @@ The JSON output is designed for machine consumption by regression gates and CI s
 {
   "benchmark_id": "bm-20260226-001",
   "run_at": "2026-02-26T14:30:00Z",
-  "script_version": "1.0.0",
+  "script_version": "2.0.0",
   "config": {
     "target": "127.0.0.1",
     "port": 53,
     "mode": "all",
+    "clear_mode": "console",
     "corpus": "control-domains.txt",
     "duration_seconds": 60
   },
   "environment": {
     "hostname": "powerblockade-01",
-    "recursor_version": "5.2.0",
     "os": "Linux",
-    "kernel": "5.15.0"
+    "kernel": "5.15.0",
+    "dnsperf_version": "2.16.0"
   },
   "prerequisites": {
-    "dnsperf": { "installed": true, "version": "2.15.0" },
-    "rec_control": { "installed": true },
+    "dnsperf": { "installed": true, "version": "2.16.0" },
     "jq": { "installed": true },
-    "network_access": { "ok": true, "latency_ms": 1.2 }
+    "docker": { "installed": true },
+    "network_access": { "ok": true, "latency_ms": 1 }
   },
+  "stats_sources": {
+    "dnsdist": "dnsdist-console",
+    "recursor": "rec_control"
+  },
+  "precache_pause": "paused",
   "phases": {
     "cold_cache": {
       "implemented": true,
@@ -512,12 +625,21 @@ The JSON output is designed for machine consumption by regression gates and CI s
         "p50_latency_ms": 8.2,
         "p95_latency_ms": 45.1,
         "p99_latency_ms": 89.3,
-        "qps_actual": 997.0
+        "qps_actual": 997.0,
+        "histogram_samples": 59820,
+        "percentile_method": "dnsperf -O latency-histogram buckets, bucket upper bound (ms)"
+      },
+      "counter_deltas": {
+        "dnsdist": { "hits": 0, "misses": 59820, "hit_ratio_pct": 0.0 },
+        "recursor_packetcache": { "hits": 210, "misses": 50000, "hit_ratio_pct": 0.4 },
+        "recursor_recordcache": { "hits": 1500, "misses": 48000, "hit_ratio_pct": 3.0 }
       },
       "thresholds": {
         "p50_limit_ms": 20,
-        "p95_limit_ms": 100
-      }
+        "p95_limit_ms": 100,
+        "p99_limit_ms": 200
+      },
+      "clear": { "mode": "console", "verified_empty": true }
     },
     "warm_cache": {
       "implemented": true,
@@ -530,32 +652,61 @@ The JSON output is designed for machine consumption by regression gates and CI s
         "p50_latency_ms": 2.1,
         "p95_latency_ms": 8.5,
         "p99_latency_ms": 15.2,
-        "qps_actual": 4820.0,
-        "cache_hit_ratio": 0.95
+        "qps_actual": 4820.0
+      },
+      "counter_deltas": {
+        "dnsdist": { "hits": 298000, "misses": 1500, "hit_ratio_pct": 99.5 },
+        "recursor_packetcache": { "hits": 1200, "misses": 300, "hit_ratio_pct": 80.0 },
+        "recursor_recordcache": { "hits": 260, "misses": 40, "hit_ratio_pct": 86.7 }
       },
       "thresholds": {
         "p50_limit_ms": 5,
         "p95_limit_ms": 20,
+        "p99_limit_ms": 50,
         "cache_hit_limit_pct": 90
       }
     },
     "saturation": {
       "implemented": true,
       "passed": true,
+      "method": "dnsperf-sustained",
       "metrics": {
-        "max_qps_sustained": 12500,
+        "max_qps_sustained": 9810.0,
         "latency_at_50pct_ms": 15.0,
         "error_rate_pct": 2.1
       },
       "thresholds": {
         "min_qps": 5000
       }
+    },
+    "time_to_warm": {
+      "implemented": true,
+      "passed": true,
+      "metrics": {
+        "time_to_warm_s": 187,
+        "windows_run": 9,
+        "required_consecutive_windows": 5,
+        "window_seconds": 30,
+        "load_qps": 500
+      },
+      "windows": [ { "window": 1, "passed": false, "...": "..." } ]
     }
+  },
+  "baseline": {
+    "cache_occupancy": {
+      "dnsdist_packetcache": { "entries": 0, "capacity": 500000, "utilization_pct": 0.0 },
+      "recursor_recordcache": { "entries": 0, "capacity": 1000000, "utilization_pct": 0.0 },
+      "recursor_packetcache": { "entries": 0, "capacity": 500000, "utilization_pct": 0.0 }
+    },
+    "containers": [ { "name": "powerblockade-dnsdist", "mem_usage": "120MiB", "cpu_pct": "0.4%" } ],
+    "host_memory": { "mem_available_kb": 1048576, "swap_free_kb": 0, "swap_total_kb": 0, "pswpin_pages": 0, "pswpout_pages": 0 },
+    "recursor_threads_cpu_msec": { "cpu_msec_thread_0": 123456 },
+    "dnstap_processor": "healthy"
   },
   "summary": {
     "passed": true,
-    "phases_run": 3,
-    "phases_passed": 3,
+    "phases_run": 4,
+    "phases_passed": 4,
     "phases_failed": 0,
     "regressions": []
   }
@@ -602,16 +753,21 @@ Before running the benchmark script, ensure:
 
 | Requirement | Install Command | Check Command |
 |-------------|-----------------|---------------|
-| dnsperf | `apt-get install dnsperf` | `dnsperf -V` |
-| rec_control | PowerDNS Recursor package | `rec_control --help` |
+| dnsperf >= 2.14.0 | `apt-get install dnsperf` (or build from source) | `dnsperf -V` |
 | jq | `apt-get install jq` | `jq --version` |
-| Network access | N/A | `dig @<target> google.com` |
+| docker | host docker access | `docker info` |
+| dig | `apt-get install dnsutils` | `dig -v` |
+| bc | `apt-get install bc` | `echo 1+1 \| bc` |
+| DNSDIST_CONSOLE_KEY | `.env` + recreate dnsdist container | `docker exec powerblockade-dnsdist printenv DNSDIST_CONSOLE_KEY` |
 
 **Environment Variables**:
 ```bash
-# Required for cache operations
-export RECURSOR_API_KEY="your-api-key"
-export RECURSOR_API_URL="http://recursor:8082"
+# Optional HTTP counter sources (integration branch webservers; when unset
+# the harness uses docker exec: console for dnsdist, rec_control for recursor)
+export DNSDIST_STATS_URL="http://127.0.0.1:8083"
+export DNSDIST_WEB_PASSWORD="..."
+export RECURSOR_METRICS_URL="http://127.0.0.1:8082"
+export RECURSOR_WEB_PASSWORD="..."
 
 # Optional: Override defaults
 export DNS53_BENCHMARK_TARGET="127.0.0.1"
@@ -626,10 +782,22 @@ Default thresholds can be overridden via environment variables:
 |----------|---------|-------------|
 | `DNS53_COLD_P50_THRESHOLD_MS` | 20 | Cold cache p50 latency limit (ms) |
 | `DNS53_COLD_P95_THRESHOLD_MS` | 100 | Cold cache p95 latency limit (ms) |
+| `DNS53_COLD_P99_THRESHOLD_MS` | 200 | Cold cache p99 latency limit (ms) |
 | `DNS53_WARM_P50_THRESHOLD_MS` | 5 | Warm cache p50 latency limit (ms) |
 | `DNS53_WARM_P95_THRESHOLD_MS` | 20 | Warm cache p95 latency limit (ms) |
-| `DNS53_WARM_CACHE_HIT_PCT` | 90 | Warm cache hit ratio minimum (%) |
+| `DNS53_WARM_P99_THRESHOLD_MS` | 50 | Warm cache p99 latency limit (ms) |
+| `DNS53_WARM_CACHE_HIT_PCT` | 90 | Warm dnsdist hit ratio minimum (%) |
 | `DNS53_SATURATION_MIN_QPS` | 5000 | Saturation minimum sustainable QPS |
+| `DNS53_TTW_P99_THRESHOLD_MS` | 50 | Time-to-warm p99 target (ms) |
+| `DNS53_TTW_DNSDIST_HIT_PCT` | 90 | Time-to-warm dnsdist hit target (%) |
+| `DNS53_TTW_PACKETCACHE_HIT_PCT` | 90 | Time-to-warm recursor packetcache hit target (%) |
+| `DNS53_TTW_RECCACHE_HIT_PCT` | 90 | Time-to-warm recursor recordcache hit target (%) |
+| `DNS53_TTW_WINDOWS` | 5 | Consecutive passing windows required |
+| `DNS53_TTW_WINDOW_SECONDS` | 30 | Window length (s) |
+| `DNS53_TTW_QPS` | 500 | Time-to-warm load level (QPS) |
+| `DNS53_TTW_MAX_WINDOWS` | 40 | Upper bound on windows before failure |
+| `DNS53_RECURSOR_FLOOR_TOLERANCE` | 4 | Recursor entries tolerated at the post-clear floor (background security-poll; dnsdist is strict zero) |
+| `DNS53_RESTART_HEALTH_TIMEOUT` | 180 | restart-mode health wait bound (s) |
 
 Example:
 ```bash
@@ -648,8 +816,11 @@ export DNS53_WARM_CACHE_HIT_PCT=95
 
 ## Appendix: rec_control Commands
 
+All commands run inside the recursor container with the compose socket dir:
+`docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor ...`
+
 ```bash
-# Flush entire cache
+# Flush entire cache (record + packet + negative caches)
 rec_control wipe-cache '$'
 
 # Flush specific domain
@@ -658,11 +829,15 @@ rec_control wipe-cache example.com
 # Flush domain and all subdomains
 rec_control wipe-cache example.com$
 
-# Get cache statistics
-rec_control get cache-hits
-rec_control get cache-misses
-rec_control get cache-entries
+# Get cache statistics (multiple stats in one call print bare values,
+# one per line, in the requested order - "UNKNOWN" means bad stat name)
+rec_control get cache-hits cache-misses cache-entries
+rec_control get packetcache-hits packetcache-misses packetcache-entries
+rec_control get max-cache-entries max-packetcache-entries
 
 # Get all statistics
 rec_control get-all
+
+# Health (used by the compose healthcheck)
+rec_control ping
 ```
