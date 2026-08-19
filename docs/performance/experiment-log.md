@@ -67,7 +67,21 @@ by the harness and restored.
 
 - **Hypothesis:** docs recommend backend sockets ≈ 2 × recursor threads
   (4 threads → 8 sockets) to remove the per-socket queue as a bottleneck.
-- **Change / numbers / verdict:** filled after measurement.
+- **Change:** `newServer({... sockets=8 ...})`, dnsdist force-recreated
+  (verified: 2 listeners from E1a revert, dig answers).
+- **Numbers (official harness, saturation):**
+
+  | Metric | Anchor (sockets=4) | E1b (sockets=8) |
+  |---|---|---|
+  | Saturation QPS | 8597 | 8558 (−0.45%) |
+  | Saturation p99 (ms) | 0.231 | 0.227 |
+  | Saturation errors | 0.00% | 0.00% |
+
+- **Verdict: REVERT.** Flat on every axis (deltas inside the ±1.2% same-config
+  noise band). At saturation the edge packet cache answers ~99.9% of queries,
+  so backend socket pressure is near zero by construction — the 4→8 socket
+  change cannot move the official number behind this cache hit ratio.
+  Template restored to `sockets=4` (diff-verified identical to pre-battery).
 
 ### E1c — recursor: `pdns-distributes-queries=no`
 
