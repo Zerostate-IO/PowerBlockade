@@ -35,6 +35,9 @@ services:
       DNSTAP_PROCESSOR_IP: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}
       DNSTAP_WAIT_TIMEOUT_SECONDS: ${DNSTAP_WAIT_TIMEOUT_SECONDS:-60}
       RECURSOR_WAIT_TIMEOUT_SECONDS: ${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}
+      # Opt-in dnsdist console (localhost-only inside the container; used for
+      # non-disruptive packet-cache clears). Off when unset.
+      DNSDIST_CONSOLE_KEY: ${DNSDIST_CONSOLE_KEY:-}
     ports:
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"

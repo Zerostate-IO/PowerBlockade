@@ -709,7 +709,8 @@ curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
     > "$EVIDENCE_DIR/recursor-stats.json"
 
 # Capture dnsdist cache stats
-docker compose exec dnsdist dnsdist -e "getPool(''):getCache():printStats()" \
+# (requires the opt-in console: set DNSDIST_CONSOLE_KEY in .env and restart dnsdist)
+docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf -e "getPool(''):getCache():getStats()" \
     > "$EVIDENCE_DIR/dnsdist-cache-stats.txt" 2>&1
 
 # Capture database event count (for parity checks)
@@ -871,7 +872,7 @@ for i in {1..30}; do
 done
 
 # 7. Verify recursor is responding
-docker compose exec recursor rec_control get cache-hits > /dev/null
+docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor get cache-hits > /dev/null
 if [[ $? -ne 0 ]]; then
     echo "FAIL: recursor not responding after restart - ROLLBACK NOW"
     $ROLLBACK_SCRIPT
@@ -945,7 +946,7 @@ curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
     -H "X-API-Key: ${RECURSOR_API_KEY}" \
     > "$EVIDENCE_DIR/recursor-stats-after.json"
 
-docker compose exec dnsdist dnsdist -e "getPool(''):getCache():printStats()" \
+docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf -e "getPool(''):getCache():getStats()" \
     > "$EVIDENCE_DIR/dnsdist-cache-stats-after.txt" 2>&1
 
 psql -t -c "SELECT COUNT(*) FROM dns_query_events WHERE ts > now() - interval '1 hour'" \
@@ -1183,21 +1184,36 @@ for i in {1..30}; do
 done
 
 # Verify
-docker compose exec recursor rec_control get cache-hits
+docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor get cache-hits
 ```
 
 #### Cache Flush (if stale data suspected)
 
 ```bash
-# Flush dnsdist cache
-docker compose exec dnsdist dnsdist -e "getPool(''):getCache():expunge(0)"
+# Flush dnsdist cache (non-disruptive; requires the opt-in console, see below)
+docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf -e "getPool(''):getCache():expunge(0)"
 
-# Flush recursor cache
-docker compose exec recursor rec_control wipe-cache '$'
+# Flush recursor cache (wipes record + packet + negative caches)
+docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor wipe-cache '$'
 
-# Or via API (from blocking.py:174)
+# Or recursor flush via API (from the host, port 8082 is published)
+curl -sf -X PUT "http://127.0.0.1:8082/api/v1/servers/localhost/cache/flush?domain=.&subtree=true" \
+    -H "X-API-Key: ${RECURSOR_API_KEY}"
+
+# Or via admin-ui (from blocking.py:174)
 curl -X POST http://localhost:8080/blocking/clear-cache
 ```
+
+**dnsdist console prerequisite**: the non-disruptive flush above requires the
+dnsdist console to be enabled on the running daemon. Set `DNSDIST_CONSOLE_KEY`
+in `.env` (generate with `head -c 32 /dev/urandom | base64 -w0`) and restart
+dnsdist; the entrypoint then appends `setKey(...)` and a localhost-only
+`controlSocket("127.0.0.1:5199")` to the generated config. Without it, the
+fallback is a disruptive `docker compose restart dnsdist` (see the restart
+clearing checklist in `dns-benchmark-methodology.md`). Note:
+`dnsdist -e "..."` alone does NOT work — that starts a new dnsdist process;
+only the console client (`dnsdist -c -C /tmp/dnsdist.conf -e "..."`) talks to
+the running daemon.
 
 ### Rollback Verification
 
@@ -1382,8 +1398,8 @@ exit 1
 |  ROLLBACK COMMANDS:                                                 |
 |  dnsdist:  git checkout -- dnsdist/ && docker compose restart dnsdist   |
 |  recursor: git checkout -- recursor/ && docker compose restart recursor|
-|  flush:    docker compose exec dnsdist dnsdist -e "getPool(''):getCache():expunge(0)" |
-|  flush:    docker compose exec recursor rec_control wipe-cache '$'   |
+|  flush:    docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf -e "getPool(''):getCache():expunge(0)" |
+|  flush:    docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor wipe-cache '$'
 |                                                                     |
 |  EVIDENCE: .sisyphus/evidence/cache-tuning-YYYYMMDD-HHMMSS/         |
 |                                                                     |
