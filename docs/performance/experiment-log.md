@@ -90,7 +90,32 @@ by the harness and restored.
   distributes queries directly (upstream docs: "much higher performance on
   multi-core boxes", avoiding the distributor-thread bottleneck and thundering
   herd).
-- **Change / numbers / verdict:** filled after measurement.
+- **Change:** `pdns-distributes-queries=no` in `recursor.conf.template`;
+  recursor + dnsdist force-recreated (dnsdist depends on recursor health).
+- **Verification of topology:** `/proc/net/udp` in the recursor netns shows 4
+  sockets on :5300 (0x14B4) with `distributes-queries=no` vs 1 with it on;
+  `rec_control ping` → `pong worker`; harness baseline captured 6
+  `cpu-msec-thread-*` counters (worker threads now receive directly).
+- **Numbers (official harness, saturation):**
+
+  | Metric | Anchor (distributor on) | E1c (distributor off) |
+  |---|---|---|
+  | Saturation QPS | 8597 | 8410 (−2.2%) |
+  | Saturation p99 (ms) | 0.231 | 0.239 |
+  | Saturation errors | 0.00% | 0.01% |
+
+- **Verdict: REVERT.** No win — slightly negative on QPS (−2.2%, at/just
+  outside the noise band), p99 and errors flat-to-worse. Structural reason:
+  behind a ~99.9% dnsdist hit ratio, only ~0.1% of saturation traffic reaches
+  the recursor (its per-thread CPU was 1–4 ms per thread over the whole run),
+  so the recursor's receive architecture is nowhere near its bottleneck and
+  the per-query distributor hop is invisible. Template restored to
+  `pdns-distributes-queries=yes` (verified: 1 :5300 socket again, healthy).
+
+**E1 summary: all three parallelism changes reverted — the stack's official
+harness numbers are bounded by the single-flow dnsperf client and the ~99.9%
+edge cache, not by listener, backend-socket, or recursor-distributor
+parallelism.**
 
 ---
 
