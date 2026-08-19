@@ -530,9 +530,14 @@ def _boot_burst_locked(config: BootBurstConfig) -> BootBurstResult:
         # Respect P7's per-pair TTL cache: pairs warmed recently (e.g. by
         # another admin-ui instance that held the lock first) are skipped,
         # then the per-pass ceiling caps how many queries this burst sends.
-        due = get_pairs_needing_refresh(candidates, config.ignore_ttl, config.custom_refresh_minutes)
-        due = due[: config.max_queries]
-        result.skipped_fresh = len(candidates) - len(due)
+        needing = get_pairs_needing_refresh(
+            candidates, config.ignore_ttl, config.custom_refresh_minutes
+        )
+        # Only TTL-fresh pairs count as "skipped"; pairs cut off by the
+        # per-pass ceiling are a policy cap, not freshness, and remain
+        # visible as the attempted/candidates difference in the summary.
+        result.skipped_fresh = len(candidates) - len(needing)
+        due = needing[: config.max_queries]
         result.planned_window_s = planned_burst_window_s(len(due), config.qps)
 
         if not due:

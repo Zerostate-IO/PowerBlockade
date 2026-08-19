@@ -634,6 +634,33 @@ class TestBootBurstEntry:
         assert summary["attempted_pairs"] == 1
         assert summary["succeeded"] == 1
 
+    def test_per_pass_ceiling_caps_sends_without_inflating_fresh_skips(
+        self, wired_entry
+    ):
+        db = wired_entry(send=FakeSend())
+        add_pair_events(
+            db,
+            [
+                ("fresh.example.com", QTYPE_A, 12),
+                ("due1.example.com", QTYPE_A, 9),
+                ("due2.example.com", QTYPE_A, 6),
+            ],
+        )
+        precache.record_warmed_pair("fresh.example.com", QTYPE_A, 3600)
+        set_setting(db, "precache_max_queries_per_pass", "1")
+
+        boot_burst._boot_burst_entry()
+
+        summary = get_last_boot_burst()
+        assert summary is not None
+        assert summary["status"] == "completed"
+        assert summary["candidates"] == 3
+        # Only the TTL-fresh pair counts as skipped: the pair cut off by
+        # the per-pass ceiling is a policy cap, not freshness.
+        assert summary["skipped_fresh"] == 1
+        assert summary["attempted_pairs"] == 1
+        assert summary["succeeded"] == 1
+
     def test_unready_stack_records_unready_and_sends_nothing(
         self, sync_db_session, monkeypatch
     ):
@@ -683,20 +710,29 @@ class TestBootBurstEntry:
 
 
 def _fast_run_burst(send):
-    """run_burst with near-zero pacing/backoff for entry-level tests."""
-    import functools
+    """run_burst with near-zero pacing/backoff for entry-level tests.
+
+    A plain wrapper (NOT functools.partial): on Python 3.14+ keyword
+    arguments at the call site override partial-bound keywords, so a
+    partial would silently lose send_fn/qps to _boot_burst_locked's call
+    and leak real network sends into unit tests.
+    """
 
     if send is None:
         send = FakeSend()
-    return functools.partial(
-        run_burst,
-        send_fn=send,
-        qps=1_000_000.0,
-        concurrency=4,
-        max_retries=0,
-        backoff_base_s=0.0,
-        qname_min_interval_s=0.0,
-    )
+
+    def _run(pairs, **_call_site_overrides):
+        return run_burst(
+            pairs,
+            send_fn=send,
+            qps=1_000_000.0,
+            concurrency=4,
+            max_retries=0,
+            backoff_base_s=0.0,
+            qname_min_interval_s=0.0,
+        )
+
+    return _run
 
 
 # =====================================================================
