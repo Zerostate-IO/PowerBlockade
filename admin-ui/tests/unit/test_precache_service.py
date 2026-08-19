@@ -404,8 +404,9 @@ class TestSettingsDefaults:
 
         This is the executable statement of the settings-migration concern:
         changing DEFAULTS does NOT update deployments that previously saved
-        precache settings (they hold recursor/5300 rows). A data migration is
-        flagged in the P7 handoff rather than written here.
+        precache settings (they hold recursor/5300 rows). Alembic revision
+        0019_precache_warming_dnsdist flips exactly those rows; see
+        tests/integration/test_settings_migration.py.
         """
         set_setting(sync_db_session, "precache_dns_server", "recursor")
         set_setting(sync_db_session, "precache_dns_port", "5300")
