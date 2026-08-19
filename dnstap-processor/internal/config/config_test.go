@@ -143,6 +143,34 @@ func TestLoadWithEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadWithMetricsConfig(t *testing.T) {
+	t.Setenv("METRICS_LISTEN", "127.0.0.1:9999")
+	t.Setenv("PROBER_IPS", "10.9.8.7, 10.9.8.8")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.MetricsListen != "127.0.0.1:9999" {
+		t.Errorf("MetricsListen = %q, want %q", cfg.MetricsListen, "127.0.0.1:9999")
+	}
+	if len(cfg.ProberIPs) != 2 || cfg.ProberIPs[0] != "10.9.8.7" || cfg.ProberIPs[1] != "10.9.8.8" {
+		t.Errorf("ProberIPs = %v, want [10.9.8.7 10.9.8.8]", cfg.ProberIPs)
+	}
+}
+
+func TestDefaultMetricsConfig(t *testing.T) {
+	cfg := defaultConfig()
+
+	if cfg.MetricsListen != "0.0.0.0:9422" {
+		t.Errorf("MetricsListen = %q, want default 0.0.0.0:9422", cfg.MetricsListen)
+	}
+	if len(cfg.ProberIPs) != 1 || cfg.ProberIPs[0] != "172.30.0.30" {
+		t.Errorf("ProberIPs = %v, want default [172.30.0.30]", cfg.ProberIPs)
+	}
+}
+
 func TestLoadWithGELFConfig(t *testing.T) {
 	os.Setenv("GELF_ENABLED", "yes")
 	os.Setenv("GELF_ENDPOINT", "gelf.example.com:12201")

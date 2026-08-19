@@ -64,6 +64,8 @@ type Config struct {
 	DnstapSocket    string        `yaml:"dnstap_socket"`
 	DnstapListen    string        `yaml:"dnstap_listen"` // TCP listener for dnstap (optional, overrides socket)
 	ProtobufListen  string        `yaml:"protobuf_listen"`
+	MetricsListen   string        `yaml:"metrics_listen"` // Prometheus /metrics listen address
+	ProberIPs       []string      `yaml:"prober_ips"`     // dnstap query source IPs exported on separate prober metric series
 	Primary         PrimaryConfig `yaml:"primary"`
 	GELF            GELFConfig    `yaml:"gelf"`
 	Buffer          BufferConfig  `yaml:"buffer"`
@@ -76,6 +78,8 @@ func defaultConfig() Config {
 		NodeName:       getHostname(),
 		DnstapSocket:   "/var/run/dnstap/dnstap.sock",
 		ProtobufListen: "0.0.0.0:50001",
+		MetricsListen:  "0.0.0.0:9422",
+		ProberIPs:      []string{"172.30.0.30"},
 		Primary: PrimaryConfig{
 			URL:    "http://admin-ui:8080",
 			APIKey: "",
@@ -117,6 +121,20 @@ func Load() (Config, error) {
 	}
 	if v := strings.TrimSpace(os.Getenv("PROTOBUF_LISTEN")); v != "" {
 		cfg.ProtobufListen = v
+	}
+	if v := strings.TrimSpace(os.Getenv("METRICS_LISTEN")); v != "" {
+		cfg.MetricsListen = v
+	}
+	// Comma-separated dnstap query source IPs classified as synthetic
+	// prober traffic; their latency observations are exported on separate
+	// prober metric series to keep production quantiles clean.
+	if v := strings.TrimSpace(os.Getenv("PROBER_IPS")); v != "" {
+		cfg.ProberIPs = nil
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				cfg.ProberIPs = append(cfg.ProberIPs, s)
+			}
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("PRIMARY_URL")); v != "" {
 		cfg.Primary.URL = v
