@@ -66,3 +66,24 @@ local fs = newFrameStreamTcpLogger('${DNSTAP_PROCESSOR_IP}:6000', {
 -- Response-only logging keeps ingestion Pi-hole-like (one row per answered query/qtype).
 -- If you later implement query-timeout fallback, re-enable query logging.
 addResponseAction(AllRule(), DnstapLogResponseAction('powerblockade-dnsdist', fs))
+
+-- ============================================================
+-- METRICS WEBSERVER (private, authenticated)
+-- ============================================================
+-- ${DNSDIST_WEB_ADDRESS} is substituted by the entrypoint with the
+-- container's own address on the compose network (or the explicit
+-- DNSDIST_WEB_ADDRESS env value). Port 8083 is never published to the
+-- host; only in-network scrapers can reach it.
+-- Auth verified on powerdns/dnsdist-20:2.0.8:
+--   - /metrics requires HTTP basic auth with the webserver password
+--     (any username); an X-API-Key header does NOT authorize /metrics.
+--   - Sources outside the ACL are dropped at the TCP level even with
+--     valid credentials.
+-- dnsdist logs a startup advisory about plain-text passwords; accepted
+-- here because the generated config lives only in /tmp inside the
+-- container with mode 0600 (see docker-entrypoint.sh).
+webserver('${DNSDIST_WEB_ADDRESS}:8083')
+setWebserverConfig({
+    password='${DNSDIST_WEB_PASSWORD}',
+    acl='172.30.0.0/16'
+})

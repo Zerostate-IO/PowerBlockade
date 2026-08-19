@@ -136,3 +136,54 @@ groups:
         annotations:
           summary: "Secondary node {{ $labels.node }} not syncing"
           description: "No heartbeat from node for more than 10 minutes"
+
+  # --- Primary-node native scrape alerts ---------------------------------
+  # Fed by the direct Prometheus scrape jobs (dnsdist, recursor, dnstap-
+  # processor, and later the prober). These series only exist on the primary
+  # node deployment; the powerblockade_* push-path rules above continue to
+  # cover secondary nodes through admin-ui /metrics and are intentionally
+  # left untouched.
+  #
+  # NOTE: ProberMetricsAbsent fires by design until the prober scrape job
+  # (TODO(prober) in prometheus.yml) lands; expect it to be firing between
+  # merge and integration.
+  - name: powerblockade-primary
+    rules:
+      - alert: ProberMetricsAbsent
+        expr: absent(powerblockade_prober_query_latency_seconds_bucket)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prober metrics absent"
+          description: "No powerblockade_prober series scraped for 10 minutes. The prober service is down, or its Prometheus scrape job has not been configured (TODO(prober) in prometheus.yml)."
+
+      - alert: ProcessorBufferBacklog
+        expr: dnstap_processor_buffer_pending > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "dnstap-processor buffer backlog"
+          description: "{{ $value }} events pending in the on-disk buffer for more than 10 minutes - the primary ingest API is not keeping up or is unreachable."
+
+      - alert: ProcessorShippingLag
+        expr: |
+          sum(rate(dnstap_processor_events_received_total[5m]))
+          -
+          sum(rate(dnstap_processor_events_shipped_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "dnstap-processor shipping lag"
+          description: "Receiving {{ $value | printf \"%.1f\" }} more events/s than are shipped to the primary ingest API for more than 10 minutes - the pipeline cannot keep up."
+
+      - alert: ProcessorEventsDropped
+        expr: sum(rate(dnstap_processor_events_dropped_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "dnstap-processor dropping events"
+          description: "Events are being dropped under backpressure ({{ $value | printf \"%.2f\" }}/s sustained) - DNS analytics data is being lost."

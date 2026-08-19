@@ -115,9 +115,15 @@ def clear_recursor_cache(recursor_url: str, api_key: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def scrape_recursor_metrics(recursor_url: str) -> dict:
+def scrape_recursor_metrics(recursor_url: str, web_password: str = "") -> dict:
     try:
-        r = requests.get(f"{recursor_url}/metrics", timeout=5)
+        request_kwargs: dict = {"timeout": 5}
+        if web_password:
+            # /metrics lives on the recursor webserver and authenticates
+            # with HTTP basic auth (any username) using the WEBserver
+            # password - the API key does not authorize /metrics.
+            request_kwargs["auth"] = ("prometheus", web_password)
+        r = requests.get(f"{recursor_url}/metrics", **request_kwargs)
         if r.status_code != 200:
             return {}
 
@@ -323,6 +329,7 @@ def main() -> None:
     primary_url = getenv_required("PRIMARY_URL").rstrip("/")
     api_key = getenv_required("PRIMARY_API_KEY")
     recursor_api_key = os.getenv("RECURSOR_API_KEY", "")
+    recursor_web_password = os.getenv("RECURSOR_WEB_PASSWORD", "")
     interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "60"))
     config_sync_interval = int(os.getenv("CONFIG_SYNC_INTERVAL_SECONDS", "300"))
     recursor_url = os.getenv("RECURSOR_API_URL", "http://recursor:8082")
@@ -389,7 +396,7 @@ def main() -> None:
         except Exception as e:
             print(f"heartbeat error: {e}")
 
-        metrics = scrape_recursor_metrics(recursor_url)
+        metrics = scrape_recursor_metrics(recursor_url, recursor_web_password)
         if metrics:
             metrics_buffer.put(metrics, time.time())
 
