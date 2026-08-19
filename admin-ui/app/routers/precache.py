@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.settings import (
+    get_precache_boot_burst_concurrency,
+    get_precache_boot_burst_enabled,
+    get_precache_boot_burst_qps,
     get_precache_custom_refresh_minutes,
     get_precache_dns_port,
     get_precache_dns_server,
@@ -22,6 +25,7 @@ from app.models.settings import (
     set_setting,
 )
 from app.routers.auth import get_current_user
+from app.services.boot_burst import get_last_boot_burst
 from app.services.precache import (
     get_precache_stats,
     get_top_pairs_to_warm,
@@ -115,6 +119,10 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
     dns_server = get_precache_dns_server(db)
     dns_port = get_precache_dns_port(db)
     max_queries_per_pass = get_precache_max_queries_per_pass(db)
+    boot_burst_enabled = get_precache_boot_burst_enabled(db)
+    boot_burst_concurrency = get_precache_boot_burst_concurrency(db)
+    boot_burst_qps = get_precache_boot_burst_qps(db)
+    boot_burst_summary = get_last_boot_burst()
 
     warmable_pairs = get_top_pairs_to_warm(db, hours=24, limit=domain_count)
     precache_stats = get_precache_stats()
@@ -145,8 +153,31 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             "dns_port": dns_port,
             "max_queries_per_pass": max_queries_per_pass,
             "precache_stats": precache_stats,
+            "boot_burst_enabled": boot_burst_enabled,
+            "boot_burst_concurrency": boot_burst_concurrency,
+            "boot_burst_qps": boot_burst_qps,
+            "boot_burst_summary": boot_burst_summary,
         },
     )
+
+
+@router.get("/precache/boot-burst")
+def boot_burst_status(request: Request, db: Session = Depends(get_db)):
+    """Structured summary of the last boot warm burst (JSON, auth-gated).
+
+    Returns the in-memory result recorded by the last startup burst:
+    status, sent/succeeded/failed/skipped counters, duration and top
+    failures. A burst that had failures is reported as ``partial`` or
+    ``failed`` -- never silently declared warm.
+    """
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    return get_last_boot_burst() or {
+        "status": "never-run",
+        "reason": "no boot burst has run since admin-ui startup",
+    }
 
 
 def _warm_cache_background(pairs: list[tuple[str, int]], dns_server: str, port: int) -> None:
@@ -189,6 +220,9 @@ def update_precache_settings(
     custom_refresh: int = Form(60),
     dns_server: str = Form("dnsdist"),
     max_queries_per_pass: int = Form(2000),
+    boot_burst_enabled: str = Form("false"),
+    boot_burst_concurrency: int = Form(8),
+    boot_burst_qps: float = Form(50.0),
 ):
     user = get_current_user(request, db)
     if not user:
@@ -199,6 +233,10 @@ def update_precache_settings(
     custom_refresh = max(5, min(1440, custom_refresh))
     max_queries_per_pass = max(100, min(100000, max_queries_per_pass))
     dns_server = dns_server.strip() or "dnsdist"
+    # Same clamps as the settings getters, so a saved value can never be
+    # read back differently than it was written.
+    boot_burst_concurrency = max(1, min(64, boot_burst_concurrency))
+    boot_burst_qps = max(1.0, min(1000.0, boot_burst_qps))
 
     set_setting(db, "precache_enabled", "true" if enabled == "true" else "false")
     set_setting(db, "precache_domain_count", str(domain_count))
@@ -207,5 +245,8 @@ def update_precache_settings(
     set_setting(db, "precache_custom_refresh_minutes", str(custom_refresh))
     set_setting(db, "precache_dns_server", dns_server)
     set_setting(db, "precache_max_queries_per_pass", str(max_queries_per_pass))
+    set_setting(db, "precache_boot_burst_enabled", "true" if boot_burst_enabled == "true" else "false")
+    set_setting(db, "precache_boot_burst_concurrency", str(boot_burst_concurrency))
+    set_setting(db, "precache_boot_burst_qps", str(boot_burst_qps))
 
     return RedirectResponse(url="/precache?warmed=Settings+saved", status_code=302)

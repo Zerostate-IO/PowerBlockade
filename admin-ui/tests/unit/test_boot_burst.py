@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models.dns_query_event import DNSQueryEvent
-from app.models.settings import DEFAULTS, set_setting
+from app.models.settings import DEFAULTS, get_setting, set_setting
 from app.services import boot_burst, precache
 from app.services.boot_burst import (
     BACKOFF_BASE_S,
@@ -733,6 +733,89 @@ def _fast_run_burst(send):
         )
 
     return _run
+
+
+# =====================================================================
+# Router surface (minimal UI)
+# =====================================================================
+class TestBootBurstEndpoint:
+    def test_endpoint_returns_last_burst_summary(self, authenticated_client):
+        boot_burst._record_result(
+            boot_burst.BootBurstResult(
+                status="partial",
+                succeeded=2,
+                failed=1,
+                queries_sent=4,
+                skipped_fresh=3,
+                duration_s=12.5,
+                top_failures=[
+                    {"pair": "bad.example.com/A", "attempts": 2, "error": "rcode 2"}
+                ],
+            )
+        )
+
+        response = authenticated_client.get("/precache/boot-burst")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "partial"
+        assert body["succeeded"] == 2
+        assert body["failed"] == 1
+        assert body["skipped_fresh"] == 3
+        assert body["queries_sent"] == 4
+        assert body["top_failures"][0]["pair"] == "bad.example.com/A"
+
+    def test_endpoint_before_any_burst_reports_never_run(self, authenticated_client):
+        response = authenticated_client.get("/precache/boot-burst")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "never-run"
+
+    def test_endpoint_requires_auth(self, sync_client):
+        response = sync_client.get("/precache/boot-burst", follow_redirects=False)
+
+        assert response.status_code == 302
+        assert "/login" in response.headers["location"]
+
+    def test_precache_page_renders_burst_panel(self, authenticated_client):
+        boot_burst._record_result(
+            boot_burst.BootBurstResult(
+                status="failed",
+                reason="dnsdist/recursor not reachable within the bounded wait",
+            )
+        )
+
+        response = authenticated_client.get("/precache")
+
+        assert response.status_code == 200
+        assert "Last boot warm burst" in response.text
+        assert "failed" in response.text
+        assert "not reachable" in response.text
+
+    def test_settings_form_persists_boot_burst_knobs(
+        self, authenticated_client, sync_db_session
+    ):
+        response = authenticated_client.post(
+            "/precache/settings",
+            data={
+                "enabled": "true",
+                "domain_count": 1000,
+                "refresh_minutes": 30,
+                "ignore_ttl": "false",
+                "custom_refresh": 60,
+                "dns_server": "dnsdist",
+                "max_queries_per_pass": 2000,
+                "boot_burst_enabled": "true",
+                "boot_burst_concurrency": "4",
+                "boot_burst_qps": "25",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 302
+        assert get_setting(sync_db_session, "precache_boot_burst_enabled") == "true"
+        assert get_setting(sync_db_session, "precache_boot_burst_concurrency") == "4"
+        assert get_setting(sync_db_session, "precache_boot_burst_qps") == "25.0"
 
 
 # =====================================================================
