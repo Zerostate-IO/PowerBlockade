@@ -364,6 +364,32 @@ services:
       recursor:
         condition: service_started
 
+  # Synthetic warm-path prober. Its source IP is its identity: the static
+  # address below is classified as prober traffic by the dnstap processor
+  # before metrics are observed, keeping this signal out of user analytics.
+  prober:
+    build:
+      context: ./prober
+    image: powerblockade-prober
+    container_name: powerblockade-prober
+    restart: unless-stopped
+    environment:
+      PROBE_TARGET: ${PROBE_TARGET:-dnsdist:53}
+      PROBE_INTERVAL: ${PROBE_INTERVAL:-60s}
+      PROBE_JITTER_PCT: ${PROBE_JITTER_PCT:-10}
+      PROBE_TIMEOUT: ${PROBE_TIMEOUT:-2s}
+      PROBE_QTYPES: ${PROBE_QTYPES:-A}
+    expose:
+      - "9533"
+    volumes:
+      - ./scripts/benchmarks/corpus:/usr/local/share/powerblockade/corpus:ro
+    networks:
+      default:
+        ipv4_address: ${PROBER_IP:-172.30.0.30}
+    depends_on:
+      dnsdist:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   prometheus-data:

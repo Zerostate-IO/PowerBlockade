@@ -160,6 +160,30 @@ services:
         condition: service_started
       # No admin-ui dependency - sends to PRIMARY over network
 
+  # Synthetic warm-path prober. Its source IP is its identity: the static
+  # address below is classified as prober traffic by the dnstap processor
+  # before metrics are observed, keeping this signal out of user analytics.
+  prober:
+    image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-prober:${POWERBLOCKADE_VERSION:-latest}
+    container_name: powerblockade-prober
+    restart: unless-stopped
+    environment:
+      PROBE_TARGET: ${PROBE_TARGET:-dnsdist:53}
+      PROBE_INTERVAL: ${PROBE_INTERVAL:-60s}
+      PROBE_JITTER_PCT: ${PROBE_JITTER_PCT:-10}
+      PROBE_TIMEOUT: ${PROBE_TIMEOUT:-2s}
+      PROBE_QTYPES: ${PROBE_QTYPES:-A}
+    expose:
+      - "9533"
+    volumes:
+      - ./scripts/benchmarks/corpus:/usr/local/share/powerblockade/corpus:ro
+    networks:
+      default:
+        ipv4_address: ${PROBER_IP:-172.30.0.30}
+    depends_on:
+      dnsdist:
+        condition: service_healthy
+
   # ============================================
   # SECONDARY-ONLY SERVICES
   # ============================================
