@@ -62,6 +62,19 @@ class WarmingResult:
 
 
 @dataclass
+class PairWarmOutcome:
+    """Result of one warm attempt for a (qname, qtype) pair.
+
+    ``ttl`` is set on success (shortest TTL observed in the response);
+    on failure it is None and ``error`` carries a coarse reason
+    ("rcode 2", "timed out", ...) for reporting.
+    """
+
+    ttl: int | None
+    error: str | None
+
+
+@dataclass
 class PairTTL:
     """TTL tracking for one observed (qname, qtype) pair.
 
@@ -197,6 +210,35 @@ def _min_response_ttl(response) -> int | None:
     return min(ttls)
 
 
+def warm_pair_ex(
+    qname: str, qtype: int, dns_server: str = "127.0.0.1", port: int = 53
+) -> PairWarmOutcome:
+    """Warm one pair and report WHY it failed (used by the boot burst).
+
+    Same behavior as warm_pair() but returns a PairWarmOutcome so callers
+    that must report partial failures (P9 boot burst) get an error string
+    instead of a bare None.
+    """
+    try:
+        import dns.query
+
+        query = build_warm_query(qname, qtype)
+        resolved_server = _resolve_dns_server(dns_server)
+        response = dns.query.udp(query, resolved_server, port=port, timeout=5)
+
+        if response.rcode() != 0:
+            log.debug(f"Warm query for {qname}/{qtype} returned rcode {response.rcode()}")
+            return PairWarmOutcome(ttl=None, error=f"rcode {response.rcode()}")
+
+        ttl = _min_response_ttl(response)
+        if ttl is None:
+            return PairWarmOutcome(ttl=DEFAULT_FALLBACK_TTL, error=None)
+        return PairWarmOutcome(ttl=ttl, error=None)
+    except Exception as e:
+        log.debug(f"Failed to warm {qname}/{qtype}: {e}")
+        return PairWarmOutcome(ttl=None, error=str(e)[:200])
+
+
 def warm_pair(qname: str, qtype: int, dns_server: str = "127.0.0.1", port: int = 53) -> int | None:
     """Warm one observed (qname, qtype) pair through the configured edge.
 
@@ -209,24 +251,24 @@ def warm_pair(qname: str, qtype: int, dns_server: str = "127.0.0.1", port: int =
     Returns the shortest TTL observed in the response (drives refresh
     cadence), or None when the query failed or returned a non-NOERROR rcode.
     """
-    try:
-        import dns.query
+    return warm_pair_ex(qname, qtype, dns_server, port).ttl
 
-        query = build_warm_query(qname, qtype)
-        resolved_server = _resolve_dns_server(dns_server)
-        response = dns.query.udp(query, resolved_server, port=port, timeout=5)
 
-        if response.rcode() != 0:
-            log.debug(f"Warm query for {qname}/{qtype} returned rcode {response.rcode()}")
-            return None
+def record_warmed_pair(qname: str, qtype: int, ttl: int) -> None:
+    """Record a successful warm in the per-pair TTL cache.
 
-        ttl = _min_response_ttl(response)
-        if ttl is None:
-            return DEFAULT_FALLBACK_TTL
-        return ttl
-    except Exception as e:
-        log.debug(f"Failed to warm {qname}/{qtype}: {e}")
-        return None
+    Shortest TTL ever observed for the pair wins. Deliberately
+    conservative: a later longer TTL does not relax the cadence, because
+    the shorter entry lifetime was really observed.
+    """
+    key = (qname, qtype)
+    now = datetime.now(timezone.utc)
+    cached = _pair_ttl_cache.get(key)
+    if cached is None:
+        _pair_ttl_cache[key] = PairTTL(qname=qname, qtype=qtype, ttl=ttl, last_warmed=now)
+    else:
+        cached.ttl = min(cached.ttl, ttl)
+        cached.last_warmed = now
 
 
 def warm_cache(
@@ -250,17 +292,7 @@ def warm_cache(
         ttl = warm_pair(qname, qtype, dns_server, port)
         if ttl is not None:
             success += 1
-            key = (qname, qtype)
-            now = datetime.now(timezone.utc)
-            cached = _pair_ttl_cache.get(key)
-            if cached is None:
-                _pair_ttl_cache[key] = PairTTL(qname=qname, qtype=qtype, ttl=ttl, last_warmed=now)
-            else:
-                # Shortest TTL ever observed for this pair wins. Deliberately
-                # conservative: a later longer TTL does not relax the cadence,
-                # because the shorter entry lifetime was really observed.
-                cached.ttl = min(cached.ttl, ttl)
-                cached.last_warmed = now
+            record_warmed_pair(qname, qtype, ttl)
         else:
             failed += 1
 

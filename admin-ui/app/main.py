@@ -154,6 +154,7 @@ def bootstrap_primary_node() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.services.boot_burst import start_boot_burst
     from app.services.scheduler import start_scheduler, stop_scheduler
 
     if os.environ.get("POWERBLOCKADE_TESTING", "").lower() == "true":
@@ -164,6 +165,9 @@ async def lifespan(_: FastAPI):
     bootstrap_admin()
     bootstrap_primary_node()
     start_scheduler()
+    # P9: recover cache heat after a cold start. Daemon thread gated on
+    # dnsdist + recursor readiness; never blocks app serving.
+    start_boot_burst()
     yield
     stop_scheduler()
 
