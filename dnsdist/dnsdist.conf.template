@@ -32,7 +32,11 @@ newServer({
     address='${RECURSOR_IP}:5300',
     name='recursor',
     sockets=4,
-    useClientSubnet=true
+    -- ECS is NOT sent upstream: the recursor ignores incoming ECS by
+    -- default (use-incoming-edns-subnet=false, edns-subnet-allow-list
+    -- empty), so useClientSubnet=true was pure per-miss overhead.
+    -- See docs/performance/experiment-log.md E2 (2026-08-19).
+    useClientSubnet=false
 })
 setServerPolicy(firstAvailable)
 

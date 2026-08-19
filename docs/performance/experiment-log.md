@@ -119,13 +119,52 @@ parallelism.**
 
 ---
 
-## E2 — ECS off at the edge
+## E2 — ECS off at the edge — **VERDICT: KEEP**
 
 - **Hypothesis:** `useClientSubnet=false` stops dnsdist appending ECS options
   on upstream queries. /24-truncated ECS keys mean single-subnet clients share
   packet-cache keys anyway, so the edge hit ratio should not move (overhead
   removal only, small win possible).
-- **Change / numbers / verdict:** filled after measurement.
+- **Change:** `newServer({ ... useClientSubnet=false ... })` in
+  `dnsdist.conf.template` (with an inline comment pointing here); dnsdist
+  force-recreated, healthy, dig verified.
+- **Source-verified rationale (why this is dead overhead):**
+  - dnsdist 2.0.8 `dnsdist.cc:1445`: the backend's `useECS` gates the only
+    live ECS path (`handleEDNSClientSubnet` → `generateECSOption` per miss).
+    With the backend flag off, nothing ECS-related runs on the query path.
+  - The zero-scope branch next to it is inert for us: it requires the packet
+    cache's `parseECS=true` (`dnsdist-cache.hh:84`), and our `newPacketCache`
+    does not set it (default false).
+  - Recursor 5.3.10 defaults: `use-incoming-edns-subnet=false` (table.py:3212,
+    default `'false'`) and `edns-subnet-allow-list` empty (default `''`,
+    table.py:936–950: "By default, this option is empty, meaning no EDNS
+    Client Subnet information is sent"). Together: the recursor never parses
+    the ECS dnsdist sent and never forwards ECS to authorities — the option was
+    constructed, inserted, and discarded per cache miss.
+  - Live counters before and after: `pdns_recursor_ecs_queries 0`,
+    `ecs_responses 0`, `ecs_missing 0` (recursor /metrics) — the recursor
+    side never saw ECS traffic in either config. `rec_control trace-regex`
+    question logs show `ecs=""` in both configs (the recursor masks incoming
+    ECS because `g_useIncomingECS=false`; dnsdist.cc:1445 is the operative
+    proof of what was sent).
+- **Numbers (official harness, warm):**
+
+  | Metric | Official baseline | Anchor (ECS on) | E2 (ECS off) |
+  |---|---|---|---|
+  | Warm p50 (ms) | 0.049 | 0.049 | 0.048 |
+  | Warm p95 (ms) | 0.093 | 0.101 | 0.099 |
+  | Warm p99 (ms) | 0.147 | 0.203 | 0.187 |
+  | Warm dnsdist hit % | 99.9 | 100.0 | 99.9 |
+  | Queries lost | 0 | 0 | 0 |
+
+- **Verdict: KEEP (change retained in the tree).** Hit ratio is unchanged —
+  the /24-truncation prediction held exactly (no cache-key fragmentation for
+  single-subnet clients). p99 improved 0.203 → 0.187 ms vs the same-session
+  anchor (−8%, at the edge of the ±0.06 ms noise band; honestly: flat-to-
+  slightly-positive). The keep rests on dead-overhead removal: source-verified
+  per-miss work that could never affect answers, with zero measured downside
+  (0 lost, ratio identical, phase passed). Rollback if ever needed: flip
+  `useClientSubnet` back to `true` and recreate dnsdist.
 
 ---
 
