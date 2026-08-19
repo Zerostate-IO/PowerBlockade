@@ -423,6 +423,48 @@ def metrics(db: Session):
     # - etc.
 ```
 
+### dnstap-processor Prometheus Endpoint
+
+```
+Listen: METRICS_LISTEN (default 0.0.0.0:9422, compose expose-only, no host port)
+Path:   GET /metrics
+```
+
+The processor observes the dnsdist edge latency (dnstap `CLIENT_RESPONSE`
+`response_time - query_time`, which dnsdist 2.0.x populates at nanosecond
+precision) into an in-process Prometheus histogram **before** event
+serialization. The buffered event payload keeps its coarse integer
+`latency_ms` field — only this metrics path is precise, so sub-millisecond
+edge latencies (previously rounded to 0 ms) remain observable.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `dnstap_processor_response_latency_seconds_bucket{prober,le}` | histogram | Edge latency, buckets 0.1/0.25/0.5/1/2.5/5/10 ms (+Inf) |
+| `dnstap_processor_events_received_total` | counter | dnstap frames received from dnsdist |
+| `dnstap_processor_events_buffered_total` | counter | Events written to the on-disk buffer |
+| `dnstap_processor_events_shipped_total` | counter | Events accepted by the primary ingest API |
+| `dnstap_processor_events_dropped_total` | counter | Events lost to backpressure or buffer write failure |
+| `dnstap_processor_buffer_pending` | gauge | Events currently pending in the on-disk buffer |
+
+**Prober isolation:** queries whose dnstap source IP is listed in
+`PROBER_IPS` (default `172.30.0.30`) are classified *before* histogram
+observation and exported on the separate `prober="true"` series. Production
+quantiles (`prober="false"`) therefore cannot be contaminated by synthetic
+prober traffic.
+
+**Prober event drop:** prober-source events are not shipped to the primary
+ingest API at all (`DROP_PROBER_EVENTS`, default `true`; set `false`, `0`,
+or `no` to ship them again). The decision runs *after* metrics observation,
+so nothing about metrics changes: the latency sample still lands on the
+`prober="true"` series and the frame still increments
+`dnstap_processor_events_received_total`. No dedicated drop counter exists
+by design — intentional suppression is not a loss, so
+`dnstap_processor_events_dropped_total` stays untouched, and an operator
+sees the drop simply as `events_received_total` (plus the `prober="true"`
+histogram count) outpacing `events_shipped_total`. This keeps the always-on
+synthetic prober (~10,000 queries per 60s pass, ~14M rows/day if stored)
+out of Postgres while preserving its full latency signal.
+
 ---
 
 ## Cache Flush Operations

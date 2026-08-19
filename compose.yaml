@@ -134,6 +134,18 @@ services:
       DNSTAP_LISTEN: ${DNSTAP_LISTEN:-0.0.0.0:6000}
       DNSTAP_SOCKET: ${DNSTAP_SOCKET:-/var/run/dnstap/dnstap.sock}
       PROTOBUF_LISTEN: "${PROTOBUF_LISTEN:-0.0.0.0:50001}"
+      # Prometheus /metrics endpoint (expose-only; no host port published).
+      METRICS_LISTEN: ${METRICS_LISTEN:-0.0.0.0:9422}
+      # dnstap query source IPs classified as synthetic prober traffic;
+      # exported on separate prober="true" metric series so production
+      # latency quantiles stay uncontaminated.
+      PROBER_IPS: ${PROBER_IPS:-172.30.0.30}
+      # Drop prober-source events instead of shipping them to the primary
+      # (default true). Metrics are unaffected: latency is still observed
+      # on the prober="true" series and the frames are still counted in
+      # events_received_total; the drop is visible as events_received_total
+      # outpacing events_shipped_total.
+      DROP_PROBER_EVENTS: ${DROP_PROBER_EVENTS:-true}
       # Client subnets flagged is_internal (excluded from analytics).
       # Defaults to the docker subnet; comma-separated to add more.
       INTERNAL_SUBNETS: ${INTERNAL_SUBNETS:-${DOCKER_SUBNET:-172.30.0.0/24}}
@@ -150,6 +162,7 @@ services:
     expose:
       - "50001"
       - "6000"
+      - "9422"
     volumes:
       - dnstap-socket:/var/run/dnstap
       - ./recursor/rpz:/shared/rpz:ro
