@@ -386,6 +386,7 @@ validate_args() {
 # =============================================================================
 
 # version_ge <a> <b>: numeric dot-version compare, true when a >= b.
+# Non-numeric suffixes (e.g. "2.16.0-dev") are stripped per component.
 version_ge() {
     local a="$1" b="$2"
     local IFS=.
@@ -393,6 +394,7 @@ version_ge() {
     local i
     for i in 0 1 2; do
         local x="${av[i]:-0}" y="${bv[i]:-0}"
+        x="${x%%[^0-9]*}"; y="${y%%[^0-9]*}"
         x=$((10#${x:-0})); y=$((10#${y:-0}))
         if (( x > y )); then return 0; fi
         if (( x < y )); then return 1; fi
@@ -834,9 +836,19 @@ require_stats_sources() {
 # CACHE FLOOR VERIFICATION (fail-closed)
 # =============================================================================
 
+# Cache floor tolerance for the recursor side: the recursor's built-in
+# housekeeping (security-status poll for recursor-<v>.security-status.secpoll
+# .powerdns.com, root refresh) legitimately repopulates 1-2 entries within
+# seconds of a wipe. Those domains cannot intersect a benchmark corpus, so a
+# small bounded occupancy counts as "empty". The dnsdist packet cache has no
+# background self-queries and is held to a strict zero.
+RECURSOR_FLOOR_TOLERANCE="${DNS53_RECURSOR_FLOOR_TOLERANCE:-4}"
+
 # verify_cache_floor <stats_json>: all measured cache layers must be EMPTY.
 # This is the authoritative success signal for clearing (tool exit codes are
 # unreliable: the dnsdist console client exits 0 even on auth failure).
+# dnsdist: entries must be 0. recursor: entries within the tolerance above
+# (observed count is reported; anything larger fails closed).
 verify_cache_floor() {
     local stats="$1"
     local failed=0
@@ -858,20 +870,24 @@ verify_cache_floor() {
         log_fail "Cache floor check: recursor stats unavailable (no counter source)"
         failed=1
     else
-        if (( rec_ce > 0 )); then
-            log_fail "Cache floor check: recursor record cache still holds $rec_ce entries"
+        if (( rec_ce > RECURSOR_FLOOR_TOLERANCE )); then
+            log_fail "Cache floor check: recursor record cache holds $rec_ce entries (tolerance $RECURSOR_FLOOR_TOLERANCE for background housekeeping)"
             failed=1
+        elif (( rec_ce > 0 )); then
+            log_warn "Cache floor check: recursor record cache holds $rec_ce housekeeping entr(y/ies) (security-status poll; within tolerance $RECURSOR_FLOOR_TOLERANCE)"
         fi
-        if (( rec_pce > 0 )); then
-            log_fail "Cache floor check: recursor packet cache still holds $rec_pce entries"
+        if (( rec_pce > RECURSOR_FLOOR_TOLERANCE )); then
+            log_fail "Cache floor check: recursor packet cache holds $rec_pce entries (tolerance $RECURSOR_FLOOR_TOLERANCE)"
             failed=1
+        elif (( rec_pce > 0 )); then
+            log_warn "Cache floor check: recursor packet cache holds $rec_pce housekeeping entr(y/ies) (within tolerance $RECURSOR_FLOOR_TOLERANCE)"
         fi
     fi
 
     if [[ $failed -eq 1 ]]; then
         return 1
     fi
-    log_pass "Cache floor verified: dnsdist packet cache and recursor record+packet caches are empty"
+    log_pass "Cache floor verified: dnsdist packet cache empty; recursor caches empty within housekeeping tolerance"
     return 0
 }
 
@@ -893,8 +909,9 @@ Clearing plan (clear-mode=console, non-disruptive):
          -e "getPool(''):getCache():expunge(0)"
      (clearCache()/mvCacheToDownstream() do not exist in dnsdist 2.0.8;
       expunge(0) keeps 0 entries - verified against the 2.0.8 source)
-  3. verify floor: dnsdist entries == 0 AND recursor cache-entries == 0 AND
-     packetcache-entries == 0 (verified from live counters, not tool exit codes)
+  3. verify floor: dnsdist entries == 0 AND recursor cache-entries AND
+     packetcache-entries within the housekeeping tolerance (background
+     security-poll entries; verified from live counters, not tool exit codes)
   Prerequisite: DNSDIST_CONSOLE_KEY set in .env when the dnsdist container was
   created (entrypoint appends setKey()+controlSocket(127.0.0.1:5199)).
   Any failed or unverifiable step aborts the run BEFORE dnsperf.
@@ -907,8 +924,8 @@ Clearing plan (clear-mode=restart, DESTRUCTIVE - explicit opt-in):
      (drops all in-memory caches AND client connections)
   2. bounded wait (<= ${RESTART_HEALTH_TIMEOUT}s) for BOTH containers to report
      healthy BEFORE any pre-run counters are taken
-  3. verify floor: dnsdist entries == 0 AND recursor cache-entries == 0 AND
-     packetcache-entries == 0
+  3. verify floor: dnsdist entries == 0 AND recursor cache-entries AND
+     packetcache-entries within the housekeeping tolerance
   Only the dnsdist and recursor containers are ever restarted; any other
   --clear-mode value is refused (exit 3).
 EOF
@@ -2004,7 +2021,7 @@ generate_markdown_output() {
     if [[ "$TTW_RESULT" != "null" ]]; then
         if jq -e '.passed == true' <<< "$TTW_RESULT" &>/dev/null; then ttw_status="PASS"; else ttw_status="FAIL"; fi
         ttw_time=$(jq -r '.metrics.time_to_warm_s // "-"' <<< "$TTW_RESULT")
-        ttw_time="${ttw_time}s"
+        [[ "$ttw_time" != "-" ]] && ttw_time="${ttw_time}s"
         ttw_notes="$(jq -r '.metrics.required_consecutive_windows // "-"' <<< "$TTW_RESULT") windows x $(jq -r '.metrics.window_seconds // "-"' <<< "$TTW_RESULT")s"
     fi
 
@@ -2353,6 +2370,25 @@ FIXTURE
         st_check "T9 jsonstat default-pool extraction" 1
     fi
 
+    # ---- T10: cache floor tolerance -------------------------------------------
+    # dnsdist must be strictly empty; the recursor tolerates a couple of
+    # background housekeeping entries (security-status poll) but not more.
+    if verify_cache_floor '{"dnsdist": {"entries": 0}, "recursor": {"cache_entries": 1, "packetcache_entries": 2}}' >/dev/null 2>&1; then
+        st_check "T10a recursor housekeeping entries within tolerance pass" 0
+    else
+        st_check "T10a recursor housekeeping entries within tolerance pass" 1
+    fi
+    if verify_cache_floor '{"dnsdist": {"entries": 0}, "recursor": {"cache_entries": 5, "packetcache_entries": 0}}' >/dev/null 2>&1; then
+        st_check "T10b recursor occupancy above tolerance fails closed" 1
+    else
+        st_check "T10b recursor occupancy above tolerance fails closed" 0
+    fi
+    if verify_cache_floor '{"dnsdist": {"entries": 1}, "recursor": {"cache_entries": 0, "packetcache_entries": 0}}' >/dev/null 2>&1; then
+        st_check "T10c any dnsdist entry fails closed (strict zero)" 1
+    else
+        st_check "T10c any dnsdist entry fails closed (strict zero)" 0
+    fi
+
     rm -rf "$tmp"
 
     log_section "Self-Test Result"
@@ -2464,25 +2500,15 @@ main() {
         exit $EXIT_CONFIG_ERROR
     fi
 
-    # Step 4: Detect counter sources (per layer, clean degradation). Counter-
-    # dependent modes fail closed BEFORE any traffic or destructive action.
-    log_section "Statistics Source Detection"
-    collect_stats
+    # Step 4: Preflight container health for measurement phases (both layers
+    # must be healthy before any counters are taken or traffic is sent). This
+    # runs BEFORE stats-source detection so a still-starting container is
+    # waited for rather than misreported as a missing counter source.
     local needs_counters=false
     case "$MODE" in
         cold|warm|time-to-warm) needs_counters=true ;;
         all) needs_counters=true ;;
     esac
-    if [[ "$needs_counters" == "true" ]]; then
-        if ! require_stats_sources; then
-            exit $EXIT_PREREQ_FAILED
-        fi
-    else
-        log_info "Mode '$MODE' does not gate on cache counters; sources: dnsdist=${STATS_DD_SOURCE:-none} recursor=${STATS_REC_SOURCE:-none}"
-    fi
-
-    # Step 5: Preflight container health for measurement phases (both layers
-    # must be healthy before any pre-run counters are taken).
     if [[ "$needs_counters" == "true" ]]; then
         log_section "Container Health Preflight"
         local c
@@ -2497,6 +2523,18 @@ main() {
             fi
             log_pass "$c healthy"
         done
+    fi
+
+    # Step 5: Detect counter sources (per layer, clean degradation). Counter-
+    # dependent modes fail closed BEFORE any traffic or destructive action.
+    log_section "Statistics Source Detection"
+    collect_stats
+    if [[ "$needs_counters" == "true" ]]; then
+        if ! require_stats_sources; then
+            exit $EXIT_PREREQ_FAILED
+        fi
+    else
+        log_info "Mode '$MODE' does not gate on cache counters; sources: dnsdist=${STATS_DD_SOURCE:-none} recursor=${STATS_REC_SOURCE:-none}"
     fi
 
     # Step 6: Pause the admin-ui precache warming job for the measurement

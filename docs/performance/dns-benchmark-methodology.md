@@ -115,7 +115,10 @@ docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf \
 # 3. Verify the floor from live counters (NOT from tool exit codes - the
 #    dnsdist console client exits 0 even on auth failure):
 #    dnsdist packet cache entries == 0
-#    recursor cache-entries == 0 AND packetcache-entries == 0
+#    recursor cache-entries and packetcache-entries <= 4 (tolerance for the
+#    recursor's background security-status poll, which repopulates 1-2
+#    entries for recursor-<v>.security-status.secpoll.powerdns.com within
+#    seconds of a wipe; those domains never intersect a benchmark corpus)
 ```
 
 **Restart clearing (destructive fallback)**: if console clearing is
@@ -132,7 +135,7 @@ floor. Manual checklist:
 | 2 | `docker compose restart dnsdist recursor` | rc == 0 |
 | 3 | Poll `docker inspect --format='{{.State.Health.Status}}' dnsdist` until `healthy` | fail on timeout |
 | 4 | Same for `recursor` | fail on timeout |
-| 5 | Verify dnsdist entries == 0, recursor cache-entries == 0, packetcache-entries == 0 | fail closed |
+| 5 | Verify dnsdist entries == 0, recursor entries within housekeeping tolerance (<= 4) | fail closed |
 
 **Run command** (dnsperf has NO JSON output at any version; percentiles come
 from the latency histogram added in dnsperf 2.14.0 — the harness requires
@@ -404,8 +407,8 @@ echo "Phase 1: Cold Cache"
 docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor wipe-cache '$'
 docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf \
   -e "getPool(''):getCache():expunge(0)"
-# ... verify: dnsdist entries == 0, recursor cache-entries == 0,
-#     packetcache-entries == 0 (abort if not)
+# ... verify: dnsdist entries == 0, recursor entries within the
+#     housekeeping tolerance (abort if not)
 dnsperf -s 127.0.0.1 -p 53 \
   -d docs/performance/corpus/control-domains.txt \
   -l 60 -Q 1000 -m udp -O latency-histogram \
@@ -793,6 +796,7 @@ Default thresholds can be overridden via environment variables:
 | `DNS53_TTW_WINDOW_SECONDS` | 30 | Window length (s) |
 | `DNS53_TTW_QPS` | 500 | Time-to-warm load level (QPS) |
 | `DNS53_TTW_MAX_WINDOWS` | 40 | Upper bound on windows before failure |
+| `DNS53_RECURSOR_FLOOR_TOLERANCE` | 4 | Recursor entries tolerated at the post-clear floor (background security-poll; dnsdist is strict zero) |
 | `DNS53_RESTART_HEALTH_TIMEOUT` | 180 | restart-mode health wait bound (s) |
 
 Example:

@@ -1247,9 +1247,13 @@ the running daemon.
 **Benchmark harness behavior** (`scripts/benchmarks/dns53-benchmark.sh` v2.x):
 - Cold and time-to-warm phases clear BOTH layers with the console commands
   above and fail closed (abort before dnsperf) when the console is disabled,
-  a step fails, or the post-clear floor check (all cache occupancies == 0)
-  does not verify. The dnsdist console client exits 0 even on auth failure,
-  so the harness trusts live counter state, never exit codes.
+  a step fails, or the post-clear floor check does not verify. Floor: dnsdist
+  packet cache strictly empty; recursor caches empty within a small
+  housekeeping tolerance (the recursor's built-in security-status poll
+  repopulates 1-2 entries for recursor-<v>.security-status.secpoll
+  .powerdns.com right after a wipe; never benchmark-corpus domains). The
+  dnsdist console client exits 0 even on auth failure, so the harness trusts
+  live counter state, never exit codes.
 - `--clear-mode restart` is the explicit destructive fallback: it restarts
   ONLY the dnsdist and recursor containers, waits for both to be healthy
   before taking any pre-run counters, and verifies the floor afterwards.
