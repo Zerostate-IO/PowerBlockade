@@ -404,7 +404,25 @@ version_ge() {
     return 0
 }
 
-# parse_dnsperf_version <text>: extract X.Y.Z from `dnsperf -V` output.
+# dnsperf_version_probe: dnsperf builds disagree on version flags. Some print
+# it on `-V`; Fedora/2.15.0 rejects `-V`/`--version` and only prints the
+# version in the run banner. Probe in order: -V, -h, then a 1-query throwaway
+# run against the loopback with an empty datafile (prints the banner, exits
+# immediately). Return the first X.Y.Z found; empty string if none.
+dnsperf_version_probe() {
+    local out
+    out=$(dnsperf -V 2>&1 | head -2)
+    local v
+    v=$(parse_dnsperf_version "$out")
+    [[ -n "$v" ]] && { printf '%s\n' "$v"; return 0; }
+    out=$(dnsperf -h 2>&1 | head -3)
+    v=$(parse_dnsperf_version "$out")
+    [[ -n "$v" ]] && { printf '%s\n' "$v"; return 0; }
+    out=$(dnsperf -s 127.0.0.1 -l 1 </dev/null 2>&1 | head -3)
+    parse_dnsperf_version "$out"
+}
+
+# parse_dnsperf_version <text>: extract X.Y.Z from dnsperf output.
 parse_dnsperf_version() {
     printf '%s\n' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
 }
@@ -424,9 +442,9 @@ check_prerequisites() {
 
     # Check dnsperf
     if command -v dnsperf &>/dev/null; then
-        DNSPERF_VERSION=$(parse_dnsperf_version "$(dnsperf -V 2>&1 | head -2)")
+        DNSPERF_VERSION=$(dnsperf_version_probe)
         if [[ -z "$DNSPERF_VERSION" ]]; then
-            log_fail "dnsperf installed but version could not be parsed from: $(dnsperf -V 2>&1 | head -1)"
+            log_fail "dnsperf installed but version could not be parsed (tried -V, -h, and run banner)"
             prereq_json+="\"dnsperf\": {\"installed\": true, \"version\": \"unknown\"}, "
             errors=$((errors + 1))
         elif version_ge "$DNSPERF_VERSION" "$DNSPERF_MIN_VERSION"; then
