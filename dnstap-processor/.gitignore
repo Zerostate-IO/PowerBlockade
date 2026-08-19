@@ -1,2 +1,4 @@
-# Compiled binary
-dnstap-processor
+# Compiled binary at the module root only. An unanchored pattern also
+# matches the cmd/dnstap-processor/ source directory and silently ignores
+# new files added there.
+/dnstap-processor

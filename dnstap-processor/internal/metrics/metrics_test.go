@@ -74,10 +74,10 @@ func TestLatencyBucketsExact(t *testing.T) {
 func TestObserveResponseLatencyBuckets(t *testing.T) {
 	m := New()
 
-	m.ObserveResponseLatency(false, 150*time.Microsecond)  // 0.15 ms
-	m.ObserveResponseLatency(false, 250*time.Microsecond)  // exactly on the 0.00025 le boundary
-	m.ObserveResponseLatency(false, 3*time.Millisecond)    // above 0.0025, below 0.005
-	m.ObserveResponseLatency(false, 25*time.Millisecond)   // over the last bucket -> +Inf
+	m.ObserveResponseLatency(false, 150*time.Microsecond) // 0.15 ms
+	m.ObserveResponseLatency(false, 250*time.Microsecond) // exactly on the 0.00025 le boundary
+	m.ObserveResponseLatency(false, 3*time.Millisecond)   // above 0.0025, below 0.005
+	m.ObserveResponseLatency(false, 25*time.Millisecond)  // over the last bucket -> +Inf
 
 	got := scrape(t, m)
 
@@ -128,7 +128,7 @@ func TestProberSamplesCannotEnterProductionSeries(t *testing.T) {
 
 	// Production series: exactly the two production samples.
 	prod := map[string]float64{
-		`dnstap_processor_response_latency_seconds_bucket{prober="false",le="0.0001"}`: 0,
+		`dnstap_processor_response_latency_seconds_bucket{prober="false",le="0.0001"}`:  0,
 		`dnstap_processor_response_latency_seconds_bucket{prober="false",le="0.00025"}`: 1,
 		`dnstap_processor_response_latency_seconds_bucket{prober="false",le="0.0005"}`:  1, // prober 500µs must NOT land here
 		`dnstap_processor_response_latency_seconds_bucket{prober="false",le="0.001"}`:   1,
@@ -201,8 +201,8 @@ func TestCounterAndGaugeNamesExposed(t *testing.T) {
 		"dnstap_processor_events_received_total": 1,
 		"dnstap_processor_events_buffered_total": 3,
 		"dnstap_processor_events_shipped_total":  2,
-		"dnstap_processor_events_dropped_total":   1,
-		"dnstap_processor_buffer_pending":         7,
+		"dnstap_processor_events_dropped_total":  1,
+		"dnstap_processor_buffer_pending":        7,
 	}
 	for name, wantV := range want {
 		if v, ok := got[name]; !ok {
