@@ -271,3 +271,61 @@ parallelism.**
   of this experiment. Rollback: restore `staleTTL=60`,
   `setStaleCacheEntriesTTL(60)`, remove `keepStaleData=true`, recreate
   dnsdist.
+
+---
+
+## Final configuration and battery summary
+
+### Kept changes (final recommended config)
+
+1. **E2** — `newServer({ ... useClientSubnet=false })`: stop constructing and
+   inserting an ECS option per cache miss that the recursor provably ignored
+   (its `use-incoming-edns-subnet` defaults false and its allow-list is
+   empty). Hit ratio unchanged at 99.9%.
+2. **E4** — `newPacketCache(..., staleTTL=300, keepStaleData=true)` +
+   `setStaleCacheEntriesTTL(300)`: outage stale-serving window extended from
+   ≤31 s effective (60 s nominal, defeated by the cache cleaner) to the full
+   300 s per entry.
+
+### Reverted (with evidence, see each section)
+
+- **E1a** 4 × `reusePort` listeners — official harness flat (−0.08% QPS); its
+  single flow kernel-hashes onto one listener, so the harness cannot show a
+  win by construction; a 4-flow supplemental test showed 13,805 vs 13,841 QPS
+  (0.3% = noise, single listener already sustains 13.8k QPS).
+- **E1b** backend `sockets=8` — flat (−0.45% QPS, inside the ±1.2% noise
+  band); behind a ~99.9% edge hit ratio backend socket pressure is ~zero.
+- **E1c** `pdns-distributes-queries=no` — flat-to-negative (−2.2% QPS, p99
+  +0.008 ms); the recursor's per-thread CPU was 1–4 ms per thread across the
+  whole saturation run — nowhere near a bottleneck.
+- **E3** `refresh-on-ttl-perc=10` — accepted and live, but refresh tasks never
+  fired in a 240 s steady-load window (taskqueue-pushed Δ=0) because edge and
+  inner cache entries expire in lockstep; benefit ≈ one refetch per 5 min.
+
+### Bottom line
+
+The official numbers are bounded by (a) the single-flow dnsperf client at
+saturation (~8.5k QPS; the stack itself sustains 13.8k+ QPS under multi-flow
+load with 0% loss) and (b) the ~99.9% edge cache hit ratio, which shields the
+recursor so thoroughly that its tuning knobs are unobservable from the edge.
+The wins that matter are operational: dead ECS overhead removed and stale
+resilience made real (5× window, previously silently defeated).
+
+### Measurement-environment note (afternoon drift)
+
+Saturation QPS declined monotonically over the 75-minute battery on unchanged
+or reverted configs (8597 anchor → 8410 E1c → 8235 final-1 → 7336 final-2)
+while p99 *improved* (0.231 → 0.121) and error rates stayed ≤0.03%. A
+controlled re-measure of the exact baseline config (60/60 + ECS on) under
+end-of-battery conditions scored **7985 QPS vs its own morning 8597 (−7%)**,
+proving the drift is environmental (interactive desktop host, single-flow
+dnsperf client) and not caused by any battery change. Consequences for
+interpretation:
+
+- The morning pairwise comparisons (anchor vs E1a/E1b, all within ~30 min)
+  are the reliable saturation verdicts — flat.
+- The E2/E4 keep decisions rest on latency-within-noise, unchanged hit
+  ratios, zero errors, and source-verified mechanism, not on afternoon QPS
+  absolute numbers.
+- Any future regression gating should compare runs close in wall-clock time,
+  ideally paired (config A, config B, config A).
