@@ -61,5 +61,13 @@ scrape_configs:
         labels:
           service: dnstap-processor
 
-  # TODO(prober): add a scrape job for the prober service (prober:<port>)
-  # here once that packet lands and publishes its metrics port.
+  # Synthetic prober: client-observed latency ground truth from a fixed
+  # source IP (172.30.0.30). Its series stay deliberately separate from
+  # production panels; no auth — in-network counters only.
+  - job_name: "powerblockade-prober"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["prober:9533"]
+        labels:
+          service: prober
