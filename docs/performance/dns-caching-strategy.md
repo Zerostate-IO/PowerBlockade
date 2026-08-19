@@ -124,29 +124,44 @@ This document defines the caching strategy for PowerBlockade, including baseline
 
 ## Precache Policy
 
-The precache system proactively warms DNS cache entries for high-frequency domains to reduce latency on first query after cache expiry or service restart.
+The precache system proactively warms DNS cache entries for high-frequency (qname, qtype) pairs to reduce latency on first query after cache expiry or service restart.
 
-### Domain Selection Criteria
+### Pair Selection Criteria
 
-Domains are selected for precaching based on the following criteria:
+Warming targets are selected as (qname, qtype) PAIRS, not bare domains, so the edge cache is warmed for the exact question clients asked (A, AAAA, HTTPS/65, ...).
 
-1. **Query Frequency**: Only domains with successful queries in the last 24 hours are candidates
+1. **Query Frequency**: Only pairs with successful queries in the last 24 hours are candidates
 2. **Success Requirement**: Queries must have returned `rcode=0` (NOERROR)
-3. **Non-Blocked Status**: Blocked domains (`blocked=False`) are explicitly excluded
-4. **Ranking**: Domains are ranked by query count, with the highest-frequency domains prioritized
+3. **Non-Blocked Status**: Blocked domains (`blocked=false`) are explicitly excluded
+4. **Ranking**: Pairs are ranked by per-pair query count, with the highest-frequency pairs prioritized
+5. **Request Ceiling**: Each warming pass sends at most `precache_max_queries_per_pass` queries (default 2000)
+
+**Answer-present proxy**: `dns_query_events` has no answer-count column, so NOERROR-with-no-answers (NODATA) pairs cannot be distinguished from pairs that returned records. `rcode=0` is the best available proxy for "warming-positive"; NODATA pairs are still worth warming because their negative answers are cached too. If an answer-count column is added later, selection should prefer answer-bearing pairs.
 
 **Selection SQL Logic** (from `admin-ui/app/services/precache.py`):
 
 ```sql
-SELECT qname, COUNT(id) as count
+SELECT qname, qtype, COUNT(id) as count
 FROM dns_query_events
 WHERE ts >= (NOW() - INTERVAL '24 hours')
   AND blocked = FALSE
   AND rcode = 0
-GROUP BY qname
+GROUP BY qname, qtype
 ORDER BY count DESC
 LIMIT :domain_count
 ```
+
+### Warming and the Two Cache Layers
+
+Warming queries are sent THROUGH the dnsdist edge (`precache_dns_server` / `precache_dns_port`, default `dnsdist:53`), so each warmed pair refreshes the **edge layer**: the dnsdist packet cache holds an entry for that exact (qname, qtype) until its TTL expires.
+
+A query that HITS the dnsdist packet cache never reaches the recursor. An ordinary warm pass therefore cannot by itself guarantee the inner recursor record/packet caches stay populated — that is expected and by design:
+
+* Warm queries that MISS the edge cache are recursed by dnsdist, populating the recursor caches along the way.
+* The recursor's own caches plus its near-expiry refresh keep the inner layer warm between passes.
+* A separate recursor-side refresh experiment (recursor refresh-on-TTL-percentage) is planned to measure and, if needed, close the remaining gap.
+
+TTL bookkeeping is per (qname, qtype) pair: each pair's refresh cadence respects the shortest TTL observed for that pair (minimum TTL across the answer RRsets of its most recent successful response; NODATA responses use the SOA negative TTL). The same qname can legitimately be warmed on different cadences for different qtypes — e.g. `example.com A` at TTL 300 refreshes at 240s while `example.com AAAA` at TTL 60 refreshes at 30s.
 
 ### Domain Exclusion Criteria
 
@@ -188,10 +203,10 @@ The precache system supports two refresh modes:
 
 #### TTL-Aware Refresh (Default: `precache_ignore_ttl=false`)
 
-- **Behavior**: Respects upstream TTL with a 20% safety margin
-- **Formula**: `refresh_threshold = ttl - max(ttl * 0.2, 30 seconds)`
-- **Example**: A domain with 300s TTL refreshes at 240s (300 - 60)
-- **Minimum Margin**: 30 seconds (prevents rapid refresh of short-TTL domains)
+- **Behavior**: Respects upstream TTL with a 20% safety margin, per (qname, qtype) pair
+- **Formula**: `refresh_threshold = ttl - max(ttl * 0.2, 30 seconds)` where `ttl` is the shortest TTL observed for the pair
+- **Example**: A pair with 300s TTL refreshes at 240s (300 - 60); the same qname with a 60s TTL on another qtype refreshes at 30s
+- **Minimum Margin**: 30 seconds (prevents rapid refresh of short-TTL pairs)
 
 #### Fixed Interval Refresh (Override: `precache_ignore_ttl=true`)
 
@@ -268,19 +283,22 @@ Secondary nodes run their own precache warming independently but use the **prima
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
 | `precache_enabled` | true | boolean | Enable/disable precache warming |
-| `precache_domain_count` | 5000 | 100-10000 | Number of top domains to track |
+| `precache_domain_count` | 5000 | 100-10000 | Number of top pairs to track |
 | `precache_refresh_minutes` | 30 | 5-1440 | Job run frequency |
 | `precache_ignore_ttl` | false | boolean | Ignore upstream TTL |
 | `precache_custom_refresh_minutes` | 60 | 10-1440 | Fixed refresh interval when TTL ignored |
-| `precache_dns_server` | recursor | hostname | DNS server to query for warming |
-| `precache_dns_port` | 5300 | 1-65535 | Port for DNS queries |
+| `precache_dns_server` | dnsdist | hostname | DNS server (edge) to query for warming |
+| `precache_dns_port` | 53 | 1-65535 | Port for DNS queries (dnsdist edge) |
+| `precache_max_queries_per_pass` | 2000 | 100-100000 | Ceiling on warm queries per pass |
+
+**Settings migration note**: deployments that previously saved the precache settings form hold `precache_dns_server`/`precache_dns_port` rows (recursor/5300); stored rows take precedence over the new dnsdist/53 defaults. Update those two settings (or delete the rows) to route warming through the edge after upgrading.
 
 ### Implementation Details
 
 **Primary Node** (`admin-ui/app/services/precache.py`):
-- `get_top_domains_to_warm()`: Queries last 24h of successful, non-blocked queries
-- `get_domains_needing_refresh()`: Filters domains that are stale based on TTL/interval
-- `warm_cache()`: Batch resolves domains with 50/batch, 100ms inter-batch delay
+- `get_top_pairs_to_warm()`: Queries last 24h of successful, non-blocked queries grouped by (qname, qtype)
+- `get_pairs_needing_refresh()`: Filters pairs that are stale based on per-pair TTL/interval
+- `warm_cache()` / `warm_pair()`: Re-ask each observed pair with its own qtype through the dnsdist edge (raw `dns.message.make_query` + `dns.query.udp`, since `Resolver.resolve()` cannot ask arbitrary qtypes), in batches of 50 with 100ms inter-batch delay, capped by `precache_max_queries_per_pass`
 
 **Secondary Node** (`sync-agent/agent.py`):
 - `fetch_precache_domains()`: Retrieves domain list from primary
@@ -290,14 +308,15 @@ Secondary nodes run their own precache warming independently but use the **prima
 ### Monitoring and Observability
 
 **Metrics Available**:
-- `cached_domains`: Total domains in TTL cache
-- `fresh`: Domains still within TTL
-- `expired`: Domains past TTL needing refresh
+- `cached_pairs`: Total (qname, qtype) pairs in the TTL cache
+- `fresh`: Pairs still within TTL
+- `expired`: Pairs past TTL needing refresh
+- `by_qtype`: Pair counts per qtype
 
 **Log Indicators**:
-- `Precache warming: N/M domains in Xms` - Successful warming
-- `All N domains still fresh, skipping` - No refresh needed
-- `Failed to warm domain: error` - Individual resolution failure
+- `Cache warming: N/M pairs in Xms` - Successful warming pass
+- `All N pairs still fresh, skipping` - No refresh needed
+- `Failed to warm qname/qtype: error` - Individual query failure
 
 ### Best Practices
 
@@ -388,12 +407,13 @@ These knobs control the proactive cache warming system that pre-populates cache 
 | Setting | Current Value | Safe Range | Expected Effect | Failure Mode | Rollback Action |
 |---------|---------------|------------|-----------------|--------------|-----------------|
 | `precache_enabled` | true | true/false | Enables/disables precache warming | false = cold cache after restart = slow first queries | Set to true |
-| `precache_domain_count` | 5000 | 100-10000 | Number of top domains to track | Too high = excessive upstream queries during warming; too low = cache miss for popular domains | Reduce to 1000-2000 |
+| `precache_domain_count` | 5000 | 100-10000 | Number of top (qname, qtype) pairs to track | Too high = excessive upstream queries during warming; too low = cache miss for popular pairs | Reduce to 1000-2000 |
 | `precache_refresh_minutes` | 30 | 5-1440 | How often precache job runs | Too frequent = wasted CPU; too rare = stale entries | Increase to 60 if upstream load is concern |
-| `precache_ignore_ttl` | false | true/false | true = ignore upstream TTL; use fixed interval | true = ignores domain TTL signals = potentially stale data; false = respects TTL | Set to false |
+| `precache_ignore_ttl` | false | true/false | true = ignore upstream TTL; use fixed interval | true = ignores pair TTL signals = potentially stale data; false = respects TTL | Set to false |
 | `precache_custom_refresh_minutes` | 60 | 10-1440 | Fixed refresh interval when TTL ignored | Only used if `precache_ignore_ttl=true` | Not applicable if TTL respected |
-| `precache_dns_server` | recursor | hostname/IP | DNS server to query for warming | Wrong server = no cache warming benefit | Set to 'recursor' or correct IP |
-| `precache_dns_port` | 5300 | 1-65535 | Port for precache DNS queries | Wrong port = warming fails silently | Verify matches recursor port |
+| `precache_dns_server` | dnsdist | hostname/IP | Edge DNS server warming goes through | Wrong server = no edge cache warming benefit | Set to 'dnsdist' or correct IP |
+| `precache_dns_port` | 53 | 1-65535 | Port for precache DNS queries (dnsdist edge) | Wrong port = warming fails silently | Verify matches dnsdist listener port |
+| `precache_max_queries_per_pass` | 2000 | 100-100000 | Ceiling on warm queries per pass | Too low = pairs expire between passes; too high = burst load on edge | Keep near default; raise only with observed miss rate |
 
 ### Secondary Node Precache Knobs
 
@@ -404,8 +424,8 @@ These knobs control the proactive cache warming system that pre-populates cache 
 
 ### Precache Tuning Notes
 
-- **TTL safety margin**: System uses `max(ttl * 0.2, 30)` as refresh margin. Short TTL domains (< 150s) always use 30s margin.
-- **Batch processing**: Domains warmed in batches of 50 with 100ms delay between batches. This is hardcoded.
+- **TTL safety margin**: System uses `max(ttl * 0.2, 30)` as refresh margin, per (qname, qtype) pair. Short-TTL pairs (< 150s) always use 30s margin.
+- **Batch processing**: Pairs warmed in batches of 50 with 100ms delay between batches, capped per pass by `precache_max_queries_per_pass`.
 - **Secondary autonomy**: Secondaries fetch domain LIST from primary but resolve locally. Primary outage = secondaries use stale list.
 - **Exclusion gap**: Current implementation lacks CDN/dynamic DNS exclusion patterns. This should be addressed.
 

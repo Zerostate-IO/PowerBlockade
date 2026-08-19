@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import dns.rdatatype
 import sqlalchemy as sa
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,17 +12,19 @@ from app.db.session import get_db
 from app.models.dns_query_event import DNSQueryEvent
 from app.models.settings import (
     get_precache_custom_refresh_minutes,
+    get_precache_dns_port,
     get_precache_dns_server,
     get_precache_domain_count,
     get_precache_enabled,
     get_precache_ignore_ttl,
+    get_precache_max_queries_per_pass,
     get_precache_refresh_minutes,
     set_setting,
 )
 from app.routers.auth import get_current_user
 from app.services.precache import (
     get_precache_stats,
-    get_top_domains_to_warm,
+    get_top_pairs_to_warm,
     warm_cache,
 )
 from app.settings import get_settings
@@ -110,9 +113,13 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
     ignore_ttl = get_precache_ignore_ttl(db)
     custom_refresh = get_precache_custom_refresh_minutes(db)
     dns_server = get_precache_dns_server(db)
+    dns_port = get_precache_dns_port(db)
+    max_queries_per_pass = get_precache_max_queries_per_pass(db)
 
-    warmable_domains = get_top_domains_to_warm(db, hours=24, limit=domain_count)
+    warmable_pairs = get_top_pairs_to_warm(db, hours=24, limit=domain_count)
     precache_stats = get_precache_stats()
+    qtype_counts = sorted(precache_stats.get("by_qtype", {}).items(), key=lambda kv: -kv[1])[:5]
+    qtype_counts = [(dns.rdatatype.to_text(qtype), count) for qtype, count in qtype_counts]
 
     return templates.TemplateResponse(
         "precache.html",
@@ -126,7 +133,8 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             "time_saved_total": time_saved_total,
             "time_saved_per_query": time_saved_per_query,
             "top_cached": top_cached,
-            "warmable_count": len(warmable_domains),
+            "warmable_count": len(warmable_pairs),
+            "qtype_counts": qtype_counts,
             "warming_message": request.query_params.get("warmed"),
             "precache_enabled": precache_enabled,
             "domain_count": domain_count,
@@ -134,13 +142,15 @@ def precache_page(request: Request, db: Session = Depends(get_db)):
             "ignore_ttl": ignore_ttl,
             "custom_refresh": custom_refresh,
             "dns_server": dns_server,
+            "dns_port": dns_port,
+            "max_queries_per_pass": max_queries_per_pass,
             "precache_stats": precache_stats,
         },
     )
 
 
-def _warm_cache_background(domains: list[str], dns_server: str, port: int) -> None:
-    warm_cache(domains, dns_server, port)
+def _warm_cache_background(pairs: list[tuple[str, int]], dns_server: str, port: int) -> None:
+    warm_cache(pairs, dns_server, port)
 
 
 @router.post("/precache/warm")
@@ -154,14 +164,16 @@ def trigger_warm_cache(
         return RedirectResponse(url="/login", status_code=302)
 
     dns_host = get_precache_dns_server(db)
+    dns_port = get_precache_dns_port(db)
     domain_count = get_precache_domain_count(db)
-    domains = get_top_domains_to_warm(db, hours=24, limit=domain_count)
+    max_queries = get_precache_max_queries_per_pass(db)
+    pairs = get_top_pairs_to_warm(db, hours=24, limit=domain_count, max_queries=max_queries)
 
-    if domains:
-        background_tasks.add_task(_warm_cache_background, domains, dns_host, 53)
-        msg = f"Warming {len(domains)} domains"
+    if pairs:
+        background_tasks.add_task(_warm_cache_background, pairs, dns_host, dns_port)
+        msg = f"Warming {len(pairs)} (name, type) pairs"
     else:
-        msg = "No domains to warm"
+        msg = "No pairs to warm"
 
     return RedirectResponse(url=f"/precache?warmed={msg}", status_code=302)
 
@@ -175,7 +187,8 @@ def update_precache_settings(
     refresh_minutes: int = Form(30),
     ignore_ttl: str = Form("false"),
     custom_refresh: int = Form(60),
-    dns_server: str = Form("recursor"),
+    dns_server: str = Form("dnsdist"),
+    max_queries_per_pass: int = Form(2000),
 ):
     user = get_current_user(request, db)
     if not user:
@@ -184,7 +197,8 @@ def update_precache_settings(
     domain_count = max(100, min(100000, domain_count))
     refresh_minutes = max(5, min(1440, refresh_minutes))
     custom_refresh = max(5, min(1440, custom_refresh))
-    dns_server = dns_server.strip() or "recursor"
+    max_queries_per_pass = max(100, min(100000, max_queries_per_pass))
+    dns_server = dns_server.strip() or "dnsdist"
 
     set_setting(db, "precache_enabled", "true" if enabled == "true" else "false")
     set_setting(db, "precache_domain_count", str(domain_count))
@@ -192,5 +206,6 @@ def update_precache_settings(
     set_setting(db, "precache_ignore_ttl", "true" if ignore_ttl == "true" else "false")
     set_setting(db, "precache_custom_refresh_minutes", str(custom_refresh))
     set_setting(db, "precache_dns_server", dns_server)
+    set_setting(db, "precache_max_queries_per_pass", str(max_queries_per_pass))
 
     return RedirectResponse(url="/precache?warmed=Settings+saved", status_code=302)

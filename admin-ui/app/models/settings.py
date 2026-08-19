@@ -30,8 +30,15 @@ DEFAULTS = {
     "precache_refresh_minutes": "30",
     "precache_ignore_ttl": "false",
     "precache_custom_refresh_minutes": "60",
-    "precache_dns_server": "recursor",
-    "precache_dns_port": "5300",
+    # P7 warming upgrade: warming goes THROUGH the dnsdist edge so the edge
+    # packet cache is refreshed for the exact (qname, qtype) pairs clients
+    # asked for. The recursor's own caches handle the inner layer; see
+    # app/services/precache.py layering notes. Deployments with stored
+    # settings rows may still pin recursor/5300 — see the migration note in
+    # the P7 handoff (defaults only apply when no row exists).
+    "precache_dns_server": "dnsdist",
+    "precache_dns_port": "53",
+    "precache_max_queries_per_pass": "2000",
     "timezone": "UTC",
     "health_cache_hit_warning": "50",
     "health_cache_hit_critical": "20",
@@ -96,11 +103,15 @@ def get_precache_custom_refresh_minutes(db) -> int:
 
 
 def get_precache_dns_server(db) -> str:
-    return get_setting(db, "precache_dns_server") or "recursor"
+    return get_setting(db, "precache_dns_server") or "dnsdist"
 
 
 def get_precache_dns_port(db) -> int:
-    return int(get_setting(db, "precache_dns_port") or "5300")
+    return int(get_setting(db, "precache_dns_port") or "53")
+
+
+def get_precache_max_queries_per_pass(db) -> int:
+    return max(1, int(get_setting(db, "precache_max_queries_per_pass") or "2000"))
 
 
 def get_timezone(db) -> str:

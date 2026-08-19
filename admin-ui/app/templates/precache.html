@@ -8,7 +8,7 @@
     <form method="post" action="/precache/warm">
       {{ csrf_input(request) }}
       <button class="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-slate-950" type="submit">
-        Warm Now ({{ warmable_count }} domains)
+        Warm Now ({{ warmable_count }} pairs)
       </button>
     </form>
   </div>
@@ -73,8 +73,15 @@
           <label class="text-sm text-slate-300">DNS Server</label>
           <input type="text" name="dns_server" value="{{ dns_server }}"
                  class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-200"
-                 placeholder="recursor">
-          <p class="mt-1 text-xs text-slate-500">Hostname or IP of the DNS resolver (default: recursor)</p>
+                 placeholder="dnsdist">
+          <p class="mt-1 text-xs text-slate-500">Edge resolver warming goes through (default: dnsdist, port {{ dns_port }})</p>
+        </div>
+
+        <div>
+          <label class="text-sm text-slate-300">Max queries per pass</label>
+          <input type="number" name="max_queries_per_pass" value="{{ max_queries_per_pass }}" min="100" max="100000"
+                 class="mt-1 w-full rounded-lg border border-slate-700 bg-bg-900 px-3 py-2 text-sm text-slate-200">
+          <p class="mt-1 text-xs text-slate-500">Ceiling on warm queries per pass (default: 2000)</p>
         </div>
 
         <div class="rounded-lg border border-amber-800/50 bg-amber-950/20 p-3">
@@ -115,9 +122,17 @@
 
       <div class="mt-4 space-y-3">
         <div class="flex justify-between rounded-lg bg-bg-900 p-3">
-          <span class="text-sm text-slate-400">Tracked domains</span>
-          <span class="text-sm font-medium text-slate-200">{{ "{:,}".format(precache_stats.cached_domains) }}</span>
+          <span class="text-sm text-slate-400">Tracked (name, type) pairs</span>
+          <span class="text-sm font-medium text-slate-200">{{ "{:,}".format(precache_stats.cached_pairs) }}</span>
         </div>
+        {% if qtype_counts %}
+        <div class="flex justify-between rounded-lg bg-bg-900 p-3">
+          <span class="text-sm text-slate-400">Top qtypes tracked</span>
+          <span class="text-sm font-medium text-slate-300">
+            {%- for qtype_label, count in qtype_counts %}{{ qtype_label }} {{ "{:,}".format(count) }}{% if not loop.last %} · {% endif %}{% endfor -%}
+          </span>
+        </div>
+        {% endif %}
         <div class="flex justify-between rounded-lg bg-bg-900 p-3">
           <span class="text-sm text-slate-400">Fresh (within TTL)</span>
           <span class="text-sm font-medium text-emerald-400">{{ "{:,}".format(precache_stats.fresh) }}</span>
@@ -131,10 +146,10 @@
       <div class="mt-4 rounded-lg border border-slate-700 bg-bg-900 p-3 text-xs text-slate-400">
         <strong class="text-slate-300">How it works:</strong>
         <ul class="mt-2 list-inside list-disc space-y-1">
-          <li>Analyzes your top domains from the last 24 hours</li>
-          <li>Pre-resolves them before clients request them</li>
-          <li>Respects DNS TTL to refresh before expiry</li>
-          <li>Runs every 5 minutes, only warming expired entries</li>
+          <li>Analyzes top (name, type) pairs from the last 24 hours</li>
+          <li>Re-asks each pair with its own qtype (A, AAAA, HTTPS, ...) through the dnsdist edge</li>
+          <li>Respects the shortest observed TTL per pair</li>
+          <li>Warm queries refresh the edge packet cache; the recursor refreshes its own entries near expiry</li>
         </ul>
       </div>
     </div>
