@@ -583,6 +583,7 @@ PHASES_RUN=0
 PHASES_PASSED=0
 PHASES_FAILED=0
 ABORT_REMAINING_PHASES=false
+CLEAR_FAILED=false
 REGRESSIONS=()
 
 push_regression() {
@@ -1487,6 +1488,7 @@ run_cold_cache_phase() {
 
     # Step 1: clear BOTH layers (fail-closed: abort before dnsperf)
     if ! do_clear; then
+        CLEAR_FAILED=true
         COLD_CACHE_RESULT=$(jq -n --argjson clear "$CLEAR_REPORT" \
             '{implemented: true, passed: false, error: "cache_clear_failed", clear: $clear}')
         PHASES_RUN=$((PHASES_RUN + 1))
@@ -1766,6 +1768,7 @@ run_ttw_phase() {
     log_info "  p99 <= ${TTW_P99_THRESHOLD}ms AND dnsdist >= ${TTW_DNSDIST_HIT_PCT}% AND packetcache >= ${TTW_PACKETCACHE_HIT_PCT}% AND recordcache >= ${TTW_RECCACHE_HIT_PCT}%"
 
     if ! do_clear; then
+        CLEAR_FAILED=true
         TTW_RESULT=$(jq -n --argjson clear "$CLEAR_REPORT" \
             '{implemented: true, passed: false, error: "cache_clear_failed", clear: $clear}')
         PHASES_RUN=$((PHASES_RUN + 1))
@@ -1950,7 +1953,7 @@ generate_json_output() {
         --argjson stats_sources "$STATS_SOURCES_JSON" \
         --argjson baseline "$BASELINE_JSON" \
         --arg precache_state "$PRECACHE_STATE" \
-        --argjson dnsperf_version "${DNSPERF_VERSION:-null}" \
+        --arg dnsperf_version "${DNSPERF_VERSION:-}" \
         '{
             benchmark_id: $benchmark_id,
             run_at: $run_at,
@@ -1967,7 +1970,7 @@ generate_json_output() {
                 hostname: $hostname,
                 os: $os,
                 kernel: $kernel,
-                dnsperf_version: $dnsperf_version
+                dnsperf_version: (if $dnsperf_version == "" then null else $dnsperf_version end)
             },
             prerequisites: $prereq,
             stats_sources: $stats_sources,
@@ -2188,13 +2191,13 @@ self_test() {
     DURATION=1
     CORPUS="/dev/null"
     TARGET="127.0.0.1"; PORT="53"
-    COLD_CACHE_RESULT="null"; PHASES_RUN=0; PHASES_FAILED=0; REGRESSIONS=()
+    COLD_CACHE_RESULT="null"; PHASES_RUN=0; PHASES_FAILED=0; REGRESSIONS=(); CLEAR_FAILED=false
     run_cold_cache_phase >/dev/null 2>&1
     rc=$?
-    if [[ $rc -ne 0 && ! -f "$sentinel" ]]; then
-        st_check "T3d cold phase aborts before dnsperf when clearing fails" 0
+    if [[ $rc -ne 0 && ! -f "$sentinel" && "$CLEAR_FAILED" == "true" ]]; then
+        st_check "T3d cold phase aborts before dnsperf when clearing fails (flags prereq failure)" 0
     else
-        st_check "T3d cold phase aborts before dnsperf when clearing fails" 1
+        st_check "T3d cold phase aborts before dnsperf when clearing fails (flags prereq failure)" 1
     fi
     unset -f run_dnsperf collect_stats clear_dnsdist_console clear_recursor_console console_available
 
@@ -2388,6 +2391,40 @@ FIXTURE
     else
         st_check "T10c any dnsdist entry fails closed (strict zero)" 0
     fi
+
+    # ---- T11: report JSON generation ------------------------------------------
+    # Version strings like 2.16.0 are NOT valid JSON numbers; the generator
+    # must pass them as strings (regression test for a real bug found here).
+    local saved_corpus="$CORPUS"
+    CORPUS="/dev/null"
+    DNSPERF_VERSION="2.16.0"
+    PREREQ_JSON='{"dnsperf": {"installed": true, "version": "2.16.0"}}'
+    STATS_SOURCES_JSON='{"dnsdist": "dnsdist-console", "recursor": "rec_control"}'
+    PRECACHE_STATE="paused"
+    PHASES_RUN=1; PHASES_PASSED=1; PHASES_FAILED=0
+    TTW_RESULT='{"implemented": true, "passed": true, "metrics": {"time_to_warm_s": 187, "windows_run": 9, "required_consecutive_windows": 5, "window_seconds": 30, "load_qps": 500}}'
+    BASELINE_JSON='{"cache_occupancy": {}, "containers": [], "host_memory": {}, "recursor_threads_cpu_msec": {}, "dnstap_processor": "healthy"}'
+    if generate_json_output 2>/dev/null | jq -e \
+        '.summary.passed == true and .phases.time_to_warm.metrics.time_to_warm_s == 187 and .environment.dnsperf_version == "2.16.0" and .stats_sources.recursor == "rec_control"' >/dev/null 2>&1; then
+        st_check "T11a report JSON generates valid, complete output" 0
+    else
+        st_check "T11a report JSON generates valid, complete output" 1
+    fi
+    DNSPERF_VERSION=""
+    if generate_json_output 2>/dev/null | jq -e '.environment.dnsperf_version == null' >/dev/null 2>&1; then
+        st_check "T11b missing dnsperf version degrades to null" 0
+    else
+        st_check "T11b missing dnsperf version degrades to null" 1
+    fi
+    if generate_markdown_output 2>/dev/null | grep -q "Time-to-Warm"; then
+        st_check "T11c markdown report includes time-to-warm row" 0
+    else
+        st_check "T11c markdown report includes time-to-warm row" 1
+    fi
+    CORPUS="$saved_corpus"
+    TTW_RESULT="null"; BASELINE_JSON="null"; PREREQ_JSON='{}'
+    STATS_SOURCES_JSON='{"dnsdist": null, "recursor": null}'
+    PRECACHE_STATE="not-paused"; PHASES_RUN=0; PHASES_PASSED=0; PHASES_FAILED=0
 
     rm -rf "$tmp"
 
@@ -2611,6 +2648,13 @@ main() {
     log_section "Benchmark Complete"
 
     log_info "Phases run: $PHASES_RUN | Passed: $PHASES_PASSED | Failed: $PHASES_FAILED"
+
+    # A failed/unverifiable cache clear is a prerequisite failure (exit 2),
+    # not a performance regression (exit 1) - see the exit-code contract.
+    if [[ "$CLEAR_FAILED" == "true" ]]; then
+        log_fail "Cache clearing failed or could not be verified - no benchmark was measured"
+        exit $EXIT_PREREQ_FAILED
+    fi
 
     if [[ $PHASES_FAILED -gt 0 ]]; then
         log_fail "Performance regression detected!"
