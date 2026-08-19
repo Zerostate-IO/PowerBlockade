@@ -130,8 +130,19 @@ WARM_CACHE_HIT_THRESHOLD="${DNS53_WARM_CACHE_HIT_PCT:-90}"
 SATURATION_MIN_QPS="${DNS53_SATURATION_MIN_QPS:-5000}"
 TTW_P99_THRESHOLD="${DNS53_TTW_P99_THRESHOLD_MS:-50}"
 TTW_DNSDIST_HIT_PCT="${DNS53_TTW_DNSDIST_HIT_PCT:-90}"
+# NOTE: inner-layer hit-ratio targets are intentionally NOT part of the warm
+# criterion: a working dnsdist edge shields the recursor from nearly all
+# traffic (observed live: edge ratio 99.7% => ~50 of 15000 queries/window
+# reach the recursor; its ratios are sparse-sample noise and the record cache
+# sees ~zero lookups because the recursor packet cache shields it in turn).
+# Inner warmth gates on OCCUPANCY instead: recursor cache+packetcache entries
+# must reach the corpus-unique floor (each warmed domain stores >=1 packet
+# entry plus its records; housekeeping adds ~57 on a primed recursor).
+# Default: unique lines of the corpus, computed at phase start; env override
+# DNS53_TTW_REC_OCCUPANCY_MIN sets an absolute floor.
 TTW_PACKETCACHE_HIT_PCT="${DNS53_TTW_PACKETCACHE_HIT_PCT:-90}"
 TTW_RECCACHE_HIT_PCT="${DNS53_TTW_RECCACHE_HIT_PCT:-90}"
+TTW_REC_OCCUPANCY_MIN="${DNS53_TTW_REC_OCCUPANCY_MIN:-}"
 
 # Health-wait bound (seconds) when --clear-mode=restart restarts containers.
 RESTART_HEALTH_TIMEOUT="${DNS53_RESTART_HEALTH_TIMEOUT:-180}"
@@ -1816,7 +1827,10 @@ run_ttw_phase() {
     local windows_json="[]"
 
     log_info "Warm criteria: ${TTW_WINDOWS} consecutive windows of ${TTW_WINDOW_SECONDS}s"
-    log_info "  p99 <= ${TTW_P99_THRESHOLD}ms AND dnsdist >= ${TTW_DNSDIST_HIT_PCT}% AND packetcache >= ${TTW_PACKETCACHE_HIT_PCT}% AND recordcache >= ${TTW_RECCACHE_HIT_PCT}%"
+    log_info "  p99 <= ${TTW_P99_THRESHOLD}ms AND dnsdist >= ${TTW_DNSDIST_HIT_PCT}% AND recursor occupancy >= ${TTW_REC_OCCUPANCY_MIN} entries"
+    log_info "  (inner-layer hit ratios do NOT gate: a working edge shields the recursor from"
+    log_info "   traffic, so its ratios are sparse-sample noise; warmth of the inner layer is"
+    log_info "   occupancy - the heat is stored - not the ratio - the heat being exercised)"
 
     if ! do_clear; then
         CLEAR_FAILED=true
@@ -1831,6 +1845,12 @@ run_ttw_phase() {
 
     local clear_epoch
     clear_epoch=$(date +%s)
+
+    # Occupancy floor: corpus-unique domains unless explicitly overridden.
+    if [[ -z "$TTW_REC_OCCUPANCY_MIN" ]]; then
+        TTW_REC_OCCUPANCY_MIN=$(grep -cve '^\s*$' -e '^\s*#' "$CORPUS" 2>/dev/null || echo 0)
+        log_info "Recursor occupancy floor: ${TTW_REC_OCCUPANCY_MIN} unique corpus domains"
+    fi
 
     local window_pre="$STATS_JSON"
     local dnsperf_output="${RESULTS_DIR}/ttw-window-raw-$$.txt"
@@ -1853,11 +1873,12 @@ run_ttw_phase() {
         deltas=$(compute_layer_deltas "$window_pre" "$STATS_JSON")
         window_pre="$STATS_JSON"
 
-        local p99 dd_ratio pc_ratio rc_ratio elapsed
+        local p99 dd_ratio pc_ratio rc_ratio rec_occ elapsed
         p99=$(jq -r '.p99_latency_ms' <<< "$DNSPERF_PARSED")
         dd_ratio=$(jq -r '.dnsdist.hit_ratio_pct' <<< "$deltas")
         pc_ratio=$(jq -r '.recursor_packetcache.hit_ratio_pct' <<< "$deltas")
         rc_ratio=$(jq -r '.recursor_recordcache.hit_ratio_pct' <<< "$deltas")
+        rec_occ=$(( $(jq -r '.recursor.cache_entries // 0' <<< "$STATS_JSON") + $(jq -r '.recursor.packetcache_entries // 0' <<< "$STATS_JSON") ))
         elapsed=$(( $(date +%s) - clear_epoch ))
 
         local window_ok=true window_failures=""
@@ -1867,20 +1888,21 @@ run_ttw_phase() {
         if ! ratio_gate "$dd_ratio" "$TTW_DNSDIST_HIT_PCT" "window ${window} dnsdist hit"; then
             window_ok=false; window_failures+="dnsdist_ratio_low "
         fi
-        if ! ratio_gate "$pc_ratio" "$TTW_PACKETCACHE_HIT_PCT" "window ${window} packetcache hit"; then
-            window_ok=false; window_failures+="packetcache_ratio_low "
-        fi
-        if ! ratio_gate "$rc_ratio" "$TTW_RECCACHE_HIT_PCT" "window ${window} recordcache hit"; then
-            window_ok=false; window_failures+="recordcache_ratio_low "
+        # Inner-layer warmth gate: OCCUPANCY, not hit ratio (shielding).
+        if (( rec_occ < TTW_REC_OCCUPANCY_MIN )); then
+            log_fail "window ${window} recursor occupancy ${rec_occ} entries below floor ${TTW_REC_OCCUPANCY_MIN} (inner layer not yet populated)"
+            window_ok=false; window_failures+="recursor_occupancy_low "
+        else
+            log_pass "window ${window} recursor occupancy ${rec_occ} entries >= floor ${TTW_REC_OCCUPANCY_MIN}"
         fi
 
         windows_json=$(jq -c --argjson w "$windows_json" --argjson n "$window" \
             --argjson p99 "$p99" --argjson dd "$dd_ratio" --argjson pc "$pc_ratio" \
-            --argjson rc "$rc_ratio" --argjson elapsed "$elapsed" \
+            --argjson rc "$rc_ratio" --argjson occ "$rec_occ" --argjson elapsed "$elapsed" \
             --arg ok "$window_ok" --arg failures "${window_failures:- }" \
             '$w + [{window: $n, passed: $ok, p99_latency_ms: $p99,
                      dnsdist_hit_pct: $dd, packetcache_hit_pct: $pc,
-                     recordcache_hit_pct: $rc, elapsed_s: $elapsed,
+                     recordcache_hit_pct: $rc, recursor_occupancy: $occ, elapsed_s: $elapsed,
                      failures: ($failures | split(" ") | map(select(length > 0)))}]')
 
         if [[ "$window_ok" == "true" ]]; then
@@ -1920,6 +1942,7 @@ run_ttw_phase() {
         --argjson dd_min "$TTW_DNSDIST_HIT_PCT" \
         --argjson pc_min "$TTW_PACKETCACHE_HIT_PCT" \
         --argjson rc_min "$TTW_RECCACHE_HIT_PCT" \
+        --argjson occ_min "$TTW_REC_OCCUPANCY_MIN" \
         '{
             implemented: $implemented,
             passed: $passed,
@@ -1934,11 +1957,12 @@ run_ttw_phase() {
                 p99_limit_ms: $p99_limit,
                 dnsdist_hit_min_pct: $dd_min,
                 packetcache_hit_min_pct: $pc_min,
-                recordcache_hit_min_pct: $rc_min
+                recordcache_hit_min_pct: $rc_min,
+                recursor_occupancy_min_entries: $occ_min
             },
             windows: $windows,
             clear: $clear,
-            definition: ("warm = p99 <= " + ($p99_limit | tostring) + "ms AND all layer window hit ratios at target for " + ($required_streak | tostring) + " consecutive " + ($window_seconds | tostring) + "s windows")
+            definition: ("warm = p99 <= " + ($p99_limit | tostring) + "ms AND dnsdist hit ratio >= " + ($dd_min | tostring) + "% AND recursor occupancy >= " + ($occ_min | tostring) + " entries, held for " + ($required_streak | tostring) + " consecutive " + ($window_seconds | tostring) + "s windows; inner-layer hit ratios recorded as diagnostics only (edge shielding)")
         }')
 
     PHASES_RUN=$((PHASES_RUN + 1))
