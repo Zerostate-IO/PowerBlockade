@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time as real_time
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import dns.message
 import dns.rcode
@@ -17,9 +18,11 @@ from app.models.settings import DEFAULTS, get_setting, set_setting
 from app.services import boot_burst, precache
 from app.services.boot_burst import (
     BACKOFF_BASE_S,
+    BootBurstConfig,
+    BurstStats,
     PairWarmOutcome,
-    QPSPacer,
     QnamePacer,
+    QPSPacer,
     _status_for,
     get_last_boot_burst,
     planned_burst_window_s,
@@ -158,11 +161,9 @@ def reset_burst_state():
         boot_burst._last_result = None
 
 
-def fast_config(**overrides):
+def fast_config(**overrides: Any) -> BootBurstConfig:
     """Engine-friendly settings: near-zero pacing, 1 worker default."""
-    from app.services.boot_burst import BootBurstConfig
-
-    values = dict(
+    values: dict[str, Any] = dict(
         dns_server="127.0.0.1",
         dns_port=53,
         domain_count=1000,
@@ -192,9 +193,7 @@ class TestQPSPacer:
     def test_jitter_only_adds_delay_ceiling_never_exceeded(self):
         """With random jitter the gaps stay within [1/qps, 1/qps * 1.2]."""
         timeline = FakeTimeline()
-        pacer = QPSPacer(
-            qps=10.0, jitter_ratio=0.10, clock=timeline.clock, sleep=timeline.sleep
-        )
+        pacer = QPSPacer(qps=10.0, jitter_ratio=0.10, clock=timeline.clock, sleep=timeline.sleep)
 
         slots = [pacer.wait() for _ in range(50)]
 
@@ -320,7 +319,12 @@ class TestRunBurst:
         timeline = FakeTimeline()
         send = FakeSend({("a.example.com", QTYPE_A): [err()]})
 
-        run_burst([("a.example.com", QTYPE_A)], send_fn=send, clock=timeline.clock, sleep_fn=timeline.sleep)
+        run_burst(
+            [("a.example.com", QTYPE_A)],
+            send_fn=send,
+            clock=timeline.clock,
+            sleep_fn=timeline.sleep,
+        )
 
         assert ("a.example.com", QTYPE_A) not in precache._pair_ttl_cache
 
@@ -373,10 +377,10 @@ class TestStatusDerivation:
         assert _status_for(_stats(failed=5, succeeded=0), 5) == "failed"
 
 
-def _stats(**overrides) -> object:
-    from app.services.boot_burst import BurstStats
-
-    values = dict(attempted_pairs=5, queries_sent=5, succeeded=5, failed=0, max_concurrency=1)
+def _stats(**overrides: Any) -> BurstStats:
+    values: dict[str, Any] = dict(
+        attempted_pairs=5, queries_sent=5, succeeded=5, failed=0, max_concurrency=1
+    )
     values.update(overrides)
     return BurstStats(**values)
 
@@ -533,17 +537,13 @@ class TestCoordination:
             raise AssertionError("burst body ran while the lock was held")
 
         monkeypatch.setattr("app.services.scheduler.SessionLocal", lock_factory)
-        monkeypatch.setattr(
-            "app.services.boot_burst.SessionLocal", inner_must_not_run
-        )
+        monkeypatch.setattr("app.services.boot_burst.SessionLocal", inner_must_not_run)
 
         result = boot_burst._boot_burst_locked(fast_config())
 
         assert result is None
 
-    def test_entry_records_skipped_lock_when_periodic_job_wins(
-        self, sync_db_session, monkeypatch
-    ):
+    def test_entry_records_skipped_lock_when_periodic_job_wins(self, sync_db_session, monkeypatch):
         _, lock_factory = make_lock_db(acquired=False)
         monkeypatch.setattr("app.services.scheduler.SessionLocal", lock_factory)
         monkeypatch.setattr("app.services.boot_burst.SessionLocal", lambda: sync_db_session)
@@ -557,7 +557,8 @@ class TestCoordination:
         summary = get_last_boot_burst()
         assert summary is not None
         assert summary["status"] == "skipped-lock"
-        assert "advisory lock" in summary["reason"]
+        reason = summary["reason"]
+        assert isinstance(reason, str) and "advisory lock" in reason
 
 
 # =====================================================================
@@ -586,9 +587,7 @@ class TestBootBurstEntry:
         return _wire
 
     def test_partial_failure_is_reported_never_silent(self, wired_entry, caplog):
-        db = wired_entry(
-            send=FakeSend({("bad.example.com", QTYPE_A): [err("rcode 2")]})
-        )
+        db = wired_entry(send=FakeSend({("bad.example.com", QTYPE_A): [err("rcode 2")]}))
         add_pair_events(
             db,
             [
@@ -607,7 +606,11 @@ class TestBootBurstEntry:
         assert summary["candidates"] == 3
         assert summary["succeeded"] == 2
         assert summary["failed"] == 1
-        assert summary["top_failures"][0]["pair"] == "bad.example.com/A"
+        top_failures = summary["top_failures"]
+        assert isinstance(top_failures, list) and len(top_failures) == 1
+        worst = top_failures[0]
+        assert isinstance(worst, dict)
+        assert worst["pair"] == "bad.example.com/A"
         assert any(
             "Boot warm burst partial" in record.message and "bad.example.com" in record.message
             for record in caplog.records
@@ -634,9 +637,7 @@ class TestBootBurstEntry:
         assert summary["attempted_pairs"] == 1
         assert summary["succeeded"] == 1
 
-    def test_per_pass_ceiling_caps_sends_without_inflating_fresh_skips(
-        self, wired_entry
-    ):
+    def test_per_pass_ceiling_caps_sends_without_inflating_fresh_skips(self, wired_entry):
         db = wired_entry(send=FakeSend())
         add_pair_events(
             db,
@@ -661,9 +662,7 @@ class TestBootBurstEntry:
         assert summary["attempted_pairs"] == 1
         assert summary["succeeded"] == 1
 
-    def test_unready_stack_records_unready_and_sends_nothing(
-        self, sync_db_session, monkeypatch
-    ):
+    def test_unready_stack_records_unready_and_sends_nothing(self, sync_db_session, monkeypatch):
         _, lock_factory = make_lock_db(acquired=True)
         monkeypatch.setattr("app.services.scheduler.SessionLocal", lock_factory)
         monkeypatch.setattr("app.services.boot_burst.SessionLocal", lambda: sync_db_session)
@@ -748,9 +747,7 @@ class TestBootBurstEndpoint:
                 queries_sent=4,
                 skipped_fresh=3,
                 duration_s=12.5,
-                top_failures=[
-                    {"pair": "bad.example.com/A", "attempts": 2, "error": "rcode 2"}
-                ],
+                top_failures=[{"pair": "bad.example.com/A", "attempts": 2, "error": "rcode 2"}],
             )
         )
 
@@ -792,9 +789,7 @@ class TestBootBurstEndpoint:
         assert "failed" in response.text
         assert "not reachable" in response.text
 
-    def test_settings_form_persists_boot_burst_knobs(
-        self, authenticated_client, sync_db_session
-    ):
+    def test_settings_form_persists_boot_burst_knobs(self, authenticated_client, sync_db_session):
         response = authenticated_client.post(
             "/precache/settings",
             data={

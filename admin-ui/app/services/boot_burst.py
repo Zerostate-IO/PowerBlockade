@@ -44,8 +44,9 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Sequence, cast
 
+import dns.query
 import dns.rdatatype
 from sqlalchemy.orm import Session
 
@@ -183,8 +184,6 @@ def probe_dns_edge(server: str, port: int, timeout_s: float = PROBE_TIMEOUT_S) -
     listening; the separate recursor-API probe covers the recursor.
     """
     try:
-        import dns.query
-
         from app.services.precache import _resolve_dns_server
 
         query = build_warm_query(".", int(dns.rdatatype.NS))
@@ -240,13 +239,17 @@ def wait_for_dns_readiness(
     """
     if dns_probe is None:
 
-        def dns_probe() -> bool:
+        def _probe_dns_default() -> bool:
             return probe_dns_edge(dns_server, dns_port)
+
+        dns_probe = _probe_dns_default
 
     if recursor_probe is None:
 
-        def recursor_probe() -> bool:
+        def _probe_recursor_default() -> bool:
             return probe_recursor_api(recursor_api_url)
+
+        recursor_probe = _probe_recursor_default
 
     log.info(
         f"Boot warm burst: waiting up to {timeout_s:.0f}s for the DNS edge "
@@ -311,7 +314,7 @@ def _format_top_failures(failures: list[_PairResult]) -> list[dict[str, object]]
         qname, qtype = r.pair
         out.append(
             {
-                "pair": f"{qname}/{dns.rdatatype.to_text(qtype)}",
+                "pair": f"{qname}/{dns.rdatatype.to_text(cast(dns.rdatatype.RdataType, qtype))}",
                 "attempts": r.attempts,
                 "error": r.error or "no-successful-answer",
             }
@@ -407,7 +410,9 @@ class BootBurstResult:
     ``partial`` or ``failed`` and ``top_failures`` lists the worst pairs.
     """
 
-    status: str  # completed | partial | failed | no-pairs | skipped-lock | unready | disabled | error
+    status: (
+        str  # completed | partial | failed | no-pairs | skipped-lock | unready | disabled | error
+    )
     reason: str = ""
     started_at: str = ""
     finished_at: str = ""
@@ -513,7 +518,9 @@ def _boot_burst_locked(config: BootBurstConfig) -> BootBurstResult:
     started_wall = datetime.now(timezone.utc)
     db = SessionLocal()
     try:
-        candidates = list(dict.fromkeys(get_top_pairs_to_warm(db, hours=24, limit=config.domain_count)))
+        candidates = list(
+            dict.fromkeys(get_top_pairs_to_warm(db, hours=24, limit=config.domain_count))
+        )
         result = BootBurstResult(
             status="no-pairs",
             started_at=started_wall.isoformat(),
@@ -607,7 +614,9 @@ def _boot_burst_entry() -> None:
     except Exception as e:
         log.error(f"Boot warm burst: could not load settings: {e}")
         _record_result(
-            BootBurstResult(status="error", reason=f"settings load failed: {e}", started_at=started_wall)
+            BootBurstResult(
+                status="error", reason=f"settings load failed: {e}", started_at=started_wall
+            )
         )
         return
 
