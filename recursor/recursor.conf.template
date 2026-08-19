@@ -29,12 +29,24 @@ lua-config-file=/etc/pdns-recursor/rpz.lua
 # Forward zones
 forward-zones-file=/etc/pdns-recursor/forward-zones.conf
 
-# API
+# API / metrics webserver
+# Not published to the host; reachable only inside the compose network.
+# Auth matrix verified on powerdns/pdns-recursor-53:5.3.10:
+#   - /metrics requires HTTP basic auth with webserver-password (any username);
+#     X-API-Key does NOT authorize /metrics.
+#   - /api/v1/* accepts either X-API-Key or the basic-auth webserver password.
+#   - An EMPTY webserver-password leaves the whole webserver (including
+#     /api/v1) unauthenticated even when api-key is set, so the entrypoint
+#     generates a random password (with a prominent warning) when
+#     RECURSOR_WEB_PASSWORD is unset or contains unsafe characters.
+#   - Sources outside webserver-allow-from are dropped at the TCP level.
 webserver=yes
 webserver-address=0.0.0.0
 webserver-port=8082
-webserver-allow-from=0.0.0.0/0
+webserver-allow-from=172.30.0.0/16
+webserver-password=${RECURSOR_WEB_PASSWORD}
 api-key=${RECURSOR_API_KEY}
 
 # Metrics
-# Recursor exposes Prometheus metrics on the webserver at /metrics.
+# Recursor exposes Prometheus metrics on the webserver at /metrics
+# (basic auth with webserver-password, see above).
