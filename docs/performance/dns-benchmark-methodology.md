@@ -280,12 +280,20 @@ load in windows of `TTW_WINDOW_SECONDS` (default 30s) at `TTW_QPS`
 - its dnsperf p99 <= `DNS53_TTW_P99_THRESHOLD_MS` (default 50ms), AND
 - the dnsdist packet-cache window hit ratio >= `DNS53_TTW_DNSDIST_HIT_PCT`
   (default 90%), AND
-- the recursor packet-cache window hit ratio >=
-  `DNS53_TTW_PACKETCACHE_HIT_PCT` (default 90%), AND
-- the recursor record-cache window hit ratio >=
-  `DNS53_TTW_RECCACHE_HIT_PCT` (default 90%)
+- the recursor cache occupancy (record + packet entries) >=
+  `DNS53_TTW_REC_OCCUPANCY_MIN` (default: unique domains in the corpus)
 
 All ratios are window-local counter DELTAS (snapshot at window boundaries).
+
+**Why occupancy, not inner-layer hit ratios**: a working edge shields the
+inner layers from traffic. Observed live: with the dnsdist ratio at 99.7%,
+only ~50 of 15,000 window queries reached the recursor, making its packet
+hit ratio sparse-sample noise (23–53% swing) while the record cache saw
+~zero lookups (the recursor's own packet cache shields it in turn). Inner
+warmth is therefore gated on the heat being **stored** (occupancy at or
+above the corpus-unique floor) rather than being **exercised** (traffic
+ratios). Inner-layer hit ratios are still recorded per window as
+diagnostics.
 The stack counts as **warm** after `TTW_WINDOWS` (default 5) consecutive
 passing windows. **Time-to-warm** is the elapsed wall-clock time from the
 clear until the end of the final window of that streak. If no streak forms
