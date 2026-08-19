@@ -44,8 +44,10 @@ set -uo pipefail
 
 readonly SCRIPT_NAME="dns53-benchmark.sh"
 readonly SCRIPT_VERSION="2.0.0"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+readonly PROJECT_ROOT
 
 # =============================================================================
 # DEFAULT CONFIGURATION
@@ -109,7 +111,6 @@ STRICT_QUIESCE="${DNS53_STRICT_QUIESCE:-false}"
 
 # Default corpus paths (relative to project root)
 DEFAULT_CONTROL_CORPUS="docs/performance/corpus/control-domains.txt"
-DEFAULT_TRAFFIC_CORPUS="docs/performance/corpus/traffic-corpus-42.txt"
 
 # Minimum dnsperf version. 2.14.0 introduced `-O latency-histogram`, which is
 # the only supported way to compute percentiles (verified against the 2.14.0
@@ -319,7 +320,7 @@ EOF
 }
 
 show_version() {
-    echo "dns53-benchmark.sh version ${SCRIPT_VERSION}"
+    echo "${SCRIPT_NAME} version ${SCRIPT_VERSION}"
 }
 
 # =============================================================================
@@ -389,8 +390,9 @@ validate_args() {
 # Non-numeric suffixes (e.g. "2.16.0-dev") are stripped per component.
 version_ge() {
     local a="$1" b="$2"
-    local IFS=.
-    local -a av=($a) bv=($b)
+    local -a av bv
+    IFS=. read -r -a av <<< "$a"
+    IFS=. read -r -a bv <<< "$b"
     local i
     for i in 0 1 2; do
         local x="${av[i]:-0}" y="${bv[i]:-0}"
@@ -782,7 +784,8 @@ collect_stats() {
         if raw=$(fetch_recursor_reccontrol); then
             local values
             if values=$(parse_rec_control_values "$raw" 8); then
-                local -a v=($values)
+                local -a v
+                read -r -a v <<< "$values"
                 rec_json=$(jq -n \
                     --argjson pch "${v[4]}" --argjson pcm "${v[5]}" \
                     --argjson ch  "${v[0]}" --argjson cm  "${v[1]}" \
@@ -1905,7 +1908,8 @@ run_ttw_phase() {
 # =============================================================================
 
 generate_json_output() {
-    local benchmark_id="bm-$(date +%Y%m%d-%H%M%S)"
+    local benchmark_id
+    benchmark_id="bm-$(date +%Y%m%d-%H%M%S)"
     local run_at
     run_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -1988,7 +1992,8 @@ generate_json_output() {
 }
 
 generate_markdown_output() {
-    local benchmark_id="bm-$(date +%Y%m%d-%H%M%S)"
+    local benchmark_id
+    benchmark_id="bm-$(date +%Y%m%d-%H%M%S)"
     local run_at
     run_at=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
@@ -2099,25 +2104,34 @@ self_test() {
         MODE=all CLEAR_MODE=nuke-everything OUTPUT=json DURATION=60 TTW_WINDOWS=5 TTW_WINDOW_SECONDS=30 TTW_QPS=500
         validate_args
     ) >/dev/null 2>&1
-    local rc=$?
-    [[ $rc -eq $EXIT_CONFIG_ERROR ]]
-    st_check "T1b unrecognized --clear-mode refused with exit $EXIT_CONFIG_ERROR" $?
+    rc=$?
+    if [[ $rc -eq $EXIT_CONFIG_ERROR ]]; then
+        st_check "T1b unrecognized --clear-mode refused with exit $EXIT_CONFIG_ERROR" 0
+    else
+        st_check "T1b unrecognized --clear-mode refused with exit $EXIT_CONFIG_ERROR (got $rc)" 1
+    fi
 
     (
         MODE=bogus CLEAR_MODE=console OUTPUT=json DURATION=60 TTW_WINDOWS=5 TTW_WINDOW_SECONDS=30 TTW_QPS=500
         validate_args
     ) >/dev/null 2>&1
     rc=$?
-    [[ $rc -eq $EXIT_CONFIG_ERROR ]]
-    st_check "T1c invalid mode refused" $?
+    if [[ $rc -eq $EXIT_CONFIG_ERROR ]]; then
+        st_check "T1c invalid mode refused" 0
+    else
+        st_check "T1c invalid mode refused (got $rc)" 1
+    fi
 
     (
         MODE=time-to-warm CLEAR_MODE=console OUTPUT=json DURATION=60 TTW_WINDOWS=0 TTW_WINDOW_SECONDS=30 TTW_QPS=500
         validate_args
     ) >/dev/null 2>&1
     rc=$?
-    [[ $rc -eq $EXIT_CONFIG_ERROR ]]
-    st_check "T1d zero warm-windows refused" $?
+    if [[ $rc -eq $EXIT_CONFIG_ERROR ]]; then
+        st_check "T1d zero warm-windows refused" 0
+    else
+        st_check "T1d zero warm-windows refused (got $rc)" 1
+    fi
 
     # ---- T2: clearing plan output ------------------------------------------
     local plan
@@ -2231,7 +2245,6 @@ self_test() {
     fi
 
     # ---- T5: p99 gating logic ------------------------------------------------
-    local gate_out
     if latency_gate 45 50 "unit-p99" >/dev/null 2>&1; then
         st_check "T5a latency under limit passes" 0
     else
@@ -2328,7 +2341,8 @@ FIXTURE
     # ---- T7: rec_control values-only parsing ---------------------------------
     local vals
     if vals=$(parse_rec_control_values $'123\n45\n7\n1000\n8\n9\n10\n2000' 8); then
-        local -a vv=($vals)
+        local -a vv
+        read -r -a vv <<< "$vals"
         if [[ "${vv[0]}" == 123 && "${vv[7]}" == 2000 ]]; then
             st_check "T7a rec_control value block parses" 0
         else
