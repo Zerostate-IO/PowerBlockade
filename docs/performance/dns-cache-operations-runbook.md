@@ -682,7 +682,9 @@ echo "To rollback: $ROLLBACK_SCRIPT"
 | Disk space available | `df -h /` | > 10GB free |
 | Config backed up | `ls backups/config-*` | Directory exists |
 | Rollback script ready | `ls .sisyphus/rollback-*` | Script exists + executable |
-| Benchmark tools available | `which dnsperf rec_control` | Both found |
+| Benchmark tools available | `which dnsperf jq bc` | All found; `dnsperf -V` >= 2.14.0 |
+| dnsdist console enabled | `docker compose exec dnsdist printenv DNSDIST_CONSOLE_KEY` | Non-empty (needed for cold/time-to-warm clears; set in `.env` and recreate the container otherwise) |
+| Harness self-test green | `./scripts/benchmarks/dns53-benchmark.sh --self-test` | Exit 0 (offline; no docker needed) |
 
 ---
 
@@ -730,8 +732,21 @@ echo "Baseline captured in: $EVIDENCE_DIR"
 
 ### 2. Run Baseline Benchmark
 
+The harness clears BOTH cache layers for cold phases (dnsdist packet cache
+via the console + recursor via rec_control), verifies the floor from live
+counters before sending traffic, computes hit ratios from per-layer counter
+deltas, gates on p50/p95/p99, pauses the admin-ui precache warming job for
+the measurement (restores it afterwards), and captures a baseline snapshot
+(cache occupancy vs capacity, container RSS, host memory/swap, recursor
+per-thread CPU, dnstap-processor health). Any failed or unverifiable clear
+aborts the run BEFORE dnsperf (fail-closed; exit 2).
+
 ```bash
-# Run full benchmark suite for baseline
+# Offline sanity check first (no docker, no dnsperf needed)
+./scripts/benchmarks/dns53-benchmark.sh --self-test
+
+# Run full benchmark suite for baseline (needs DNSDIST_CONSOLE_KEY on the
+# dnsdist container for cold phases; see the pre-flight checklist above)
 ./scripts/benchmarks/dns53-benchmark.sh \
     --mode all \
     --output json \
@@ -743,8 +758,9 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
-# Store baseline for comparison
-cp "$EVIDENCE_DIR/benchmark/results.json" "$EVIDENCE_DIR/baseline-results.json"
+# Store baseline for comparison (newest JSON in the results dir)
+cp "$(ls -t "$EVIDENCE_DIR/benchmark"/benchmark-*.json | head -1)" \
+    "$EVIDENCE_DIR/baseline-results.json"
 
 echo "Baseline benchmark complete. Results in: $EVIDENCE_DIR/baseline-results.json"
 ```
@@ -930,10 +946,23 @@ sleep 300
 
 benchmark_exit=$?
 
-# Store results
-cp "$EVIDENCE_DIR/benchmark-after/results.json" "$EVIDENCE_DIR/after-results.json"
+# Store results (newest JSON in the results dir)
+cp "$(ls -t "$EVIDENCE_DIR/benchmark-after"/benchmark-*.json | head -1)" \
+    "$EVIDENCE_DIR/after-results.json"
 
 echo "Benchmark complete. Exit code: $benchmark_exit"
+```
+
+Time-to-warm comparison (optional, after tuning cache sizes or TTLs):
+
+```bash
+# Measures cold -> stably-warm transition: 5 consecutive 30s windows at 500
+# QPS must each hold p99 <= 50ms and all layer hit ratios >= 90% (defaults;
+# override via DNS53_TTW_* env vars - see the methodology doc)
+./scripts/benchmarks/dns53-benchmark.sh \
+    --mode time-to-warm \
+    --output json \
+    --results-dir "$EVIDENCE_DIR/benchmark-ttw"
 ```
 
 ### Capture Post-Change Metrics
@@ -1214,6 +1243,24 @@ clearing checklist in `dns-benchmark-methodology.md`). Note:
 `dnsdist -e "..."` alone does NOT work — that starts a new dnsdist process;
 only the console client (`dnsdist -c -C /tmp/dnsdist.conf -e "..."`) talks to
 the running daemon.
+
+**Benchmark harness behavior** (`scripts/benchmarks/dns53-benchmark.sh` v2.x):
+- Cold and time-to-warm phases clear BOTH layers with the console commands
+  above and fail closed (abort before dnsperf) when the console is disabled,
+  a step fails, or the post-clear floor check (all cache occupancies == 0)
+  does not verify. The dnsdist console client exits 0 even on auth failure,
+  so the harness trusts live counter state, never exit codes.
+- `--clear-mode restart` is the explicit destructive fallback: it restarts
+  ONLY the dnsdist and recursor containers, waits for both to be healthy
+  before taking any pre-run counters, and verifies the floor afterwards.
+  Any other `--clear-mode` value is refused.
+- Time-to-warm mode measures the cold -> stably-warm transition; the
+  definition (5 consecutive 30s windows at 500 QPS holding p99 and all layer
+  hit-ratio targets by default) is specified in
+  `dns-benchmark-methodology.md#phase-4-time-to-warm`.
+- The harness pauses the precache warming job during measurement by flipping
+  `settings.precache_enabled=false` via psql (same mechanism as the tuning
+  procedure above) and restores the original value afterwards.
 
 ### Rollback Verification
 
