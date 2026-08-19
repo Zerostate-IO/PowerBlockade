@@ -39,6 +39,14 @@ DEFAULTS = {
     "precache_dns_server": "dnsdist",
     "precache_dns_port": "53",
     "precache_max_queries_per_pass": "2000",
+    # P9 boot warm burst: readiness-gated burst after stack restart. Paced
+    # at precache_boot_burst_qps (a hard ceiling -- jitter only ever adds
+    # delay), bounded to precache_boot_burst_concurrency workers, capped at
+    # precache_max_queries_per_pass queries, sharing the periodic warming
+    # job's advisory lock. See app/services/boot_burst.py.
+    "precache_boot_burst_enabled": "true",
+    "precache_boot_burst_concurrency": "8",
+    "precache_boot_burst_qps": "50",
     "timezone": "UTC",
     "health_cache_hit_warning": "50",
     "health_cache_hit_critical": "20",
@@ -112,6 +120,20 @@ def get_precache_dns_port(db) -> int:
 
 def get_precache_max_queries_per_pass(db) -> int:
     return max(1, int(get_setting(db, "precache_max_queries_per_pass") or "2000"))
+
+
+def get_precache_boot_burst_enabled(db) -> bool:
+    return get_setting(db, "precache_boot_burst_enabled").lower() == "true"
+
+
+def get_precache_boot_burst_concurrency(db) -> int:
+    raw = int(get_setting(db, "precache_boot_burst_concurrency") or "8")
+    return max(1, min(64, raw))
+
+
+def get_precache_boot_burst_qps(db) -> float:
+    raw = float(get_setting(db, "precache_boot_burst_qps") or "50")
+    return max(1.0, min(1000.0, raw))
 
 
 def get_timezone(db) -> str:
