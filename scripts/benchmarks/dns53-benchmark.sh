@@ -2436,10 +2436,17 @@ FIXTURE
     else
         st_check "T10a recursor housekeeping entries within tolerance pass" 1
     fi
-    if verify_cache_floor '{"dnsdist": {"entries": 0}, "recursor": {"cache_entries": 5, "packetcache_entries": 0}}' >/dev/null 2>&1; then
+    if verify_cache_floor '{"dnsdist": {"entries": 0}, "recursor": {"cache_entries": 500, "packetcache_entries": 0}}' >/dev/null 2>&1; then
         st_check "T10b recursor occupancy above tolerance fails closed" 1
     else
         st_check "T10b recursor occupancy above tolerance fails closed" 0
+    fi
+    # Live-observed quiescent steady state on a fully primed recursor:
+    # 13 root NS + A/AAAA glue + security poll (~57 entries, zero traffic).
+    if verify_cache_floor '{"dnsdist": {"entries": 0}, "recursor": {"cache_entries": 57, "packetcache_entries": 1}}' >/dev/null 2>&1; then
+        st_check "T10b2 primed-recursor housekeeping occupancy (57) passes" 0
+    else
+        st_check "T10b2 primed-recursor housekeeping occupancy (57) passes" 1
     fi
     if verify_cache_floor '{"dnsdist": {"entries": 1}, "recursor": {"cache_entries": 0, "packetcache_entries": 0}}' >/dev/null 2>&1; then
         st_check "T10c any dnsdist entry fails closed (strict zero)" 1
