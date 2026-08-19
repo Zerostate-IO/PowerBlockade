@@ -169,6 +169,37 @@ func TestDefaultMetricsConfig(t *testing.T) {
 	if len(cfg.ProberIPs) != 1 || cfg.ProberIPs[0] != "172.30.0.30" {
 		t.Errorf("ProberIPs = %v, want default [172.30.0.30]", cfg.ProberIPs)
 	}
+	if !cfg.DropProberEvents {
+		t.Errorf("DropProberEvents = false, want default true")
+	}
+}
+
+func TestLoadWithDropProberEventsEnv(t *testing.T) {
+	cases := []struct {
+		env  string
+		want bool
+	}{
+		{"", true}, // unset keeps the default (drop on)
+		{"false", false},
+		{"0", false},
+		{"no", false},
+		{"FALSE", false},
+		{"true", true},
+		{"1", true},
+		{"yes", true},
+	}
+	for _, tc := range cases {
+		t.Run("DROP_PROBER_EVENTS="+tc.env, func(t *testing.T) {
+			t.Setenv("DROP_PROBER_EVENTS", tc.env)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if cfg.DropProberEvents != tc.want {
+				t.Errorf("DropProberEvents = %v, want %v", cfg.DropProberEvents, tc.want)
+			}
+		})
+	}
 }
 
 func TestLoadWithGELFConfig(t *testing.T) {

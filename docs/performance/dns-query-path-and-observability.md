@@ -452,6 +452,19 @@ observation and exported on the separate `prober="true"` series. Production
 quantiles (`prober="false"`) therefore cannot be contaminated by synthetic
 prober traffic.
 
+**Prober event drop:** prober-source events are not shipped to the primary
+ingest API at all (`DROP_PROBER_EVENTS`, default `true`; set `false`, `0`,
+or `no` to ship them again). The decision runs *after* metrics observation,
+so nothing about metrics changes: the latency sample still lands on the
+`prober="true"` series and the frame still increments
+`dnstap_processor_events_received_total`. No dedicated drop counter exists
+by design — intentional suppression is not a loss, so
+`dnstap_processor_events_dropped_total` stays untouched, and an operator
+sees the drop simply as `events_received_total` (plus the `prober="true"`
+histogram count) outpacing `events_shipped_total`. This keeps the always-on
+synthetic prober (~10,000 queries per 60s pass, ~14M rows/day if stored)
+out of Postgres while preserving its full latency signal.
+
 ---
 
 ## Cache Flush Operations

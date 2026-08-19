@@ -17,7 +17,6 @@ import (
 
 	powerdns_protobuf "github.com/dmachard/go-powerdns-protobuf"
 	"github.com/dnstap/golang-dnstap"
-	"github.com/miekg/dns"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/powerblockade/dnstap-processor/internal/buffer"
@@ -71,6 +70,12 @@ func main() {
 	probers := parseProberIPs(strings.Join(cfg.ProberIPs, ","))
 	if len(probers) > 0 {
 		log.Printf("prober client ips: %v (exported on separate prober=true metric series)", cfg.ProberIPs)
+		if cfg.DropProberEvents {
+			log.Printf(
+				"prober-source events will NOT be shipped to the primary (DROP_PROBER_EVENTS=true); " +
+					"their metrics are still observed (drop visible as events_received_total outpacing events_shipped_total)",
+			)
+		}
 	}
 
 	mets := metrics.New()
@@ -199,6 +204,16 @@ func main() {
 			ev.BlockReason = "rpz"
 		}
 		return ev
+	}
+
+	// Decodes dnstap CLIENT_RESPONSE frames: classifies prober traffic,
+	// observes metrics first, then suppresses the ship of prober-source
+	// events when DROP_PROBER_EVENTS is on (default).
+	processor := responseProcessor{
+		probers:          probers,
+		dropProberEvents: cfg.DropProberEvents,
+		mets:             mets,
+		makeEvent:        makeEvent,
 	}
 
 	protobufEvents := make(chan buffer.Event, 2048)
@@ -495,61 +510,14 @@ func main() {
 				)
 			}
 
-			if t != dnstap.Message_CLIENT_RESPONSE {
-				continue
-			}
-
-			ipBytes := msg.GetQueryAddress()
-			ip := net.IP(ipBytes)
-			if ip == nil {
-				continue
-			}
-			clientIP := ip.String()
-
-			// Classify synthetic prober traffic by dnstap query source IP
-			// BEFORE any histogram observation so prober samples are
-			// exported on separate series and cannot contaminate
-			// production latency quantiles.
-			isProber := probers.contains(clientIP)
-
-			wire := msg.GetResponseMessage()
-			if len(wire) == 0 {
-				continue
-			}
-
-			var dnsMsg dns.Msg
-			if err := dnsMsg.Unpack(wire); err != nil {
-				continue
-			}
-			if len(dnsMsg.Question) == 0 {
-				continue
-			}
-			qname := dnsMsg.Question[0].Name
-			qtype := int(dnsMsg.Question[0].Qtype)
-
-			rcode := dnsMsg.Rcode
-
-			latencyMS := 0
-			if d, ok := dnstapLatency(msg); ok {
-				// The stored event keeps its historic coarse field
-				// (integer milliseconds, sub-ms truncates to 0); only the
-				// metrics observation below uses the full nanosecond
-				// precision dnsdist provides.
-				latencyMS = int(d / time.Millisecond)
-				mets.ObserveResponseLatency(isProber, d)
-			}
-
-			ts := time.Now().UTC()
-			if msg.GetResponseTimeSec() != 0 {
-				ts = time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec())).UTC()
-			} else if msg.GetQueryTimeSec() != 0 {
-				ts = time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec())).UTC()
-			}
-
-			batch = append(batch, makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS))
-
-			if len(batch) >= maxBatch {
-				flushToBuffer()
+			// Decode, observe metrics, and decide shipping (prober-source
+			// events are suppressed when DROP_PROBER_EVENTS is on —
+			// after their metrics were observed).
+			if ev, ok := processor.process(msg); ok {
+				batch = append(batch, ev)
+				if len(batch) >= maxBatch {
+					flushToBuffer()
+				}
 			}
 
 		case <-ticker.C:
