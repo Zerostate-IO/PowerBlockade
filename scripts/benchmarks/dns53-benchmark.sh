@@ -860,11 +860,15 @@ require_stats_sources() {
 
 # Cache floor tolerance for the recursor side: the recursor's built-in
 # housekeeping (security-status poll for recursor-<v>.security-status.secpoll
-# .powerdns.com, root refresh) legitimately repopulates 1-2 entries within
-# seconds of a wipe. Those domains cannot intersect a benchmark corpus, so a
-# small bounded occupancy counts as "empty". The dnsdist packet cache has no
-# background self-queries and is held to a strict zero.
-RECURSOR_FLOOR_TOLERANCE="${DNS53_RECURSOR_FLOOR_TOLERANCE:-4}"
+# .powerdns.com, root refresh) legitimately repopulates the cache within
+# seconds of a wipe. On a fully primed live recursor the quiescent steady
+# state is ~57 entries (13 root NS + A/AAAA glue + security-status poll;
+# observed live with zero query traffic). Those domains cannot intersect a
+# benchmark corpus, so a bounded occupancy counts as "empty" — 128 leaves
+# two orders of magnitude below a FAILED wipe (observed pre-wipe: ~14k
+# entries), which this check exists to catch. The dnsdist packet cache has
+# no background self-queries and is held to a strict zero.
+RECURSOR_FLOOR_TOLERANCE="${DNS53_RECURSOR_FLOOR_TOLERANCE:-128}"
 
 # verify_cache_floor <stats_json>: all measured cache layers must be EMPTY.
 # This is the authoritative success signal for clearing (tool exit codes are
@@ -1124,8 +1128,11 @@ precache_pause() {
     fi
     local psql_cmd
     psql_cmd=(docker exec "$POSTGRES_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c)
+    # A missing row is NOT a read failure: fresh deployments never wrote the
+    # row and the app default (precache_enabled=true) applies. Distinguish
+    # absent from failure with a coalesce marker.
     local current
-    if ! current=$("${psql_cmd[@]}" "SELECT value FROM settings WHERE key='precache_enabled'" 2>/dev/null) || [[ -z "$current" ]]; then
+    if ! current=$("${psql_cmd[@]}" "SELECT coalesce((SELECT value FROM settings WHERE key='precache_enabled'), '__absent__')" 2>/dev/null) || [[ -z "$current" ]]; then
         if [[ "$STRICT_QUIESCE" == "true" ]]; then
             log_fail "strict-quiesce: cannot read settings.precache_enabled: ${current:-<empty>}"
             return 1
@@ -1134,13 +1141,19 @@ precache_pause() {
         log_warn "Cannot read settings.precache_enabled - proceeding without quiesce"
         return 0
     fi
-    PRECACHE_ORIGINAL="$current"
+    if [[ "$current" == "__absent__" ]]; then
+        PRECACHE_ORIGINAL="absent"
+    else
+        PRECACHE_ORIGINAL="$current"
+    fi
     if [[ "$PRECACHE_ORIGINAL" == "false" ]]; then
         PRECACHE_STATE="already-disabled"
         log_pass "Precache warming already disabled (settings.precache_enabled=false)"
         return 0
     fi
-    if ! "${psql_cmd[@]}" "UPDATE settings SET value='false' WHERE key='precache_enabled'" &>/dev/null; then
+    # Upsert: absent rows have nothing to UPDATE (0-row UPDATE "succeeds"
+    # while leaving warming on), so insert-or-update in one statement.
+    if ! "${psql_cmd[@]}" "INSERT INTO settings (key, value, updated_at) VALUES ('precache_enabled', 'false', NOW()) ON CONFLICT (key) DO UPDATE SET value='false', updated_at=NOW()" &>/dev/null; then
         if [[ "$STRICT_QUIESCE" == "true" ]]; then
             log_fail "strict-quiesce: UPDATE settings.precache_enabled=false failed"
             return 1
@@ -1161,7 +1174,11 @@ precache_pause() {
         return 0
     fi
     PRECACHE_STATE="paused"
-    log_pass "Precache warming paused (settings.precache_enabled: true -> false; restore on exit)"
+    if [[ "$PRECACHE_ORIGINAL" == "absent" ]]; then
+        log_pass "Precache warming paused (settings.precache_enabled: absent/default-true -> false; row removed on exit)"
+    else
+        log_pass "Precache warming paused (settings.precache_enabled: $PRECACHE_ORIGINAL -> false; restore on exit)"
+    fi
     return 0
 }
 
@@ -1171,7 +1188,13 @@ precache_resume() {
     fi
     local psql_cmd
     psql_cmd=(docker exec "$POSTGRES_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c)
-    if "${psql_cmd[@]}" "UPDATE settings SET value='${PRECACHE_ORIGINAL}' WHERE key='precache_enabled'" &>/dev/null; then
+    # Symmetric restore: an absent original goes back to absent (the app
+    # default re-applies); a stored original gets its value back.
+    local restore_sql="UPDATE settings SET value='${PRECACHE_ORIGINAL}', updated_at=NOW() WHERE key='precache_enabled'"
+    if [[ "$PRECACHE_ORIGINAL" == "absent" ]]; then
+        restore_sql="DELETE FROM settings WHERE key='precache_enabled'"
+    fi
+    if "${psql_cmd[@]}" "$restore_sql" &>/dev/null; then
         local readback
         readback=$("${psql_cmd[@]}" "SELECT value FROM settings WHERE key='precache_enabled'" 2>/dev/null)
         if [[ "$readback" == "$PRECACHE_ORIGINAL" ]]; then
