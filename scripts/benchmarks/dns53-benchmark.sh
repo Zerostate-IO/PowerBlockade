@@ -1196,7 +1196,10 @@ precache_resume() {
     fi
     if "${psql_cmd[@]}" "$restore_sql" &>/dev/null; then
         local readback
-        readback=$("${psql_cmd[@]}" "SELECT value FROM settings WHERE key='precache_enabled'" 2>/dev/null)
+        # Symmetric with the pause path: absent originals restore to absence
+        # (app default re-applies), so a bare SELECT returning empty is the
+        # EXPECTED success for PRECACHE_ORIGINAL=absent, not a failure.
+        readback=$("${psql_cmd[@]}" "SELECT coalesce((SELECT value FROM settings WHERE key='precache_enabled'), 'absent')" 2>/dev/null)
         if [[ "$readback" == "$PRECACHE_ORIGINAL" ]]; then
             log_pass "Precache warming restored (settings.precache_enabled=$PRECACHE_ORIGINAL)"
             PRECACHE_STATE="restored"
@@ -1204,7 +1207,11 @@ precache_resume() {
         fi
     fi
     log_fail "Could not restore precache_enabled to '$PRECACHE_ORIGINAL' - MANUAL FIX REQUIRED:"
-    log_fail "  docker exec $POSTGRES_CONTAINER psql -U $POSTGRES_USER -d $POSTGRES_DB -c \"UPDATE settings SET value='$PRECACHE_ORIGINAL' WHERE key='precache_enabled'\""
+    if [[ "$PRECACHE_ORIGINAL" == "absent" ]]; then
+        log_fail "  docker exec $POSTGRES_CONTAINER psql -U $POSTGRES_USER -d $POSTGRES_DB -c \"DELETE FROM settings WHERE key='precache_enabled'\""
+    else
+        log_fail "  docker exec $POSTGRES_CONTAINER psql -U $POSTGRES_USER -d $POSTGRES_DB -c \"UPDATE settings SET value='$PRECACHE_ORIGINAL' WHERE key='precache_enabled'\""
+    fi
     PRECACHE_STATE="restore-failed"
     return 1
 }
