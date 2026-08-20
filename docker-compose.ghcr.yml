@@ -33,6 +33,9 @@ services:
       # webserver binds to this container's own compose-network address
       # (never published to the host); see dnsdist/dnsdist.conf.template.
       DNSDIST_WEB_PASSWORD: ${DNSDIST_WEB_PASSWORD:-}
+      # Opt-in dnsdist console (localhost-only inside the container; used for
+      # non-disruptive packet-cache clears). Off when unset.
+      DNSDIST_CONSOLE_KEY: ${DNSDIST_CONSOLE_KEY:-}
     ports:
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
