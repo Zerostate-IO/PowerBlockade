@@ -1,10 +1,12 @@
 # PowerBlockade
 
-Modern, performant DNS filtering stack built around **PowerDNS Recursor** with full query logging, metrics (Prometheus/Grafana), and optional multi-node redundancy.
+A fast, measurable DNS filtering stack built around **PowerDNS Recursor** and dnsdist: a full recursive resolver (not a forwarding proxy) with a two-layer cache architecture, analytics-grade query logging on PostgreSQL, native Prometheus/Grafana observability, and first-class multi-node redundancy. Docker-first, dark UI.
 
-Modern dark UI, multi-node support, Docker-first.
+Measured on modest hardware, with the benchmark artifacts committed to this repo: **0.147 ms warm-path p99** at a **99.9% edge cache-hit ratio**, **8.5k+ QPS sustained**, **185 s** cold-to-warm recovery, and **5 minutes of stale-cached answers** through a total upstream outage. The same harness that produced those numbers ships in the repo, so you can re-run them yourself.
 
 > **New to PowerBlockade?** See the [Getting Started Guide](docs/GETTING_STARTED.md) for a complete walkthrough including Docker installation, initial setup, and understanding the interface.
+
+> **How does PowerBlockade compare to Pi-hole or AdGuard Home?** Different designs with different trade-offs — we're a heavier, cache- and analytics-driven stack for people who want a built-in recursive resolver, audit-grade performance numbers, and multi-node failover; they're lighter single-binary installs built for Raspberry Pis. The full comparison, with sources and honest caveats, lives in [docs/comparisons.md](docs/comparisons.md).
 
 ## Quick start
 
@@ -70,6 +72,7 @@ docker compose up -d --build
 - [Quick Start Guide](QUICK_START.md) - Get running in 5 minutes
 - [Getting Started](docs/GETTING_STARTED.md) - Complete walkthrough with Docker setup
 - [Using Pre-built Images](docs/USING_PREBUILT_IMAGES.md) - GHCR image details
+- [Comparison: PowerBlockade vs Pi-hole vs AdGuard Home](docs/comparisons.md) - Measured performance, architecture, and feature trade-offs
 
 ## Access
 
@@ -99,14 +102,16 @@ powerblockade/
 
 ## Features
 
-- **Blocklist management** - Import from URL (hosts, domains, adblock formats)
-- **Query logging** - Real-time DNS query logs with filtering
-- **Analytics dashboard** - Charts for queries, blocks, cache hits
-- **Multi-node support** - Secondary nodes sync config from primary
+- **Full recursive resolver** - PowerDNS Recursor with DNSSEC validation behind a dnsdist edge, no upstream dependency
+- **Measured, tunable speed** - Two-layer caching with (domain, qtype) pair warming, boot warm burst, and a committed benchmark baseline (warm p99 0.147 ms, 99.9% edge hit ratio)
+- **Blocklist management** - Import from URL (hosts, domains, adblock formats) into RPZ zones, with presets
+- **Query logging at analytics scale** - PostgreSQL-partitioned history with rollups, search, and per-client/domain analytics
+- **Native observability** - Prometheus metrics from five services (including a sub-millisecond latency histogram), provisioned Grafana dashboards, alert rules — no third-party exporters
+- **Multi-node support** - Generate secondary-node packages from the UI; config sync, heartbeats, and node health out of the box
+- **Outage resilience** - Serves stale cached answers for up to 5 minutes during total upstream failure (verified in live outage testing)
 - **Health monitoring** - Warnings with actionable remediation
 - **Config rollback** - Audit trail with one-click rollback
 - **Easy updates** - Pi-hole-like `pb update` CLI for upgrades
-
 ## Updating
 
 Use the `pb` CLI for updates:
