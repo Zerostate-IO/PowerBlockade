@@ -20,7 +20,7 @@ Quick reference for updating versions and releasing new versions.
 
 ---
 
-### Step 1: Update Version Files (5 files)
+### Step 1: Update Version Files (8 files)
 
 ```bash
 # 1. Admin UI pyproject.toml
@@ -37,6 +37,14 @@ sed -i '' 's/ARG PB_VERSION=.*/ARG PB_VERSION=X.Y.Z/' dnstap-processor/Dockerfil
 
 # 5. sync-agent Dockerfile
 sed -i '' 's/ARG PB_VERSION=.*/ARG PB_VERSION=X.Y.Z/' sync-agent/Dockerfile
+
+# 6. prober Dockerfile
+sed -i '' 's/ARG PB_VERSION=.*/ARG PB_VERSION=X.Y.Z/' prober/Dockerfile
+
+# 7. Admin UI uv.lock (project package version)
+#    edit the [[package]] name = "powerblockade-admin" version line, or run: uv lock
+
+# 8. CHANGELOG.md release heading (## [X.Y.Z] - date)
 ```
 
 ### Step 2: Update Compose Files

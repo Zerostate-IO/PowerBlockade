@@ -86,6 +86,7 @@ jobs:
           set -e
           grep -q "^## \[$VERSION_PLAIN\]" CHANGELOG.md || { echo "❌ CHANGELOG.md missing '## [$VERSION_PLAIN]'"; exit 1; }
           grep -q "^version = \"$VERSION_PLAIN\"$" admin-ui/pyproject.toml || { echo "❌ admin-ui/pyproject.toml not at $VERSION_PLAIN"; exit 1; }
+          grep -q "^version = \"$VERSION_PLAIN\"$" admin-ui/uv.lock || { echo "❌ admin-ui/uv.lock project version not at $VERSION_PLAIN (uv lock to refresh)"; exit 1; }
           grep -q "^    pb_version: str = \"$VERSION\"$" admin-ui/app/settings.py || { echo "❌ settings.py pb_version not at $VERSION"; exit 1; }
           # Multi-stage Dockerfiles (dnstap-processor, prober) declare
           # ARG PB_VERSION once per stage: EVERY occurrence must be at $VERSION.
