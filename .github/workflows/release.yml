@@ -448,7 +448,10 @@ jobs:
           # non-restarting container (missing/exited/dead/restarting must fail).
           sleep 15
           state=$(docker inspect -f '{{.State.Status}}|{{.State.Restarting}}' powerblockade-sync-agent 2>/dev/null || echo "missing|1")
-          if [[ "$state" != "running|0" ]]; then
+          # Go templates render booleans as true/false — 'running|false' is
+          # the healthy state; the 'running|0' form used previously could
+          # never match and failed every run.
+          if [[ "$state" != "running|false" ]]; then
             echo "❌ sync-agent not stable after heartbeat window: $state"
             docker logs powerblockade-sync-agent --tail 20 2>&1 || true
             exit 1
