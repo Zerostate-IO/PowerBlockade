@@ -238,23 +238,39 @@ the release where the promises get notarized, not where the features stop.
 - System Health page in admin-ui (iframe embed)
 - Remove Prometheus/Grafana external ports
 
-### Work Order H: Deployment profiles — light mode / performance mode (planned)
-Supersedes the earlier "replace Prometheus+Grafana with VictoriaMetrics" plan
-(issue #40). Decision (2026-08-20): **both, via compose profiles** — the full
-stack stays default; a light profile trades it down for small hosts.
+### Work Order H: UI-first observability — no required Grafana (planned)
+Supersedes both the VictoriaMetrics swap and the profiles-only approach
+(issue #40). Direction (2026-08-20): **the built-in admin UI is the
+dashboard**; Grafana leaves the default stack. "Bring your own Grafana"
+is the escape hatch, not the requirement.
 
-- `performance` (default): dnsdist + recursor with full caches, Prometheus +
-  Grafana with the DNS Performance dashboard, prober, alerting
-- `light`: VictoriaMetrics single-node (Prometheus-compatible scraping,
-  ~50-150 MB) in place of Prometheus+Grafana (~300-600 MB saved); vmalert for
-  rules; admin-ui's native Postgres-backed analytics remain the primary UI;
-  smaller cache defaults sized from occupancy data
-- Cache sizing per profile informed by `docs/performance/experiment-log.md`
-  right-sizing findings; document the memory/visibility trade on each
-- Keep the sub-ms latency histogram working in BOTH profiles (it is the
-  headline observability feature; VictoriaMetrics scrapes it unchanged)
+Core ideas:
+- The admin UI renders operational metrics natively (the stack already
+  ships ApexCharts for analytics): sub-ms latency percentiles, per-layer
+  cache hit ratios, occupancy vs capacity, warming/boot-burst state,
+  node fleet health — the full DNS Performance dashboard, in-product,
+  pretty, and coherent with the rest of the UI (pairs with Work Order L)
+- Data-source spike decides the plumbing: admin-ui querying a retained
+  TSDB (Prometheus or VictoriaMetrics single-node) via HTTP API vs
+  direct periodic scraping of the exporters with windowed aggregates in
+  Postgres (the scheduler already scrapes recursor /metrics this way).
+  Whichever serves the UI with the fewest always-on containers wins
+- **Exporters stay Prometheus-format on all five services, forever** —
+  users who want Grafana/Mimir/VM/vmui point their own stack at us; we
+  publish a ready-to-import dashboard JSON + scrape config under
+  `contrib/` as the official external-Grafana recipe
+- Alerting home: fold threshold rules into admin-ui's existing
+  health/warnings system where possible; keep the alertmanager profile
+  for users with external routing (PagerDuty et al) via their own stack
+- The sub-ms latency histogram remains the headline feature in every
+  configuration — it must be equally visible in the native UI as it was
+  in Grafana
+- VictoriaMetrics single-node remains the natural minimal-TSDB choice
+  if the spike keeps a TSDB in-stack; light-footprint deployments then
+  get: dnsdist + recursor + processor + admin-ui + one small TSDB, no
+  Grafana, ever
 
-Tracked as issue #40 (metrics stack evaluation, revised).
+Tracked as issue #40 (metrics stack evaluation, revised again).
 
 ### Work Order I: Multi-flow saturation benchmark (post-0.10.0, planned)
 Publish a server-limited throughput number to match the class of public
@@ -306,14 +322,26 @@ are running":
   as first-class dashboard widgets — the numbers exist; the UI must show them
 - Live/near-real-time polish (htmx polling coherence, sensible refresh rates)
 
-### Work Order M: Automation & AI-agent API (medium)
-Token-authenticated REST surface for machines, not just browsers:
+### Work Order M: Automation, AI-agent & security API (medium, elevated)
+Token-authenticated REST surface for machines, not just browsers — and a
+deliberate **threat-watching platform**, not just convenience:
 - Scoped API tokens (read-only metrics/analytics vs write-capable
   block/unblock, whitelist, flush-cache, node actions)
 - Documented, versioned OpenAPI spec; stable enough for scripts and for
-  AI agents (MCP server as a thin adapter over it is a natural follow-on)
-- Rate limits + full audit logging on every mutating call
-- Use case: "ask your AI why dns queries are slow / unblock example.com"
+  AI agents; **MCP server as a first-class adapter** over it (read
+  metrics/logs, act with scoped tokens, everything audited)
+- Security surfaces, because a DNS filter sees the whole network:
+  - Streaming/tail endpoints over the query log for SIEM and agent
+    consumption (JSON/SSE); webhook/alert routes on security-relevant
+    events (malware-list hits, first-seen clients, burst/NXDOMAIN
+    anomalies suggestive of DGA or beaconing)
+  - Heuristic anomaly queries (per-client query-rate deltas, new-domain
+    ratios, blocked-category shifts) exposed as first-class API calls so
+    external watchers and AI agents can poll or subscribe
+  - GELF output remains the legacy SIEM path; the API is the modern one
+- Rate limits + full audit logging on every call, read or write
+- Use cases: "ask your AI why DNS is slow / unblock example.com" AND
+  "have an agent watch my network and tell me when something's beaconing"
 
 ### Work Order N: Privacy controls (medium, 1.0-blocking per old 1.0 sketch)
 - Per-data-class retention knobs (events, rollups, metrics, audit)
@@ -345,7 +373,8 @@ secondaries cooperating on lease state), purely as a "nobody else does
 this at our quality bar" showcase. Do not schedule until J-P are done and
 users ask for it.
 
-Sequencing guidance: J (with I riding along) → K → L → H → M → N → P,
-with O growing continuously in CI as each release ships. One work order
-per release is a sane cadence; some pair naturally (L+H touch the same
-surfaces; N+O share the privacy/security audit work).
+Sequencing guidance: J (with I riding along) → K → L+H (one combined
+release: the UI overhaul and the native metrics surface are the same
+product surface now) → M → N → P, with O growing continuously in CI as
+each release ships. One work order per release is a sane cadence; N+O
+share the privacy/security audit work.
