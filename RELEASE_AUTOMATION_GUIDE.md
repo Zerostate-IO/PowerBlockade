@@ -8,12 +8,13 @@ Quick reference for updating versions and releasing new versions.
 
 **DO NOT RELEASE without completing ALL items below. Missing any step = version mismatch in UI.**
 
-- [ ] `admin-ui/pyproject.toml` - Update `version = "X.Y.Z"`
-- [ ] `admin-ui/app/settings.py` - Update `pb_version: str = "X.Y.Z"`
-- [ ] `admin-ui/Dockerfile` - Update `ARG PB_VERSION=X.Y.Z`
-- [ ] `dnstap-processor/Dockerfile` - Update `ARG PB_VERSION=X.Y.Z` (2 occurrences!)
-- [ ] `sync-agent/Dockerfile` - Update `ARG PB_VERSION=X.Y.Z`
-- [ ] Verify: `grep -r "X.Y.Z" admin-ui/pyproject.toml admin-ui/app/settings.py admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile`
+- [ ] `admin-ui/pyproject.toml` - Update `version = "X.Y.Z"` (also `admin-ui/uv.lock`'s `powerblockade-admin` package version)
+- [ ] `admin-ui/app/settings.py` - Update `pb_version: str = "vX.Y.Z"`
+- [ ] `admin-ui/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z`
+- [ ] `dnstap-processor/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z` (2 occurrences!)
+- [ ] `sync-agent/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z`
+- [ ] `prober/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z` (2 occurrences!)
+- [ ] Verify: `grep -r "X.Y.Z" admin-ui/pyproject.toml admin-ui/app/settings.py admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile prober/Dockerfile`
 - [ ] Build & deploy
 - [ ] Confirm UI shows correct version in System Health page
 
