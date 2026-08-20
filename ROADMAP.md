@@ -378,3 +378,32 @@ release: the UI overhaul and the native metrics surface are the same
 product surface now) → M → N → P, with O growing continuously in CI as
 each release ships. One work order per release is a sane cadence; N+O
 share the privacy/security audit work.
+
+## Working conventions for this roadmap
+
+Each work order has a fixed **milestone slug**. Branches and worktrees are
+named after them so a worktree's purpose is self-evident and traceable:
+
+| Work order | Milestone slug | Branch / worktree names |
+|---|---|---|
+| I — multi-flow saturation benchmark | `i-saturation-bench` | `wo/i-saturation-bench` / `pb-wt-i-saturation-bench` |
+| J — encrypted DNS listeners | `j-encrypted-dns` | `wo/j-encrypted-dns` / `pb-wt-j-encrypted-dns` |
+| K — sync engine + secondary hardening | `k-sync-hardening` | `wo/k-sync-hardening` / `pb-wt-k-sync-hardening` |
+| L+H — UI overhaul + native metrics (one release) | `lh-ui-observability` | `wo/lh-ui-observability` / `pb-wt-lh-ui-observability` |
+| M — automation, AI-agent & security API | `m-agent-api` | `wo/m-agent-api` / `pb-wt-m-agent-api` |
+| N — privacy controls | `n-privacy-controls` | `wo/n-privacy-controls` / `pb-wt-n-privacy-controls` |
+| O — stability contract (continuous) | `o-stability` | `wo/o-stability-<topic>` / `pb-wt-o-stability-<topic>` |
+| P — per-client / group policies | `p-client-policies` | `wo/p-client-policies` / `pb-wt-p-client-policies` |
+| Q — DHCP flex (parked) | `q-dhcp-flex` | `wo/q-dhcp-flex` / `pb-wt-q-dhcp-flex` |
+
+Rules:
+- Branches are created from `main` unless a work order explicitly builds on
+  another one (e.g., TLS benchmarks in J extending I's harness — then branch
+  from the parent milestone's tip and say so in the PR).
+- Worktrees live as siblings of the main checkout (`../pb-wt-<slug>`), one per
+  concurrent effort; remove them when the milestone merges.
+- Sub-packets inside a milestone append a suffix: `wo/j-encrypted-dns-certs`,
+  `pb-wt-j-encrypted-dns-certs`. Keep the milestone prefix stable.
+- The per-release integration branch (when multiple milestones converge in
+  one release) is `rel/vX.Y.Z` — e.g. `rel/v0.12.0` for the combined L+H
+  release if its packets land separately.
