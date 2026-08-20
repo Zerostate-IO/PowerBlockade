@@ -231,3 +231,16 @@ two containers (~300-600 MB) down to one (~50-150 MB):
 - Update docs and dashboards provisioning accordingly
 
 Tracked as issue #40 (metrics stack evaluation).
+
+### Work Order I: Multi-flow saturation benchmark (post-0.10.0, planned)
+Publish a server-limited throughput number to match the class of public
+benchmarks (AdGuard Home's OxiDNS figures use up to 256 outstanding
+queries; our committed 8,497 QPS baseline is single-flow and explicitly
+flow-limited — a 4-flow supplemental run already hit 13,841 QPS with no
+config change):
+
+- Multi-flow dnsperf campaign (1/4/16/64/256 flows) on production-class
+  hardware, cold and warm, via the existing harness
+- Publish methodology + artifacts in `docs/performance/results/` and
+  update `docs/comparisons.md`'s throughput table from a measured ceiling
+  instead of the "floor, not ceiling" caveat
