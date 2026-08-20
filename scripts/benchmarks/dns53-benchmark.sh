@@ -1896,7 +1896,12 @@ run_ttw_phase() {
             log_pass "window ${window} recursor occupancy ${rec_occ} entries >= floor ${TTW_REC_OCCUPANCY_MIN}"
         fi
 
-        windows_json=$(jq -c --argjson w "$windows_json" --argjson n "$window" \
+        # -n is load-bearing: without it jq reads stdin, and under a closed
+        # stdin (background shells) it silently emits nothing (exit 0) —
+        # window 1 appends "", window 2 then fails --argjson w "" and the
+        # cascade empties TTW_RESULT and the final report (live finding:
+        # 0-byte benchmark JSON with a false [PASS] output line).
+        windows_json=$(jq -cn --argjson w "$windows_json" --argjson n "$window" \
             --argjson p99 "$p99" --argjson dd "$dd_ratio" --argjson pc "$pc_ratio" \
             --argjson rc "$rc_ratio" --argjson occ "$rec_occ" --argjson elapsed "$elapsed" \
             --arg ok "$window_ok" --arg failures "${window_failures:- }" \
@@ -1904,6 +1909,15 @@ run_ttw_phase() {
                      dnsdist_hit_pct: $dd, packetcache_hit_pct: $pc,
                      recordcache_hit_pct: $rc, recursor_occupancy: $occ, elapsed_s: $elapsed,
                      failures: ($failures | split(" ") | map(select(length > 0)))}]')
+        if [[ -z "$windows_json" ]] || ! jq -e . >/dev/null 2>&1 <<< "$windows_json"; then
+            log_fail "window ${window}: windows_json append produced invalid JSON - aborting (report integrity)"
+            TTW_RESULT=$(jq -n '{implemented: true, passed: false, error: "window_record_json_failed"}')
+            PHASES_RUN=$((PHASES_RUN + 1))
+            PHASES_FAILED=$((PHASES_FAILED + 1))
+            push_regression "time_to_warm: window_record_json_failed"
+            rm -f "$dnsperf_output" 2>/dev/null
+            return $EXIT_PHASE_FAILED
+        fi
 
         if [[ "$window_ok" == "true" ]]; then
             streak=$((streak + 1))
@@ -2485,6 +2499,24 @@ FIXTURE
         st_check "T10c any dnsdist entry fails closed (strict zero)" 0
     fi
 
+    # ---- T10d: window-record jq works with CLOSED stdin ----------------------
+    # The append originally lacked -n: under closed stdin (background shells)
+    # jq emits nothing with exit 0, and the cascade empties the final report.
+    local wj_test
+    wj_test=$(jq -cn --argjson w "[]" --argjson n 1 --argjson p99 0.3 \
+        --argjson dd 99.7 --argjson pc "null" --argjson rc "null" \
+        --argjson occ 1430 --argjson elapsed 32 --arg ok "true" --arg failures " " \
+        '$w + [{window: $n, passed: $ok, p99_latency_ms: $p99,
+                 dnsdist_hit_pct: $dd, packetcache_hit_pct: $pc,
+                 recordcache_hit_pct: $rc, recursor_occupancy: $occ, elapsed_s: $elapsed,
+                 failures: ($failures | split(" ") | map(select(length > 0)))}]' \
+        <&-)
+    if [[ -n "$wj_test" ]] && jq -e 'length == 1 and .[0].recursor_occupancy == 1430' >/dev/null 2>&1 <<< "$wj_test"; then
+        st_check "T10d window-record append emits valid JSON with closed stdin" 0
+    else
+        st_check "T10d window-record append emits valid JSON with closed stdin" 1
+    fi
+
     # ---- T11: report JSON generation ------------------------------------------
     # Version strings like 2.16.0 are NOT valid JSON numbers; the generator
     # must pass them as strings (regression test for a real bug found here).
@@ -2730,16 +2762,39 @@ main() {
     case "$OUTPUT" in
         json)
             generate_json_output > "$json_file"
-            log_pass "JSON output: $json_file"
+            # A 0-byte report with a PASS line is worse than no report:
+            # validate that valid JSON was actually emitted (live finding:
+            # an upstream jq cascade once left the file empty).
+            if [[ ! -s "$json_file" ]] || ! jq -e . >/dev/null 2>&1 < "$json_file"; then
+                log_fail "JSON report generation produced invalid/empty output: $json_file"
+                rm -f "$json_file"
+                exit $EXIT_PREREQ_FAILED
+            fi
+            log_pass "JSON output: $json_file ($(wc -c < "$json_file") bytes, valid JSON)"
             ;;
         markdown)
             generate_markdown_output > "$md_file"
+            if [[ ! -s "$md_file" ]]; then
+                log_fail "Markdown report generation produced empty output: $md_file"
+                rm -f "$md_file"
+                exit $EXIT_PREREQ_FAILED
+            fi
             log_pass "Markdown output: $md_file"
             ;;
         both)
             generate_json_output > "$json_file"
+            if [[ ! -s "$json_file" ]] || ! jq -e . >/dev/null 2>&1 < "$json_file"; then
+                log_fail "JSON report generation produced invalid/empty output: $json_file"
+                rm -f "$json_file"
+                exit $EXIT_PREREQ_FAILED
+            fi
+            log_pass "JSON output: $json_file ($(wc -c < "$json_file") bytes, valid JSON)"
             generate_markdown_output > "$md_file"
-            log_pass "JSON output: $json_file"
+            if [[ ! -s "$md_file" ]]; then
+                log_fail "Markdown report generation produced empty output: $md_file"
+                rm -f "$md_file"
+                exit $EXIT_PREREQ_FAILED
+            fi
             log_pass "Markdown output: $md_file"
             ;;
     esac
