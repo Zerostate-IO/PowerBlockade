@@ -107,7 +107,23 @@ docker compose --profile sync-agent up -d
 
 ## Releases
 
-### 0.0.1 (MVP usable)
+> **Status as of 0.10.0 (2026-08-20):** the original 0.0.1 / 0.1.0 / 0.2.x scope
+> below is **shipped**, along with performance/observability work beyond it —
+> measured warm-path p99 0.147 ms @ 99.9% edge hit ratio, native sub-ms
+> observability on five services, pair-based warming with boot burst, and a
+> fail-closed benchmark harness with committed artifacts. Current release: 0.10.0.
+
+### Release philosophy on the road to 1.0
+
+We are **not** rushing to 1.0 — expect a long 0.x runway (think Netbird's
+0.7x cadence): steady feature releases that each stand alone, with quality
+gates unchanged. Version 1.0 is not "feature complete," it is a **stability
+contract**: bulletproof upgrades, tested backup/restore, security close-out,
+and docs we'd hand a stranger. Features keep shipping in 1.x after it.
+
+### Historical scope (shipped)
+
+#### 0.0.1 (MVP usable)
 Focus: “works for home users; analytics present; not fully polished”.
 
 Must-have:
@@ -135,7 +151,7 @@ Must-have:
   - first-run setup checklist
   - contextual “what is this” help on key pages
 
-### 0.1.0 (polish)
+#### 0.1.0 (polish)
 Focus: "fast, friendly, resilient, batteries included".
 
 Must-have:
@@ -148,7 +164,7 @@ Must-have:
 - Diagnostics/health UI (clear warnings; actionable remediation)
 - Robust node config sync (config versioning + pull/apply + reload)
 
-### 0.2.x (observability)
+#### 0.2.x (observability)
 Focus: "unified system health view; multi-node comparison".
 
 Must-have:
@@ -165,14 +181,20 @@ Nice-to-have:
 - Container metrics (cAdvisor)
 - Historical trends export
 
-### 1.0.0 (stabilize via feedback)
-Focus: “feature requests converge; defaults solid; stable upgrades”.
+### 1.0.0 (the stability contract)
+Focus: “you can run this on your family's network and not fear upgrades”.
 
-Likely scope:
-- Privacy controls (log retention, anonymization options)
-- Advanced search options
-- Better performance modes and tuning
-- Optional external search backend (OpenSearch) only if repeatedly requested
+Must-have (tracked as Work Order O):
+- CI-proven upgrade path from every recent 0.x minor (real stacks, real data)
+- First-class backup/restore of all state, with tested restores
+- Security close-out: login rate limiting, admin-action audit, session
+  hardening, optional TOTP 2FA; secondary ACL tightening; dead-file removal
+- Privacy controls (per-class retention, client-IP anonymization,
+  per-client logging opt-out)
+- Docs sweep: this roadmap, PROJECT.md package depictions, upgrade guides
+
+Feature work (Work Orders J-P) lands in 0.x releases along the way; 1.0 is
+the release where the promises get notarized, not where the features stop.
 
 ## Work orders (implementation sequencing)
 
@@ -216,21 +238,23 @@ Likely scope:
 - System Health page in admin-ui (iframe embed)
 - Remove Prometheus/Grafana external ports
 
-### Work Order H: Lighten the observability stack (post-v0.8.0, planned)
-Replace Prometheus + Grafana with **VictoriaMetrics single-node + vmui** to cut
-two containers (~300-600 MB) down to one (~50-150 MB):
+### Work Order H: Deployment profiles — light mode / performance mode (planned)
+Supersedes the earlier "replace Prometheus+Grafana with VictoriaMetrics" plan
+(issue #40). Decision (2026-08-20): **both, via compose profiles** — the full
+stack stays default; a light profile trades it down for small hosts.
 
-- Swap `prom/prometheus` + `grafana/grafana` for `victoriametrics/victoria-metrics`
-  (Prometheus-compatible scraping; current stable v1.150.x)
-- Evaluate `vmalert` for alerting (Alertmanager-compatible rules) and the fate of
-  the profile-gated alertmanager
-- Remove the admin-ui `/grafana` proxy + iframe embeds
-  (`grafana_proxy.py`, `metrics_dashboard.html`, `system.html`)
-- Accept the tradeoff: vmui has no persistent multi-panel dashboards/templating;
-  the admin-ui's Postgres-backed analytics already covers query analytics natively
-- Update docs and dashboards provisioning accordingly
+- `performance` (default): dnsdist + recursor with full caches, Prometheus +
+  Grafana with the DNS Performance dashboard, prober, alerting
+- `light`: VictoriaMetrics single-node (Prometheus-compatible scraping,
+  ~50-150 MB) in place of Prometheus+Grafana (~300-600 MB saved); vmalert for
+  rules; admin-ui's native Postgres-backed analytics remain the primary UI;
+  smaller cache defaults sized from occupancy data
+- Cache sizing per profile informed by `docs/performance/experiment-log.md`
+  right-sizing findings; document the memory/visibility trade on each
+- Keep the sub-ms latency histogram working in BOTH profiles (it is the
+  headline observability feature; VictoriaMetrics scrapes it unchanged)
 
-Tracked as issue #40 (metrics stack evaluation).
+Tracked as issue #40 (metrics stack evaluation, revised).
 
 ### Work Order I: Multi-flow saturation benchmark (post-0.10.0, planned)
 Publish a server-limited throughput number to match the class of public
@@ -244,3 +268,84 @@ config change):
 - Publish methodology + artifacts in `docs/performance/results/` and
   update `docs/comparisons.md`'s throughput table from a measured ceiling
   instead of the "floor, not ceiling" caveat
+
+## Work orders toward 1.0 (added 2026-08-20, after the 0.10.0 release)
+
+Priority-ordered backlog for the 0.x runway. Each becomes one or more
+releases; ordering below is sequencing guidance, not a fixed schedule.
+
+### Work Order J: Encrypted DNS listeners (high priority, 1.0-blocking)
+DoH, DoT, and optionally DoQ/QUIC terminations on the dnsdist edge — the
+single biggest switch-blocker vs AdGuard Home (see docs/comparisons.md):
+- dnsdist native DoH/DoT/DoQ listeners + certificate plumbing (ACME via the
+  existing traefik profile or standalone; renewal story documented)
+- Admin UI toggle + per-listener settings; secondaries get encrypted
+  listeners in their generated packages
+- Benchmark impact measured (added latency of TLS handshakes vs the 0.147 ms
+  warm-path p99 baseline) and documented in the comparisons page
+- Flips the worst row in the comparisons "gives up" table
+
+### Work Order K: Sync engine + secondary deployment hardening (high)
+The 0.10.0 bowlister deployment exposed the weak seam: extraction modes,
+ownership, stale node rows, config-sync failure modes:
+- End-to-end vetting of the secondary lifecycle: generate → deploy →
+  register → sync → upgrade → re-generate; scripted in CI, not by hand
+- Fix zip extraction ergonomics (modes/ownership preserved or install
+  script that repairs them); `pb` CLI subcommand for node bootstrap
+- Sync-agent failure taxonomy + recovery: config drift detection,
+  resync-from-scratch, node key rotation, orphaned-node cleanup UX
+- Load-test the ingest path (multi-secondary, burst buffering behavior)
+
+### Work Order L: UI and dashboard overhaul (high)
+"It works but it is not pretty, and it doesn't tell you how well things
+are running":
+- Design pass on the admin UI (information architecture, typography,
+  spacing, mobile)
+- System-health surfaces rebuilt around native metrics: cache hit ratios,
+  sub-ms latency percentiles, warming/boot-burst state, node fleet health
+  as first-class dashboard widgets — the numbers exist; the UI must show them
+- Live/near-real-time polish (htmx polling coherence, sensible refresh rates)
+
+### Work Order M: Automation & AI-agent API (medium)
+Token-authenticated REST surface for machines, not just browsers:
+- Scoped API tokens (read-only metrics/analytics vs write-capable
+  block/unblock, whitelist, flush-cache, node actions)
+- Documented, versioned OpenAPI spec; stable enough for scripts and for
+  AI agents (MCP server as a thin adapter over it is a natural follow-on)
+- Rate limits + full audit logging on every mutating call
+- Use case: "ask your AI why dns queries are slow / unblock example.com"
+
+### Work Order N: Privacy controls (medium, 1.0-blocking per old 1.0 sketch)
+- Per-data-class retention knobs (events, rollups, metrics, audit)
+- Client-IP anonymization/truncation modes for the privacy-forward
+- Per-client logging opt-out honored across primary and secondaries
+
+### Work Order O: Stability contract work (1.0-blocking)
+- CI upgrade-path tests: spin up each recent 0.x minor with seeded data,
+  upgrade, assert integrity (extends the release runtime gate)
+- Backup/restore: one-command full export (config, zones, nodes, settings;
+  query history optional) + tested restore + docs
+- Security close-out: login rate limiting, session hardening, optional
+  TOTP, admin-action audit surfacing, secondary DNS-level
+  allow-from/addACL tightening, dead `recursor/recursor.conf` removal
+- Docs debt sweep: PROJECT.md stale package depictions, roadmap history
+
+### Work Order P: Per-client / group policies (medium)
+RPZ selection per client group (kids VLAN vs adult VLAN parity with
+Pi-hole groups / AGH per-client settings):
+- Client groups model + UI; per-group blocklist sets + manual overrides
+- dnsdist/recursor rule wiring; sync to secondaries; analytics segmented
+  by group
+
+### Work Order Q: DHCP — parked flex, deliberately out of core
+Stance (2026-08-20): DHCP stays OUT of core PowerBlockade — different
+failure domain, router dnsmasq/Kea pairs fine beside us. Parked idea for a
+far-future flex: **optional DHCP with multi-node failover** (primary +
+secondaries cooperating on lease state), purely as a "nobody else does
+this at our quality bar" showcase. Do not schedule until J-P are done and
+users ask for it.
+
+Sequencing guidance: J (with I riding along) → K → L → H → M → N → P,
+with O growing continuously in CI as each release ships. One work order
+per release is a sane cadence; some pair naturally (L+H touch the same
+surfaces; N+O share the privacy/security audit work).
