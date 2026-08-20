@@ -770,11 +770,13 @@ Before running the benchmark script, ensure:
 
 **Environment Variables**:
 ```bash
-# Optional HTTP counter sources (integration branch webservers; when unset
-# the harness uses docker exec: console for dnsdist, rec_control for recursor)
-export DNSDIST_STATS_URL="http://127.0.0.1:8083"
+# Optional HTTP counter sources (integration branch webservers). NOTE: neither
+# webserver is published to the host — these URLs must be reached from inside
+# the compose network (or via a published port you add yourself); when unset
+# the harness uses docker exec: console for dnsdist, rec_control for recursor.
+export DNSDIST_STATS_URL="http://dnsdist:8083"
 export DNSDIST_WEB_PASSWORD="..."
-export RECURSOR_METRICS_URL="http://127.0.0.1:8082"
+export RECURSOR_METRICS_URL="http://recursor:8082"
 export RECURSOR_WEB_PASSWORD="..."
 
 # Optional: Override defaults
@@ -804,7 +806,7 @@ Default thresholds can be overridden via environment variables:
 | `DNS53_TTW_WINDOW_SECONDS` | 30 | Window length (s) |
 | `DNS53_TTW_QPS` | 500 | Time-to-warm load level (QPS) |
 | `DNS53_TTW_MAX_WINDOWS` | 40 | Upper bound on windows before failure |
-| `DNS53_RECURSOR_FLOOR_TOLERANCE` | 4 | Recursor entries tolerated at the post-clear floor (background security-poll; dnsdist is strict zero) |
+| `DNS53_RECURSOR_FLOOR_TOLERANCE` | 128 | Recursor entries tolerated at the post-clear floor (a primed recursor holds ~57 housekeeping entries — 13 root NS + A/AAAA glue + the security-status poll; dnsdist is strict zero) |
 | `DNS53_RESTART_HEALTH_TIMEOUT` | 180 | restart-mode health wait bound (s) |
 
 Example:

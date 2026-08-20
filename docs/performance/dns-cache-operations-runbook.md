@@ -706,9 +706,10 @@ date -Iseconds > "$EVIDENCE_DIR/timestamp.txt"
 curl -s http://localhost:8080/metrics > "$EVIDENCE_DIR/prometheus-metrics.txt"
 
 # Capture recursor statistics
-curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
-    -H "X-API-Key: ${RECURSOR_API_KEY}" \
-    > "$EVIDENCE_DIR/recursor-stats.json"
+# (the recursor webserver :8082 is compose-network only — NOT published to the host;
+# from the host use rec_control, or curl http://recursor:8082 from inside the network)
+docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor get-all \
+    > "$EVIDENCE_DIR/recursor-stats.txt"
 
 # Capture dnsdist cache stats
 # (requires the opt-in console: set DNSDIST_CONSOLE_KEY in .env and restart dnsdist)
@@ -801,7 +802,7 @@ Change exactly ONE setting per tuning session.
 |---------|---------|------------|--------|
 | `maxEntries` | 500000 | 100000-1000000 | Memory, hit rate |
 | `maxTTL` | 86400 | 3600-172800 | Stale data risk |
-| `staleTTL` | 60 | 0-300 | Outage resilience |
+| `staleTTL` | 300 | 0-300 | Outage resilience (E4; with `keepStaleData=true`) |
 
 **Change procedure**:
 
@@ -971,9 +972,9 @@ Time-to-warm comparison (optional, after tuning cache sizes or TTLs):
 # Capture post-change metrics for comparison
 curl -s http://localhost:8080/metrics > "$EVIDENCE_DIR/prometheus-metrics-after.txt"
 
-curl -s "http://recursor:8082/api/v1/servers/localhost/statistics" \
-    -H "X-API-Key: ${RECURSOR_API_KEY}" \
-    > "$EVIDENCE_DIR/recursor-stats-after.json"
+# Recursor webserver :8082 is compose-network only; use rec_control from the host
+docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor get-all \
+    > "$EVIDENCE_DIR/recursor-stats-after.txt"
 
 docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf -e "getPool(''):getCache():getStats()" \
     > "$EVIDENCE_DIR/dnsdist-cache-stats-after.txt" 2>&1
@@ -1225,9 +1226,13 @@ docker compose exec dnsdist dnsdist -c -C /tmp/dnsdist.conf -e "getPool(''):getC
 # Flush recursor cache (wipes record + packet + negative caches)
 docker compose exec recursor rec_control --socket-dir=/var/run/pdns-recursor wipe-cache '$'
 
-# Or recursor flush via API (from the host, port 8082 is published)
-curl -sf -X PUT "http://127.0.0.1:8082/api/v1/servers/localhost/cache/flush?domain=.&subtree=true" \
-    -H "X-API-Key: ${RECURSOR_API_KEY}"
+# Or recursor flush via API (the webserver :8082 is NOT published to the host;
+# reachable only inside the compose network; /api/v1/* accepts X-API-Key or basic
+# auth with RECURSOR_WEB_PASSWORD). From any container on the powerblockade network:
+#   curl -sf -X PUT \
+#     "http://recursor:8082/api/v1/servers/localhost/cache/flush?domain=.&subtree=true" \
+#     -H "X-API-Key: ${RECURSOR_API_KEY}"
+# Prefer the rec_control wipe-cache above from the host — it needs no webserver access.
 
 # Or via admin-ui (from blocking.py:174)
 curl -X POST http://localhost:8080/blocking/clear-cache
@@ -1248,10 +1253,11 @@ the running daemon.
 - Cold and time-to-warm phases clear BOTH layers with the console commands
   above and fail closed (abort before dnsperf) when the console is disabled,
   a step fails, or the post-clear floor check does not verify. Floor: dnsdist
-  packet cache strictly empty; recursor caches empty within a small
-  housekeeping tolerance (the recursor's built-in security-status poll
-  repopulates 1-2 entries for recursor-<v>.security-status.secpoll
-  .powerdns.com right after a wipe; never benchmark-corpus domains). The
+  packet cache strictly empty; recursor caches empty within a housekeeping
+  tolerance (default 128 entries — a primed recursor holds ~57 steady-state
+  housekeeping entries: 13 root NS + A/AAAA glue + the security-status poll
+  for recursor-<v>.security-status.secpoll.powerdns.com; never
+  benchmark-corpus domains). The
   dnsdist console client exits 0 even on auth failure, so the harness trusts
   live counter state, never exit codes.
 - `--clear-mode restart` is the explicit destructive fallback: it restarts
@@ -1308,8 +1314,8 @@ All tuning sessions must produce an evidence artifact.
 +-- after-results.json          # Benchmark after change
 +-- prometheus-metrics.txt      # Metrics snapshot (before)
 +-- prometheus-metrics-after.txt # Metrics snapshot (after)
-+-- recursor-stats.json         # Recursor API stats (before)
-+-- recursor-stats-after.json   # Recursor API stats (after)
++-- recursor-stats.txt          # Recursor stats via rec_control (before)
++-- recursor-stats-after.txt    # Recursor stats via rec_control (after)
 +-- dnsdist-cache-stats.txt     # dnsdist cache stats (before)
 +-- dnsdist-cache-stats-after.txt # dnsdist cache stats (after)
 +-- event-count-1h.txt          # DB event count (before)
