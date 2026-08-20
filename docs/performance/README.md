@@ -2,7 +2,7 @@
 
 > **Purpose**: Index of all DNS performance testing documentation, benchmark scripts, and evidence contracts for PowerBlockade.
 > **Audience**: Operators, developers, and QA engineers running performance validation.
-> **Last Updated**: 2026-02-26
+> **Last Updated**: 2026-08-19
 
 ## Overview
 
@@ -12,30 +12,60 @@ This directory contains documentation for measuring, tuning, and verifying DNS c
 - **Strategy**: Caching architecture decisions and tuning parameters
 - **Observability**: Query path tracing and traffic attribution
 - **Runbooks**: Operator procedures for staged rollout with regression gates
+- **Experiment battery**: One-variable-at-a-time tuning experiments with keep/revert verdicts ([experiment-log.md](experiment-log.md))
+- **Official results**: Committed benchmark evidence under [results/](results/)
 
 ## Documentation Index
 
 | Document | Purpose | Lines |
 |----------|---------|-------|
-| [dns-benchmark-methodology.md](dns-benchmark-methodology.md) | Repeatable dnsperf benchmark procedures, corpus construction, CLI contract | 438 |
-| [dns-caching-strategy.md](dns-caching-strategy.md) | Cache architecture, tuning matrix, precache policy, retention strategy | 904 |
-| [dns-query-path-and-observability.md](dns-query-path-and-observability.md) | Query flow, traffic attribution, metrics pipeline, node lifecycle | 1812 |
-| [dns-cache-operations-runbook.md](dns-cache-operations-runbook.md) | Regression gates, logging verification, single-node rollout runbook | 3049 |
+| [dns-benchmark-methodology.md](dns-benchmark-methodology.md) | Repeatable dnsperf benchmark procedures, corpus construction, CLI contract | 853 |
+| [dns-caching-strategy.md](dns-caching-strategy.md) | Cache architecture, tuning matrix, precache policy, retention strategy | 648 |
+| [dns-query-path-and-observability.md](dns-query-path-and-observability.md) | Query flow, traffic attribution, metrics pipeline, node lifecycle | 1128 |
+| [dns-cache-operations-runbook.md](dns-cache-operations-runbook.md) | Regression gates, logging verification, single-node rollout runbook | 1963 |
+| [experiment-log.md](experiment-log.md) | 2026-08-19 experiment battery: kept/reverted tuning changes with evidence | 331 |
+
+## Official Baseline Results (2026-08-19)
+
+Committed evidence from the `perf/integration` branch, produced by
+`scripts/benchmarks/dns53-benchmark.sh` v2.0.0 on host `songbird` (Linux 7.1.8-200.fc44,
+dnsperf 2.15.0, console clearing, 60s phases). Numbers below are quoted from the JSON;
+the files are the source of truth.
+
+| Metric | Value | Evidence |
+|---|---|---|
+| Cold p50 / p95 / p99 | 0.099 / 0.159 / 0.287 ms | [results/benchmark-20260819-093217.json](results/benchmark-20260819-093217.json) `phases.cold_cache.metrics` |
+| Warm p50 / p95 / p99 | 0.049 / 0.093 / 0.147 ms @ 99.9% dnsdist hit ratio | same file, `phases.warm_cache` |
+| Saturation | 8497 QPS sustained, 0.01% errors (0.191 ms p99) | same file, `phases.saturation.metrics` |
+| Time-to-warm | 182 s (5 consecutive passing 30s windows) | [results/benchmark-time-to-warm-official.json](results/benchmark-time-to-warm-official.json) |
+
+Interpretation notes (evidence in [experiment-log.md](experiment-log.md)):
+
+- Saturation is bounded by the single-flow dnsperf client, not the stack: a supplemental
+  4-flow test sustained 13.8k+ QPS with 0.00-0.02% loss (E1a).
+- The E2/E4 kept changes (`useClientSubnet=false`, stale 300/300 + `keepStaleData=true`)
+  are the config of record in `dnsdist/dnsdist.conf.template`; see
+  [dns-caching-strategy.md](dns-caching-strategy.md) Current Baseline.
+- Afternoon QPS drift (-7% same-config, environmental) means regression gating must use
+  paired, close-in-time runs — see the drift note at the end of the experiment log.
 
 ## Benchmark Scripts
 
 | Script | Purpose | Location |
 |--------|---------|----------|
-| `dns53-benchmark.sh` | Main benchmark runner (cold/warm/saturation phases) | `scripts/benchmarks/` |
+| `dns53-benchmark.sh` | Main benchmark runner v2.0.0 (cold/warm/saturation/time-to-warm phases; fail-closed dual-layer console clearing; counter-delta hit ratios; p99 gating) | `scripts/benchmarks/` |
+| `fetch-top-domains.sh` | Regenerate the frozen 10k Umbrella prober corpus (deliberate, versioned change only) | `scripts/benchmarks/corpus/` |
+| `run-local-cache-gates.sh` | Local cache-gate checks | `scripts/benchmarks/` |
 
 ### Script Contract Summary
 
 ```
-dns53-benchmark.sh --mode <cold|warm|saturation|all>
+dns53-benchmark.sh --mode <cold|warm|saturation|time-to-warm|all>
                     --target <host>
                     --port <port>
                     --corpus <path>
                     --duration <seconds>
+                    --clear-mode <console|restart>
                     --output <json|markdown|both>
                     --results-dir <path>
 ```
@@ -46,11 +76,17 @@ dns53-benchmark.sh --mode <cold|warm|saturation|all>
 - `2`: Prerequisites not met
 - `3`: Configuration error
 
+Prerequisites and thresholds (dnsperf >= 2.14.0 with version probe, `DNSDIST_CONSOLE_KEY`
+console clearing, cache-floor tolerance) are specified in
+[dns-benchmark-methodology.md](dns-benchmark-methodology.md); operator procedure detail
+lives in [dns-cache-operations-runbook.md](dns-cache-operations-runbook.md).
+
 ## Corpus Files
 
 | File | Purpose | Domains |
 |------|---------|---------|
-| `corpus/control-domains.txt` | Stable control set for reproducible benchmarks | 120 |
+| `corpus/control-domains.txt` | Stable hand-curated control set for reproducible benchmarks (`dns53-benchmark.sh`) | 120 |
+| `scripts/benchmarks/corpus/control-domains.txt` | FROZEN 10,000-domain Umbrella top-1M corpus for the synthetic prober (never edit in place) | 10000 |
 
 The control corpus is version-controlled and never modified after creation. For realistic testing, generate a corpus from production query logs using the methodology in `dns-benchmark-methodology.md`.
 
@@ -67,6 +103,7 @@ Every benchmark run MUST produce a specific set of evidence files for auditabili
 | **cold** | `benchmark-cold-<id>.json`, `benchmark-cold-<id>.md` | Latency distribution from empty cache |
 | **warm** | `benchmark-warm-<id>.json`, `benchmark-warm-<id>.md` | Latency distribution with warmed cache |
 | **saturation** | `benchmark-saturation-<id>.json`, `benchmark-saturation-<id>.md` | Max QPS under load |
+| **time-to-warm** | `benchmark-ttw-<id>.json`, `benchmark-ttw-<id>.md` | Cold-to-warm transition time (occupancy-based criterion, see methodology Phase 4) |
 | **all** | All above files | Complete benchmark suite |
 
 ### Required Files Per Regression Check
@@ -88,7 +125,7 @@ Every benchmark run MUST produce a specific set of evidence files for auditabili
 
 **Components**:
 - `<type>`: `benchmark`, `observability`, `ingest`, `logging`, `decision`
-- `<mode>`: `cold`, `warm`, `saturation` (benchmark files only)
+- `<mode>`: `cold`, `warm`, `saturation`, `time-to-warm` (benchmark files only)
 - `<benchmark_id>`: ISO 8601 timestamp + random suffix (e.g., `20260226T143000-a7f3b2`)
 - `<ext>`: `json` (machine-readable), `md` (human-readable)
 
@@ -208,11 +245,19 @@ docs/performance/
 ├── dns-caching-strategy.md      # Architecture and tuning
 ├── dns-query-path-and-observability.md # Query flow and metrics
 ├── dns-cache-operations-runbook.md # Operator procedures
+├── experiment-log.md            # 2026-08-19 experiment battery (keep/revert verdicts)
+├── results/                     # Committed official benchmark evidence (JSON)
+│   ├── benchmark-20260819-093217.json
+│   └── benchmark-time-to-warm-official.json
 └── corpus/
     └── control-domains.txt      # Stable test domains
 
 scripts/benchmarks/
-└── dns53-benchmark.sh           # Main benchmark runner
+├── dns53-benchmark.sh           # Main benchmark runner (v2.0.0)
+├── run-local-cache-gates.sh     # Local cache-gate checks
+└── corpus/
+    ├── control-domains.txt      # FROZEN 10k Umbrella prober corpus
+    └── fetch-top-domains.sh     # Corpus generator (deliberate regeneration only)
 ```
 
 ---
