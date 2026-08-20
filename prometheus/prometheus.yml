@@ -17,3 +17,57 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["admin-ui:8080"]
+
+  # --- DNS-path services -------------------------------------------------
+  # All three run at the global 15s interval (set explicitly so dashboards
+  # keep their resolution even if the global value later changes) and keep
+  # the default 10s scrape_timeout: each endpoint serves in-memory
+  # counters/histograms, so no slow-handler tuning is needed.
+  #
+  # The two PowerDNS web servers use basic auth where only the password is
+  # checked (any username works). Their password files are materialized at
+  # container start by prometheus/docker-entrypoint.sh into the memory-backed
+  # /dev/shm/secrets tmpfs (mode 0400), because static prometheus.yml cannot
+  # expand environment variables. The dnstap-processor listener intentionally
+  # has no auth: it exposes in-network aggregate counters only.
+
+  - job_name: "powerblockade-recursor"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    basic_auth:
+      username: prometheus
+      password_file: /dev/shm/secrets/recursor-web-password
+    static_configs:
+      - targets: ["recursor:8082"]
+        labels:
+          service: recursor
+
+  - job_name: "powerblockade-dnsdist"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    basic_auth:
+      username: prometheus
+      password_file: /dev/shm/secrets/dnsdist-web-password
+    static_configs:
+      - targets: ["dnsdist:8083"]
+        labels:
+          service: dnsdist
+
+  - job_name: "powerblockade-dnstap-processor"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["dnstap-processor:9422"]
+        labels:
+          service: dnstap-processor
+
+  # Synthetic prober: client-observed latency ground truth from a fixed
+  # source IP (172.30.0.30). Its series stay deliberately separate from
+  # production panels; no auth — in-network counters only.
+  - job_name: "powerblockade-prober"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["prober:9533"]
+        labels:
+          service: prober

@@ -243,6 +243,7 @@ def blocklist_schedule_job() -> None:
 
 @run_with_advisory_lock("local_metrics")
 def scrape_local_recursor_metrics() -> None:
+    import base64
     import socket
 
     settings = get_settings()
@@ -259,7 +260,16 @@ def scrape_local_recursor_metrics() -> None:
             return
 
         try:
-            with urllib.request.urlopen(f"{recursor_url}/metrics", timeout=5) as resp:
+            req = urllib.request.Request(f"{recursor_url}/metrics")
+            web_password = os.environ.get("RECURSOR_WEB_PASSWORD", "")
+            if web_password:
+                # /metrics authenticates with HTTP basic auth (any username)
+                # using the WEBserver password - the API key does not work.
+                token = base64.b64encode(
+                    f"prometheus:{web_password}".encode()
+                ).decode()
+                req.add_header("Authorization", f"Basic {token}")
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 text = resp.read().decode("utf-8", errors="ignore")
         except Exception as e:
             log.debug(f"Could not scrape local recursor: {e}")

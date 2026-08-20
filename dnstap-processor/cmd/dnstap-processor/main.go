@@ -17,11 +17,11 @@ import (
 
 	powerdns_protobuf "github.com/dmachard/go-powerdns-protobuf"
 	"github.com/dnstap/golang-dnstap"
-	"github.com/miekg/dns"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/powerblockade/dnstap-processor/internal/buffer"
 	"github.com/powerblockade/dnstap-processor/internal/config"
+	"github.com/powerblockade/dnstap-processor/internal/metrics"
 	"github.com/powerblockade/dnstap-processor/internal/netutil"
 )
 
@@ -59,9 +59,38 @@ func main() {
 		dnstapSource = "tcp:" + cfg.DnstapListen
 	}
 	log.Printf(
-		"starting dnstap-processor version=%s sha=%s node=%s dnstap=%s protobuf_listen=%s primary=%s buffer=%s",
-		Version, GitSHA, cfg.NodeName, dnstapSource, cfg.ProtobufListen, cfg.Primary.URL, cfg.Buffer.Path,
+		"starting dnstap-processor version=%s sha=%s node=%s dnstap=%s protobuf_listen=%s metrics=%s primary=%s buffer=%s",
+		Version, GitSHA, cfg.NodeName, dnstapSource, cfg.ProtobufListen, cfg.MetricsListen, cfg.Primary.URL, cfg.Buffer.Path,
 	)
+
+	// dnstap query source addresses whose traffic is synthetic prober
+	// probes. Classified before histogram observation so prober samples are
+	// exported on separate series and cannot contaminate production
+	// latency quantiles.
+	probers := parseProberIPs(strings.Join(cfg.ProberIPs, ","))
+	if len(probers) > 0 {
+		log.Printf("prober client ips: %v (exported on separate prober=true metric series)", cfg.ProberIPs)
+		if cfg.DropProberEvents {
+			log.Printf(
+				"prober-source events will NOT be shipped to the primary (DROP_PROBER_EVENTS=true); " +
+					"their metrics are still observed (drop visible as events_received_total outpacing events_shipped_total)",
+			)
+		}
+	}
+
+	mets := metrics.New()
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", mets.Handler())
+	metricsLn, err := net.Listen("tcp", cfg.MetricsListen)
+	if err != nil {
+		log.Fatalf("metrics listen %s: %v", cfg.MetricsListen, err)
+	}
+	go func() {
+		log.Printf("metrics listening on http://%s/metrics", cfg.MetricsListen)
+		if err := (&http.Server{Handler: metricsMux}).Serve(metricsLn); err != nil && err != http.ErrServerClosed {
+			log.Printf("metrics server: %v", err)
+		}
+	}()
 
 	buf, err := buffer.Open(cfg.Buffer.Path, cfg.Buffer.MaxBytes, cfg.Buffer.MaxAge)
 	if err != nil {
@@ -72,6 +101,7 @@ func main() {
 	if pending := buf.Count(); pending > 0 {
 		log.Printf("buffer: %d pending events from previous run", pending)
 	}
+	mets.BufferPending.Set(float64(buf.Count()))
 
 	var input *dnstap.FrameStreamSockInput
 	if cfg.DnstapListen != "" {
@@ -174,6 +204,16 @@ func main() {
 			ev.BlockReason = "rpz"
 		}
 		return ev
+	}
+
+	// Decodes dnstap CLIENT_RESPONSE frames: classifies prober traffic,
+	// observes metrics first, then suppresses the ship of prober-source
+	// events when DROP_PROBER_EVENTS is on (default).
+	processor := responseProcessor{
+		probers:          probers,
+		dropProberEvents: cfg.DropProberEvents,
+		mets:             mets,
+		makeEvent:        makeEvent,
 	}
 
 	protobufEvents := make(chan buffer.Event, 2048)
@@ -294,6 +334,7 @@ func main() {
 					case protobufEvents <- ev:
 					default:
 						// drop under backpressure
+						mets.EventsDropped.Inc()
 					}
 				}
 
@@ -354,10 +395,16 @@ func main() {
 			return
 		}
 
+		n := len(batch)
 		if err := buf.PutBatch(batch); err != nil {
 			log.Printf("buffer put failed: %v", err)
+			// batch is truncated below even on failure; the events are lost.
+			mets.EventsDropped.Add(float64(n))
+		} else {
+			mets.EventsBuffered.Add(float64(n))
 		}
 		batch = batch[:0]
+		mets.BufferPending.Set(float64(buf.Count()))
 	}
 
 	forwardFromBuffer := func() {
@@ -394,6 +441,9 @@ func main() {
 		maxSeq := events[len(events)-1].EventSeq
 		if err := buf.Delete(maxSeq); err != nil {
 			log.Printf("buffer delete failed: %v", err)
+		} else {
+			mets.EventsShipped.Add(float64(len(events)))
+			mets.BufferPending.Set(float64(buf.Count()))
 		}
 
 		if debug {
@@ -429,6 +479,7 @@ func main() {
 			}
 
 			recvTotal++
+			mets.EventsReceived.Inc()
 			dt := &dnstap.Dnstap{}
 			if err := proto.Unmarshal(data, dt); err != nil {
 				continue
@@ -459,54 +510,14 @@ func main() {
 				)
 			}
 
-			if t != dnstap.Message_CLIENT_RESPONSE {
-				continue
-			}
-
-			ipBytes := msg.GetQueryAddress()
-			ip := net.IP(ipBytes)
-			if ip == nil {
-				continue
-			}
-			clientIP := ip.String()
-
-			wire := msg.GetResponseMessage()
-			if len(wire) == 0 {
-				continue
-			}
-
-			var dnsMsg dns.Msg
-			if err := dnsMsg.Unpack(wire); err != nil {
-				continue
-			}
-			if len(dnsMsg.Question) == 0 {
-				continue
-			}
-			qname := dnsMsg.Question[0].Name
-			qtype := int(dnsMsg.Question[0].Qtype)
-
-			rcode := dnsMsg.Rcode
-
-			latencyMS := 0
-			if msg.GetQueryTimeSec() != 0 && msg.GetResponseTimeSec() != 0 {
-				qts := time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec()))
-				rts := time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec()))
-				if d := rts.Sub(qts); d > 0 {
-					latencyMS = int(d / time.Millisecond)
+			// Decode, observe metrics, and decide shipping (prober-source
+			// events are suppressed when DROP_PROBER_EVENTS is on —
+			// after their metrics were observed).
+			if ev, ok := processor.process(msg); ok {
+				batch = append(batch, ev)
+				if len(batch) >= maxBatch {
+					flushToBuffer()
 				}
-			}
-
-			ts := time.Now().UTC()
-			if msg.GetResponseTimeSec() != 0 {
-				ts = time.Unix(int64(msg.GetResponseTimeSec()), int64(msg.GetResponseTimeNsec())).UTC()
-			} else if msg.GetQueryTimeSec() != 0 {
-				ts = time.Unix(int64(msg.GetQueryTimeSec()), int64(msg.GetQueryTimeNsec())).UTC()
-			}
-
-			batch = append(batch, makeEvent(ts, clientIP, qname, qtype, rcode, latencyMS))
-
-			if len(batch) >= maxBatch {
-				flushToBuffer()
 			}
 
 		case <-ticker.C:

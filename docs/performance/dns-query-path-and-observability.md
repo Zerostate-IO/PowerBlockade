@@ -187,9 +187,9 @@ This document traces the end-to-end query flow through the PowerBlockade DNS sta
 | Step | Component | Effect | Source File:Line | Notes |
 |------|-----------|--------|------------------|-------|
 | **Ingress & ACL** | dnsdist | Accept/reject query by source IP | `dnsdist/dnsdist.conf.template:17-25` | ACLs for LAN ranges only |
-| **Packet Cache Check** | dnsdist | Short-circuit if answer cached | `dnsdist/dnsdist.conf.template:40-48` | 500k entries, 24h TTL |
-| **Stale Cache Serve** | dnsdist | Serve stale if upstream unavailable | `dnsdist/dnsdist.conf.template:49` | 60s stale TTL |
-| **Backend Forward** | dnsdist | Route to recursor | `dnsdist/dnsdist.conf.template:31-37` | 4 sockets, firstAvailable policy |
+| **Packet Cache Check** | dnsdist | Short-circuit if answer cached | `dnsdist/dnsdist.conf.template:43-61` | 500k entries, 24h max TTL |
+| **Stale Cache Serve** | dnsdist | Serve stale if upstream unavailable | `dnsdist/dnsdist.conf.template:51,58,61` | 300s stale TTL + `keepStaleData=true` (E4) |
+| **Backend Forward** | dnsdist | Route to recursor | `dnsdist/dnsdist.conf.template:31-41` | 4 sockets, firstAvailable policy, no ECS upstream (E2) |
 | **RPZ Blocklist** | Recursor | Block matching domains | `recursor/rpz.lua:6-9` | Policy.NXDOMAIN |
 | **RPZ Whitelist** | Recursor | Allow overrides | `recursor/rpz.lua:12-14` | Policy.PASSTHRU |
 | **Record Cache** | Recursor | Cache recursive answers | `recursor/recursor.conf.template:16` | 2M entries |
@@ -422,6 +422,169 @@ def metrics(db: Session):
     # - powerblockade_recursor_answers_latency{node="...",le="..."}
     # - etc.
 ```
+
+### Primary-Node Prometheus Scrape Chain
+
+On the primary node, Prometheus (`prometheus/prometheus.yml`) scrapes five jobs directly
+over the compose network. This is the measurement backbone for the DNS Performance
+dashboard and the `powerblockade-primary` alert group; it is separate from the secondary
+node push path documented above.
+
+| Job | Target | Interval | Auth | Source |
+|---|---|---|---|---|
+| `powerblockade` | `admin-ui:8080/metrics` | 60s | none (admin-ui session space) | prometheus.yml:14-19 |
+| `powerblockade-recursor` | `recursor:8082/metrics` | 15s | basic auth (password file) | prometheus.yml:34-43 |
+| `powerblockade-dnsdist` | `dnsdist:8083/metrics` | 15s | basic auth (password file) | prometheus.yml:45-54 |
+| `powerblockade-dnstap-processor` | `dnstap-processor:9422/metrics` | 15s | none — in-network aggregate counters only | prometheus.yml:56-62 |
+| `powerblockade-prober` | `prober:9533/metrics` | 15s | none — in-network counters only | prometheus.yml:67-73 |
+
+**Auth mechanism**: static prometheus.yml cannot expand environment variables, so the
+prometheus container entrypoint (`prometheus/docker-entrypoint.sh`) writes
+`RECURSOR_WEB_PASSWORD` / `DNSDIST_WEB_PASSWORD` into `/dev/shm/secrets/*` (memory-backed
+tmpfs, mode 0400) at start; the scrape jobs reference those files with
+`basic_auth.password_file`. Both PowerDNS webservers check only the password (any username
+works; the API key does NOT authorize `/metrics`). If a password variable is empty, its
+file is not written and the scrape job fails loudly (401) rather than scraping with a
+wrong credential — the containers themselves start with a random per-boot password and a
+warning, so the stack never runs passwordless, but metrics need real `.env` values.
+
+### dnstap-processor Prometheus Endpoint
+
+```
+Listen: METRICS_LISTEN (default 0.0.0.0:9422, compose expose-only, no host port)
+Path:   GET /metrics
+```
+
+The processor observes the dnsdist edge latency (dnstap `CLIENT_RESPONSE`
+`response_time - query_time`, which dnsdist 2.0.x populates at nanosecond
+precision) into an in-process Prometheus histogram **before** event
+serialization. The buffered event payload keeps its coarse integer
+`latency_ms` field — only this metrics path is precise, so sub-millisecond
+edge latencies (previously rounded to 0 ms) remain observable.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `dnstap_processor_response_latency_seconds_bucket{prober,le}` | histogram | Edge latency, buckets 0.1/0.25/0.5/1/2.5/5/10 ms (+Inf) |
+| `dnstap_processor_events_received_total` | counter | dnstap frames received from dnsdist |
+| `dnstap_processor_events_buffered_total` | counter | Events written to the on-disk buffer |
+| `dnstap_processor_events_shipped_total` | counter | Events accepted by the primary ingest API |
+| `dnstap_processor_events_dropped_total` | counter | Events lost to backpressure or buffer write failure |
+| `dnstap_processor_buffer_pending` | gauge | Events currently pending in the on-disk buffer |
+
+**Prober isolation:** queries whose dnstap source IP is listed in
+`PROBER_IPS` (default `172.30.0.30`) are classified *before* histogram
+observation and exported on the separate `prober="true"` series. Production
+quantiles (`prober="false"`) therefore cannot be contaminated by synthetic
+prober traffic.
+
+**Prober event drop:** prober-source events are not shipped to the primary
+ingest API at all (`DROP_PROBER_EVENTS`, default `true`; set `false`, `0`,
+or `no` to ship them again). The decision runs *after* metrics observation,
+so nothing about metrics changes: the latency sample still lands on the
+`prober="true"` series and the frame still increments
+`dnstap_processor_events_received_total`. No dedicated drop counter exists
+by design — intentional suppression is not a loss, so
+`dnstap_processor_events_dropped_total` stays untouched, and an operator
+sees the drop simply as `events_received_total` (plus the `prober="true"`
+histogram count) outpacing `events_shipped_total`. This keeps the always-on
+synthetic prober (~10,000 queries per 60s pass, ~14M rows/day if stored)
+out of Postgres while preserving its full latency signal.
+
+### Synthetic Prober Service
+
+The prober (`prober/`, service `prober` in compose.yaml — on by default, no profile) is
+the client-observed latency ground truth. Full contract, metric table, and configuration:
+[prober/README.md](../../prober/README.md). Key facts:
+
+- **Identity is the source IP**: the compose service pins `172.30.0.30` on the
+  `powerblockade` network; the dnstap-processor classifies exactly that address
+  (`PROBER_IPS`, .env default `172.30.0.30`) before observing metrics. Never run the
+  prober from another address — its traffic would mix into user analytics.
+- **Corpus**: the frozen 10,000-domain Cisco Umbrella top-1M corpus at
+  `scripts/benchmarks/corpus/` (mounted read-only; regenerate only deliberately via
+  `fetch-top-domains.sh` — a change is a new corpus version). This is a different corpus
+  from the hand-curated `docs/performance/corpus/` set used by `dns53-benchmark.sh`.
+- **Metrics**: `:9533` `/metrics` + `/healthz`, compose-network only. Client-observed
+  send→response latency histogram `powerblockade_prober_query_latency_seconds` with the
+  same bucket boundaries as the processor histogram (0.1–10 ms), plus
+  sent/answered/refused/timed-out/errored counters and last-pass gauges.
+- **Behavior**: one send per query, no retries (a timeout is final), pass cadence
+  `PROBE_INTERVAL` (default 60s) ± `PROBE_JITTER_PCT` (default 10).
+
+### Measurement Contracts (production vs prober)
+
+Every latency series in this stack has exactly one meaning; the dashboards enforce the
+same split the metrics pipeline makes. Do not join across the boundary.
+
+| Question | Series to use | Why |
+|---|---|---|
+| What latency do real clients see (server-observed)? | `dnstap_processor_response_latency_seconds{prober="false"}` | dnsdist edge latency from dnstap CLIENT_RESPONSE timestamps, nanosecond precision, observed before serialization. The ONLY sub-millisecond latency source — the stored `latency_ms` event field is integer-ms and rounds sub-ms values to 0. |
+| What latency does a controlled client observe end-to-end? | `powerblockade_prober_query_latency_seconds` (and the prober outcome counters) | Send→response as measured at the prober socket: includes everything the server-side histogram cannot see. |
+| Is the prober's traffic visible at the edge? | `dnstap_processor_response_latency_seconds{prober="true"}` | Same edge measurement path, isolated label series. Client-observed vs edge-observed prober latency on one panel diagnoses where time is spent. |
+| Is the ingest pipeline healthy? | `dnstap_processor_events_received_total` vs `events_shipped_total`, `events_dropped_total`, `buffer_pending` | With `DROP_PROBER_EVENTS=true` (default), received outpacing shipped by the prober pass rate is expected; drops are not. |
+
+Contract rules:
+
+- Production quantiles are always `prober="false"`; prober panels always use the prober
+  series. The Grafana dashboard keeps them in separate rows and never mixes them.
+- Histogram buckets (both histograms): 0.1 / 0.25 / 0.5 / 1 / 2.5 / 5 / 10 ms — anything
+  at or below 0.1 ms lands in the first bucket; there is no microsecond resolution.
+- The recursor's own latency view (`pdns_recursor_answers*_total` bands) is integer-band
+  granularity (0-1, 1-10, 10-100, 100-1000, >1000 ms) and only sees the ~0.1-0.3% of
+  traffic that misses the edge cache — it is a recursor health signal, not an edge
+  latency signal.
+
+### Dashboards and Alerts
+
+**Grafana "DNS Performance" dashboard** (`grafana/dashboards/dns-performance.json`,
+provisioned automatically): per-layer cache hit ratios (dnsdist, recursor packet cache,
+recursor record cache), production edge latency p50/p90/p99 (`prober="false"`), recursor
+answer-latency bands and cache occupancy vs configured capacity, dnstap-processor health
+(events received vs shipped, dropped, buffer pending), and a separate synthetic-prober
+row (client-observed p50/p90/p99, edge-observed prober latency `prober="true"`, query
+outcomes, answer rate, last pass).
+
+**Alerts** (`prometheus/alerts.yml`):
+
+| Group | Alert | Condition | Fires | Severity |
+|---|---|---|---|---|
+| `powerblockade-primary` | ProberMetricsAbsent | `absent(powerblockade_prober_query_latency_seconds_bucket)` | 10m | warning |
+| `powerblockade-primary` | ProcessorBufferBacklog | `dnstap_processor_buffer_pending > 1000` | 10m | warning |
+| `powerblockade-primary` | ProcessorShippingLag | received rate − shipped rate > 1/s | 10m | warning |
+| `powerblockade-primary` | ProcessorEventsDropped | `dnstap_processor_events_dropped_total` rate > 0 | 5m | critical |
+| `powerblockade` (legacy) | LowCacheHitRate, HighServfailRate, RecursorDown, … | push-path `powerblockade_recursor_*` series | various | various |
+
+The legacy `powerblockade` group is fed by the secondary-node push path (sync-agent →
+admin-ui `/metrics`) and is intentionally unchanged; `powerblockade-primary` covers the
+direct-scrape series that only exist on a primary deployment.
+
+---
+
+## Operator Notes (Metrics Path)
+
+1. **SELinux-enforcing hosts**: container startup fails on the read-only bind mounts
+   until the mounted directories are labeled:
+   `chcon -R -t container_file_t <mounted-dirs>`. Found live on a Fedora 44 workstation
+   (kernel 7.1.8-200.fc44, see the official run environment in
+   `results/benchmark-20260819-093217.json`); production hosts running permissive do not
+   trip it.
+2. **Required secrets in `.env`** for metrics scraping: `RECURSOR_WEB_PASSWORD` and
+   `DNSDIST_WEB_PASSWORD` (different random values; generate with
+   `openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'`, charset
+   `A-Za-z0-9 . _ ~ + = @ -`). If left empty the webservers start with random per-boot
+   passwords and Prometheus scrapes fail with 401 until real values are set and the
+   stack restarted. Neither listener is published to the host — they are reachable only
+   inside the compose network. `DNSDIST_CONSOLE_KEY` (optional) enables the dnsdist
+   console used for non-disruptive cache clears by the benchmark harness; generate with
+   exactly `head -c 32 /dev/urandom | base64 -w0` and recreate the dnsdist container.
+3. **Outage behavior after E4** (`staleTTL=300` + `keepStaleData=true`): during a total
+   upstream/recursor outage the edge serves cached answers for up to 300 s per entry —
+   a deliberate availability-over-freshness trade (previously the effective window was
+   ≤31 s). Uncached names fail during the outage. Rollback pointers:
+   [dns-caching-strategy.md](dns-caching-strategy.md) E4 summary.
+4. **dnsperf 2.15.0 on Fedora**: the version string only appears in the run banner, not
+   behind `--version`-style flags; the benchmark harness probes across builds and
+   handles it (see `dns-benchmark-methodology.md` prerequisites).
 
 ---
 
@@ -695,15 +858,20 @@ metrics_buffer = MetricsBuffer(buffer_path, max_age_seconds=buffer_max_age)
 
 | Component | Config File | Key Lines |
 |-----------|------------|-----------|
-| dnsdist | `dnsdist/dnsdist.conf.template` | ACL:17-25, Cache:40-49, Backend:31-37, DNSTap:56-65 |
-| recursor | `recursor/recursor.conf.template` | Cache:16-20, RPZ:23, API:29-33 |
+| dnsdist | `dnsdist/dnsdist.conf.template` | ACL:17-25, Backend:31-41, Cache:43-61, DNSTap:63-77, Webserver:79-98 |
+| recursor | `recursor/recursor.conf.template` | Cache:16-20, RPZ:23, Webserver/API:32-52 |
 | RPZ policy | `recursor/rpz.lua` | Blocklist:6-9, Whitelist:12-14 |
 | dnstap-processor | `dnstap-processor/cmd/dnstap-processor/main.go` | Parse:446-490, Buffer:51-54, Ingest:360 |
 | sync-agent | `sync-agent/agent.py` | Metrics scrape:75-112, Buffer:303, Commands:196-234 |
 | admin-ui ingest | `admin-ui/app/routers/node_sync.py` | Ingest:269-354, Metrics:377-410 |
 | admin-ui metrics | `admin-ui/app/routers/metrics.py` | Export:35-232 |
 | cache flush | `admin-ui/app/routers/blocking.py` | Flush:174-217 |
-|| admin-ui rollups | `admin-ui/app/services/rollups.py` | Hourly:18-82, Daily:85-148 |
+| admin-ui rollups | `admin-ui/app/services/rollups.py` | Hourly:18-82, Daily:85-148 |
+| prometheus scrape | `prometheus/prometheus.yml` | Jobs:14-73 (DNS-path interval/auth comments:21-32) |
+| prometheus auth files | `prometheus/docker-entrypoint.sh` | Password-file materialization:25-39 |
+| alerts | `prometheus/alerts.yml` | Legacy group:2-139, Primary group:150-189 |
+| grafana dashboard | `grafana/dashboards/dns-performance.json` | Production row:23, Prober row:1124 |
+| prober | `prober/` (README.md, cmd/prober/main.go) | Identity/metrics/corpus contract |
 
 ---
 

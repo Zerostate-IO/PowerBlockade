@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import secrets
 import textwrap
 import zipfile
 
@@ -18,6 +19,16 @@ def generate_secondary_package_zip(
     safe_node = node_name.strip()
     primary_url = primary_url.rstrip("/")
 
+    # Per-package basic-auth password for the recursor webserver (/metrics
+    # and /api/v1). Generated unconditionally - the release contract is
+    # "never passwordless" - and never defaulted, so there is no
+    # caller-supplied empty path. token_urlsafe's alphabet ([A-Za-z0-9_-])
+    # is inside the charset the recursor image entrypoint accepts
+    # ([A-Za-z0-9._~+=@-]); if a user later blanks the value in .env, the
+    # entrypoint fail-safes to a random per-start password with a warning
+    # rather than starting the webserver unauthenticated.
+    recursor_web_password = secrets.token_urlsafe(24)
+
     env = textwrap.dedent(
         f"""\
         POWERBLOCKADE_REPO=zerostate-io
@@ -26,6 +37,7 @@ def generate_secondary_package_zip(
         PRIMARY_URL={primary_url}
         PRIMARY_API_KEY={node_api_key}
         RECURSOR_API_KEY={recursor_api_key or "change-me"}
+        RECURSOR_WEB_PASSWORD={recursor_web_password}
         DNSDIST_LISTEN_ADDRESS={dnsdist_listen_address}
         HEARTBEAT_INTERVAL_SECONDS=60
         CONFIG_SYNC_INTERVAL_SECONDS=300
@@ -83,6 +95,12 @@ def generate_secondary_package_zip(
             environment:
               TZ: ${TIMEZONE:-America/Los_Angeles}
               RECURSOR_API_KEY: ${RECURSOR_API_KEY}
+              # Basic-auth password for the metrics webserver (/metrics
+              # authenticates with the WEBserver password, never the
+              # api-key). No default: an unset/invalid value makes the image
+              # entrypoint generate a random per-start password with a
+              # warning instead of starting passwordless.
+              RECURSOR_WEB_PASSWORD: ${RECURSOR_WEB_PASSWORD:-}
             expose:
               - "5300"
               - "8082"
@@ -96,7 +114,11 @@ def generate_secondary_package_zip(
               retries: 3
               start_period: 10s
             volumes:
-              - ./config/recursor.conf:/etc/pdns-recursor/recursor.conf:ro
+              # Rendered to /etc/pdns-recursor/recursor.conf by the image
+              # entrypoint, which substitutes ${RECURSOR_API_KEY} and
+              # ${RECURSOR_WEB_PASSWORD} (see recursor/docker-entrypoint.sh
+              # in the repo - same contract as the primary stack).
+              - ./config/recursor.conf.template:/etc/pdns-recursor/recursor.conf.template:ro
               - ./config/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
               - ./config/forward-zones.conf:/etc/pdns-recursor/forward-zones.conf:ro
               - ./rpz:/etc/pdns-recursor/rpz
@@ -147,6 +169,9 @@ def generate_secondary_package_zip(
               PRIMARY_URL: ${PRIMARY_URL}
               PRIMARY_API_KEY: ${PRIMARY_API_KEY}
               RECURSOR_API_KEY: ${RECURSOR_API_KEY}
+              # /metrics requires HTTP basic auth with the webserver
+              # password (any username); the api-key does not authorize it.
+              RECURSOR_WEB_PASSWORD: ${RECURSOR_WEB_PASSWORD:-}
               RECURSOR_API_URL: http://recursor:8082
               HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
               CONFIG_SYNC_INTERVAL_SECONDS: ${CONFIG_SYNC_INTERVAL_SECONDS:-300}
@@ -185,7 +210,13 @@ def generate_secondary_package_zip(
         2. Review `.env`:
            - `PRIMARY_URL` - URL of the primary Admin UI (e.g., http://192.168.1.10:8080)
            - `RECURSOR_API_KEY` - Set a secure random key
+           - `RECURSOR_WEB_PASSWORD` - Basic-auth password for the recursor metrics
+             webserver (pre-generated; replace to rotate, then restart recursor
+             and sync-agent)
            - `DNSDIST_LISTEN_ADDRESS` - Set to host's LAN IP if port 53 conflicts
+           - `DOCKER_SUBNET` - If changed, also update `webserver-allow-from` in
+             `config/recursor.conf.template` (it only admits the default
+             172.30.0.0/16 compose network)
         3. Run:
 
            docker compose -f docker-compose.ghcr.yml up -d
@@ -197,7 +228,8 @@ def generate_secondary_package_zip(
         - **recursor** - PowerDNS Recursor with RPZ blocking (synced from primary)
         - **recursor-reloader** - Watches config files and reloads recursor on changes
         - **dnstap-processor** - Ships query logs to primary
-        - **sync-agent** - Pulls config from primary every 300s, writes changed files
+        - **sync-agent** - Pulls config from primary every 300s, writes changed files,
+          scrapes authenticated recursor metrics
 
         No admin UI - all management is done via the primary.
 
@@ -210,8 +242,12 @@ def generate_secondary_package_zip(
         """
     )
 
-    recursor_conf = textwrap.dedent(
-        f"""\
+    # Rendered by the recursor image entrypoint (/docker-entrypoint.sh,
+    # same contract as the primary stack), which substitutes
+    # ${RECURSOR_API_KEY} and ${RECURSOR_WEB_PASSWORD} at container start.
+    # Secrets live only in .env (mode 0600) and container env - never here.
+    recursor_conf_template = textwrap.dedent(
+        """\
         local-address=0.0.0.0
         local-port=5300
         allow-from=0.0.0.0/0, ::/0
@@ -225,11 +261,24 @@ def generate_secondary_package_zip(
         packetcache-servfail-ttl=5
         lua-config-file=/etc/pdns-recursor/rpz.lua
         forward-zones-file=/etc/pdns-recursor/forward-zones.conf
+
+        # API / metrics webserver. Port 8082 is not published to the host;
+        # only in-network services (sync-agent) reach it. Auth matrix
+        # (verified on powerdns/pdns-recursor-53:5.3.10): /metrics requires
+        # HTTP basic auth with webserver-password (any username; the api-key
+        # does NOT authorize /metrics), and an EMPTY webserver-password
+        # leaves the whole webserver unauthenticated - the entrypoint
+        # therefore substitutes a random password with a warning when
+        # RECURSOR_WEB_PASSWORD is unset or invalid. Sources outside
+        # webserver-allow-from are dropped at the TCP level; the allow-from
+        # covers this package's compose network (DOCKER_SUBNET default
+        # 172.30.0.0/24) - update it if you change DOCKER_SUBNET.
         webserver=yes
         webserver-address=0.0.0.0
         webserver-port=8082
-        webserver-allow-from=0.0.0.0/0
-        api-key={recursor_api_key or "change-me"}
+        webserver-allow-from=172.30.0.0/16
+        api-key=${RECURSOR_API_KEY}
+        webserver-password=${RECURSOR_WEB_PASSWORD}
         """
     )
 
@@ -241,7 +290,10 @@ def generate_secondary_package_zip(
             address='${RECURSOR_IP}:5300',
             name='recursor',
             sockets=4,
-            useClientSubnet=true
+            -- ECS is dead overhead: the recursor ignores incoming ECS by
+            -- default, so useClientSubnet=true only added per-miss cost.
+            -- Experiment E2; rollback: set useClientSubnet=true.
+            useClientSubnet=false
         })
         setServerPolicy(firstAvailable)
 
@@ -249,12 +301,18 @@ def generate_secondary_package_zip(
           maxTTL=86400,
           minTTL=1,
           temporaryFailureTTL=5,
-          staleTTL=60,
+          -- Experiment E4; rollback: 60.
+          staleTTL=300,
           dontAge=false,
-          shuffle=true
+          shuffle=true,
+          -- Required for staleTTL to deliver: without it the cache cleaner
+          -- purges expired entries on its ~60s cadence while backends are
+          -- down. Experiment E4; rollback: remove keepStaleData.
+          keepStaleData=true
         })
         getPool(''):setCache(pc)
-        setStaleCacheEntriesTTL(60)
+        -- Experiment E4; rollback: 60.
+        setStaleCacheEntriesTTL(300)
 
         local fs = newFrameStreamTcpLogger('${DNSTAP_PROCESSOR_IP}:6000', {
           bufferHint=65536,
@@ -336,8 +394,14 @@ def generate_secondary_package_zip(
         z.writestr(_entry("docker-compose.ghcr.yml", compose, 0o644), compose)
         z.writestr(_entry(".env", env, 0o600), env)  # secrets: owner-only
         z.writestr(_entry("README.md", readme, 0o644), readme)
-        z.writestr(_entry("config/recursor.conf", recursor_conf, 0o644), recursor_conf)
-        z.writestr(_entry("config/dnsdist.conf.template", dnsdist_conf_template, 0o644), dnsdist_conf_template)
+        z.writestr(
+            _entry("config/recursor.conf.template", recursor_conf_template, 0o644),
+            recursor_conf_template,
+        )
+        z.writestr(
+            _entry("config/dnsdist.conf.template", dnsdist_conf_template, 0o644),
+            dnsdist_conf_template,
+        )
         z.writestr(_entry("docker-entrypoint.sh", docker_entrypoint, 0o755), docker_entrypoint)
         z.writestr(_entry("config/rpz.lua", rpz_lua, 0o644), rpz_lua)
         z.writestr(_entry("config/forward-zones.conf", forward_zones, 0o664), forward_zones)

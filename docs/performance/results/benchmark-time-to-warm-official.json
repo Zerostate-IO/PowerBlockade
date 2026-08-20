@@ -1,0 +1,237 @@
+{
+  "benchmark_id": "bm-20260819-184351",
+  "run_at": "2026-08-20T01:43:51Z",
+  "script_version": "2.0.0",
+  "config": {
+    "target": "127.0.0.1",
+    "port": 53,
+    "mode": "time-to-warm",
+    "clear_mode": "console",
+    "corpus": "control-domains.txt",
+    "duration_seconds": 60
+  },
+  "environment": {
+    "hostname": "songbird",
+    "os": "Linux",
+    "kernel": "7.1.8-200.fc44.x86_64",
+    "dnsperf_version": "2.15.0"
+  },
+  "prerequisites": {
+    "dnsperf": {
+      "installed": true,
+      "version": "2.15.0"
+    },
+    "jq": {
+      "installed": true
+    },
+    "bc": {
+      "installed": true
+    },
+    "dig": {
+      "installed": true
+    },
+    "docker": {
+      "installed": true
+    },
+    "network_access": {
+      "ok": true,
+      "latency_ms": 136
+    }
+  },
+  "stats_sources": {
+    "dnsdist": "dnsdist-console",
+    "recursor": "rec_control"
+  },
+  "precache_pause": "restored",
+  "phases": {
+    "cold_cache": null,
+    "warm_cache": null,
+    "saturation": null,
+    "time_to_warm": {
+      "implemented": true,
+      "passed": true,
+      "metrics": {
+        "time_to_warm_s": 185,
+        "windows_run": 6,
+        "required_consecutive_windows": 5,
+        "window_seconds": 30,
+        "load_qps": 500
+      },
+      "thresholds": {
+        "p99_limit_ms": 50,
+        "dnsdist_hit_min_pct": 90,
+        "packetcache_hit_min_pct": 90,
+        "recordcache_hit_min_pct": 90,
+        "recursor_occupancy_min_entries": 106
+      },
+      "windows": [
+        {
+          "window": 1,
+          "passed": "false",
+          "p99_latency_ms": 57.343,
+          "dnsdist_hit_pct": 98.7,
+          "packetcache_hit_pct": 15.9,
+          "recordcache_hit_pct": 1.2,
+          "recursor_occupancy": 1329,
+          "elapsed_s": 30,
+          "failures": [
+            "p99_exceeded"
+          ]
+        },
+        {
+          "window": 2,
+          "passed": "true",
+          "p99_latency_ms": 0.399,
+          "dnsdist_hit_pct": 99.3,
+          "packetcache_hit_pct": 27.7,
+          "recordcache_hit_pct": 0,
+          "recursor_occupancy": 1497,
+          "elapsed_s": 60,
+          "failures": []
+        },
+        {
+          "window": 3,
+          "passed": "true",
+          "p99_latency_ms": 0.319,
+          "dnsdist_hit_pct": 99.6,
+          "packetcache_hit_pct": 36,
+          "recordcache_hit_pct": 0,
+          "recursor_occupancy": 1509,
+          "elapsed_s": 90,
+          "failures": []
+        },
+        {
+          "window": 4,
+          "passed": "true",
+          "p99_latency_ms": 0.351,
+          "dnsdist_hit_pct": 99.3,
+          "packetcache_hit_pct": 28.2,
+          "recordcache_hit_pct": 0,
+          "recursor_occupancy": 1635,
+          "elapsed_s": 122,
+          "failures": []
+        },
+        {
+          "window": 5,
+          "passed": "true",
+          "p99_latency_ms": 0.359,
+          "dnsdist_hit_pct": 99.6,
+          "packetcache_hit_pct": 39.3,
+          "recordcache_hit_pct": 0,
+          "recursor_occupancy": 1639,
+          "elapsed_s": 152,
+          "failures": []
+        },
+        {
+          "window": 6,
+          "passed": "true",
+          "p99_latency_ms": 0.359,
+          "dnsdist_hit_pct": 99.3,
+          "packetcache_hit_pct": 28.1,
+          "recordcache_hit_pct": 0,
+          "recursor_occupancy": 1745,
+          "elapsed_s": 185,
+          "failures": []
+        }
+      ],
+      "clear": {
+        "mode": "console",
+        "verified_empty": true,
+        "stats_sources": {
+          "dnsdist": "dnsdist-console",
+          "recursor": "rec_control"
+        }
+      },
+      "definition": "warm = p99 <= 50ms AND dnsdist hit ratio >= 90% AND recursor occupancy >= 106 entries, held for 5 consecutive 30s windows; inner-layer hit ratios recorded as diagnostics only (edge shielding)"
+    }
+  },
+  "baseline": {
+    "cache_occupancy": {
+      "dnsdist_packetcache": {
+        "entries": 139,
+        "capacity": 500000,
+        "utilization_pct": 0
+      },
+      "recursor_recordcache": {
+        "entries": 2443,
+        "capacity": 2000000,
+        "utilization_pct": 0.1
+      },
+      "recursor_packetcache": {
+        "entries": 134,
+        "capacity": 1000000,
+        "utilization_pct": 0
+      }
+    },
+    "containers": [
+      {
+        "name": "powerblockade-dnsdist",
+        "mem_usage": "45.07MiB / 30.86GiB",
+        "cpu_pct": "0.08%"
+      },
+      {
+        "name": "powerblockade-recursor",
+        "mem_usage": "37.78MiB / 30.86GiB",
+        "cpu_pct": "0.04%"
+      },
+      {
+        "name": "powerblockade-admin-ui",
+        "mem_usage": "119.6MiB / 30.86GiB",
+        "cpu_pct": "0.80%"
+      },
+      {
+        "name": "powerblockade-dnstap-processor",
+        "mem_usage": "14.51MiB / 30.86GiB",
+        "cpu_pct": "0.00%"
+      },
+      {
+        "name": "powerblockade-grafana",
+        "mem_usage": "145.1MiB / 30.86GiB",
+        "cpu_pct": "0.42%"
+      },
+      {
+        "name": "powerblockade-recursor-reloader",
+        "mem_usage": "1.555MiB / 30.86GiB",
+        "cpu_pct": "0.00%"
+      },
+      {
+        "name": "powerblockade-postgres",
+        "mem_usage": "34.02MiB / 30.86GiB",
+        "cpu_pct": "0.20%"
+      },
+      {
+        "name": "powerblockade-prometheus",
+        "mem_usage": "46.71MiB / 30.86GiB",
+        "cpu_pct": "0.23%"
+      }
+    ],
+    "host_memory": {
+      "mem_available_kb": 20835484,
+      "swap_free_kb": 4818456,
+      "swap_total_kb": 8388604,
+      "pswpin_pages": 71550,
+      "pswpout_pages": 966410
+    },
+    "recursor_threads_cpu_msec": {
+      "cpu_msec_thread_0": 18364,
+      "cpu_msec_thread_1": 81973,
+      "cpu_msec_thread_2": 78035,
+      "cpu_msec_thread_3": 77208,
+      "cpu_msec_thread_4": 75804,
+      "cpu_msec_thread_5": 786,
+      "cpu_msec_thread_6": 914
+    },
+    "dnstap_processor": "healthy",
+    "stats_sources": {
+      "dnsdist": "dnsdist-console",
+      "recursor": "rec_control"
+    }
+  },
+  "summary": {
+    "passed": true,
+    "phases_run": 1,
+    "phases_passed": 1,
+    "phases_failed": 0,
+    "regressions": []
+  }
+}

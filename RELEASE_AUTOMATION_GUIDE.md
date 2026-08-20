@@ -8,18 +8,19 @@ Quick reference for updating versions and releasing new versions.
 
 **DO NOT RELEASE without completing ALL items below. Missing any step = version mismatch in UI.**
 
-- [ ] `admin-ui/pyproject.toml` - Update `version = "X.Y.Z"`
-- [ ] `admin-ui/app/settings.py` - Update `pb_version: str = "X.Y.Z"`
-- [ ] `admin-ui/Dockerfile` - Update `ARG PB_VERSION=X.Y.Z`
-- [ ] `dnstap-processor/Dockerfile` - Update `ARG PB_VERSION=X.Y.Z` (2 occurrences!)
-- [ ] `sync-agent/Dockerfile` - Update `ARG PB_VERSION=X.Y.Z`
-- [ ] Verify: `grep -r "X.Y.Z" admin-ui/pyproject.toml admin-ui/app/settings.py admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile`
+- [ ] `admin-ui/pyproject.toml` - Update `version = "X.Y.Z"` (also `admin-ui/uv.lock`'s `powerblockade-admin` package version)
+- [ ] `admin-ui/app/settings.py` - Update `pb_version: str = "vX.Y.Z"`
+- [ ] `admin-ui/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z`
+- [ ] `dnstap-processor/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z` (2 occurrences!)
+- [ ] `sync-agent/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z`
+- [ ] `prober/Dockerfile` - Update `ARG PB_VERSION=vX.Y.Z` (2 occurrences!)
+- [ ] Verify: `grep -r "X.Y.Z" admin-ui/pyproject.toml admin-ui/app/settings.py admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile prober/Dockerfile`
 - [ ] Build & deploy
 - [ ] Confirm UI shows correct version in System Health page
 
 ---
 
-### Step 1: Update Version Files (5 files)
+### Step 1: Update Version Files (8 files)
 
 ```bash
 # 1. Admin UI pyproject.toml
@@ -36,6 +37,14 @@ sed -i '' 's/ARG PB_VERSION=.*/ARG PB_VERSION=X.Y.Z/' dnstap-processor/Dockerfil
 
 # 5. sync-agent Dockerfile
 sed -i '' 's/ARG PB_VERSION=.*/ARG PB_VERSION=X.Y.Z/' sync-agent/Dockerfile
+
+# 6. prober Dockerfile
+sed -i '' 's/ARG PB_VERSION=.*/ARG PB_VERSION=X.Y.Z/' prober/Dockerfile
+
+# 7. Admin UI uv.lock (project package version)
+#    edit the [[package]] name = "powerblockade-admin" version line, or run: uv lock
+
+# 8. CHANGELOG.md release heading (## [X.Y.Z] - date)
 ```
 
 ### Step 2: Update Compose Files

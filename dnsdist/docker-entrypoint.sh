@@ -13,13 +13,78 @@ CHECK_INTERVAL="${DNSTAP_CHECK_INTERVAL:-10}"
 DNSTAP_WAIT_TIMEOUT_SECONDS="${DNSTAP_WAIT_TIMEOUT_SECONDS:-60}"
 RECURSOR_WAIT_TIMEOUT_SECONDS="${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}"
 
-# Generate dnsdist.conf from template with IP substitution
-# Write to /tmp since /etc/dnsdist is read-only mounted
-sed -e "s/\${RECURSOR_IP}/$RECURSOR_IP/g" \
-    -e "s/\${DNSTAP_PROCESSOR_IP}/$DNSTAP_PROCESSOR_IP/g" \
-    /etc/dnsdist/dnsdist.conf.template > /tmp/dnsdist.conf
+# Metrics webserver: bind to this container's own address on the compose
+# network (explicit DNSDIST_WEB_ADDRESS wins, e.g. when multi-homed).
+if [ -z "${DNSDIST_WEB_ADDRESS:-}" ]; then
+    DNSDIST_WEB_ADDRESS=$(hostname -i | awk '{print $1}')
+fi
+if ! echo "$DNSDIST_WEB_ADDRESS" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    echo "ERROR: could not determine a private IPv4 address for the webserver (got '${DNSDIST_WEB_ADDRESS:-empty}'); set DNSDIST_WEB_ADDRESS" >&2
+    exit 1
+fi
 
-echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP"
+if [ -z "${DNSDIST_WEB_PASSWORD:-}" ]; then
+    # Never start the webserver passwordless (unauthenticated /metrics,
+    # verified on 2.0.8). DNS service itself must keep running, so generate
+    # a random per-start password and warn loudly instead of exiting.
+    DNSDIST_WEB_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)
+    echo "**************************************************************************" >&2
+    echo "WARNING: DNSDIST_WEB_PASSWORD is not set." >&2
+    echo "Generated a RANDOM webserver password for this container start." >&2
+    echo "The webserver stays authenticated, but /metrics scraping (prometheus)" >&2
+    echo "will fail with 401 until you set DNSDIST_WEB_PASSWORD in .env (chars:" >&2
+    echo "A-Za-z0-9 . _ ~ + = @ -) and restart the stack." >&2
+    echo "**************************************************************************" >&2
+elif ! printf '%s' "$DNSDIST_WEB_PASSWORD" | LC_ALL=C grep -Eq '^[A-Za-z0-9._~+=@-]+$'; then
+    # Reject characters that could break the Lua string literal or the sed
+    # substitution (quotes, newline, whitespace, metacharacters).
+    DNSDIST_WEB_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)
+    echo "**************************************************************************" >&2
+    echo "WARNING: DNSDIST_WEB_PASSWORD contains characters outside [A-Za-z0-9._~+=@-]." >&2
+    echo "Generated a RANDOM webserver password for this container start;" >&2
+    echo "metrics scraping will 401 until a conforming value is set in .env." >&2
+    echo "**************************************************************************" >&2
+fi
+
+# Escape sed replacement metacharacters so generated secrets (base64 values
+# can contain / + =, other generators may emit \ | &) cannot break the
+# substitution or inject Lua.
+RECURSOR_IP_ESC=$(printf '%s' "$RECURSOR_IP" | sed -e 's/[\\|&]/\\&/g')
+DNSTAP_PROCESSOR_IP_ESC=$(printf '%s' "$DNSTAP_PROCESSOR_IP" | sed -e 's/[\\|&]/\\&/g')
+DNSDIST_WEB_ADDRESS_ESC=$(printf '%s' "$DNSDIST_WEB_ADDRESS" | sed -e 's/[\\|&]/\\&/g')
+DNSDIST_WEB_PASSWORD_ESC=$(printf '%s' "$DNSDIST_WEB_PASSWORD" | sed -e 's/[\\|&]/\\&/g')
+
+# Generate dnsdist.conf from template with substitution
+# Write to /tmp since /etc/dnsdist is read-only mounted
+sed -e "s/\${RECURSOR_IP}/$RECURSOR_IP_ESC/g" \
+    -e "s/\${DNSTAP_PROCESSOR_IP}/$DNSTAP_PROCESSOR_IP_ESC/g" \
+    -e "s/\${DNSDIST_WEB_ADDRESS}/$DNSDIST_WEB_ADDRESS_ESC/g" \
+    -e "s/\${DNSDIST_WEB_PASSWORD}/$DNSDIST_WEB_PASSWORD_ESC/g" \
+    /etc/dnsdist/dnsdist.conf.template > /tmp/dnsdist.conf
+# The generated config embeds the webserver password; keep it private.
+chmod 600 /tmp/dnsdist.conf
+
+# Optional console (off unless DNSDIST_CONSOLE_KEY is set).
+# Bound to 127.0.0.1 inside the container, so it is reachable only via
+# `docker exec` (never published). Used by scripts/benchmarks/dns53-benchmark.sh
+# for non-disruptive packet-cache clears and cache statistics.
+# Generate with: head -c 32 /dev/urandom | base64 -w0
+if [[ -n "$DNSDIST_CONSOLE_KEY" ]]; then
+    if [[ "$DNSDIST_CONSOLE_KEY" =~ ^[A-Za-z0-9+/=]+$ ]]; then
+        cat >> /tmp/dnsdist.conf <<CONF
+
+-- Console (opt-in via DNSDIST_CONSOLE_KEY; localhost-only inside container)
+setKey("$DNSDIST_CONSOLE_KEY")
+controlSocket("127.0.0.1:5199")
+CONF
+        echo "Console enabled on 127.0.0.1:5199 (key configured)"
+    else
+        echo "ERROR: DNSDIST_CONSOLE_KEY is not valid base64; refusing to enable console" >&2
+        exit 1
+    fi
+fi
+
+echo "Generated dnsdist.conf with RECURSOR_IP=$RECURSOR_IP, DNSTAP_PROCESSOR_IP=$DNSTAP_PROCESSOR_IP, webserver=$DNSDIST_WEB_ADDRESS:8083$( [[ -n "$DNSDIST_CONSOLE_KEY" ]] && echo ', console=127.0.0.1:5199' )"
 
 check_dnstap() {
     timeout 2 bash -c "echo >/dev/tcp/$DNSTAP_PROCESSOR_IP/$DNSTAP_PORT" 2>/dev/null

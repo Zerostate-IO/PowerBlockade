@@ -86,9 +86,17 @@ jobs:
           set -e
           grep -q "^## \[$VERSION_PLAIN\]" CHANGELOG.md || { echo "❌ CHANGELOG.md missing '## [$VERSION_PLAIN]'"; exit 1; }
           grep -q "^version = \"$VERSION_PLAIN\"$" admin-ui/pyproject.toml || { echo "❌ admin-ui/pyproject.toml not at $VERSION_PLAIN"; exit 1; }
+          grep -q "^version = \"$VERSION_PLAIN\"$" admin-ui/uv.lock || { echo "❌ admin-ui/uv.lock project version not at $VERSION_PLAIN (uv lock to refresh)"; exit 1; }
           grep -q "^    pb_version: str = \"$VERSION\"$" admin-ui/app/settings.py || { echo "❌ settings.py pb_version not at $VERSION"; exit 1; }
-          for f in admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile; do
-            grep -q "^ARG PB_VERSION=$VERSION$" "$f" || { echo "❌ $f PB_VERSION not at $VERSION"; exit 1; }
+          # Multi-stage Dockerfiles (dnstap-processor, prober) declare
+          # ARG PB_VERSION once per stage: EVERY occurrence must be at $VERSION.
+          for f in admin-ui/Dockerfile dnstap-processor/Dockerfile sync-agent/Dockerfile prober/Dockerfile; do
+            total=$(grep -c "^ARG PB_VERSION=" "$f" || true)
+            matched=$(grep -c "^ARG PB_VERSION=$VERSION$" "$f" || true)
+            if [[ "$total" -eq 0 || "$matched" -ne "$total" ]]; then
+              echo "❌ $f PB_VERSION not at $VERSION on all $total ARG line(s) (only $matched match)"
+              exit 1
+            fi
           done
           echo "✅ Version surfaces consistent: changelog, pyproject, pb_version, Dockerfiles"
 
@@ -136,7 +144,7 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1 || { echo "❌ GHCR login failed"; exit 1; }
           # Fail closed: only a definitive 'not found' counts as absent.
           EXISTING=""
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader prober; do
             ref="ghcr.io/zerostate-io/powerblockade-${img}:${VERSION}"
             out=$(docker buildx imagetools inspect "$ref" 2>&1) && exists=1 || {
               if echo "$out" | grep -qiE "not found|manifest unknown|404|no such manifest"; then exists=0; else
@@ -192,6 +200,9 @@ jobs:
           - image: recursor-reloader
             context: ./recursor-reloader
             dockerfile: ./recursor-reloader/Dockerfile
+          - image: prober
+            context: ./prober
+            dockerfile: ./prober/Dockerfile
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -228,9 +239,10 @@ jobs:
           echo "✅ ${{ matrix.image }} built: ${{ steps.build.outputs.digest }}"
 
   # ---------------------------------------------------------------------------
-  # Phase 2: Runtime gate against the CANDIDATES. Covers all five images:
-  # the primary stack (incl. dnstap-processor + recursor-reloader) and the
-  # secondary profile (sync-agent). Records the gated digests for promotion.
+  # Phase 2: Runtime gate against the CANDIDATES. Covers all six images:
+  # the primary stack (incl. dnstap-processor + recursor-reloader + prober)
+  # and the secondary profile (sync-agent). Records the gated digests for
+  # promotion.
   # ---------------------------------------------------------------------------
   runtime-gate:
     runs-on: ubuntu-latest
@@ -242,6 +254,7 @@ jobs:
       digest_dnstap_processor: ${{ steps.record_digests.outputs.digest_dnstap_processor }}
       digest_sync_agent: ${{ steps.record_digests.outputs.digest_sync_agent }}
       digest_recursor_reloader: ${{ steps.record_digests.outputs.digest_recursor_reloader }}
+      digest_prober: ${{ steps.record_digests.outputs.digest_prober }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -255,14 +268,14 @@ jobs:
 
       - name: Pull candidate images
         run: |
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader prober; do
             docker pull ghcr.io/zerostate-io/powerblockade-$img:${{ env.CANDIDATE_TAG }}
           done
 
       - name: Record gated digests
         id: record_digests
         run: |
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader prober; do
             key="digest_${img//-/_}"
             d=$(docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/zerostate-io/powerblockade-${img}:${{ env.CANDIDATE_TAG }}" 2>/dev/null | cut -d'@' -f2)
             echo "${key}=$d" >> "$GITHUB_OUTPUT"
@@ -309,7 +322,7 @@ jobs:
             -f "$RUNNER_TEMP/runtime-gate.override.yml" \
             up -d
 
-      - name: Wait for core services (all five images)
+      - name: Wait for core services (all six images)
         run: |
           waited=0
           while [[ $waited -lt 180 ]]; do
@@ -320,6 +333,7 @@ jobs:
             required=(
               "powerblockade-dnsdist" "powerblockade-recursor" "powerblockade-postgres"
               "powerblockade-admin-ui" "powerblockade-dnstap-processor" "powerblockade-recursor-reloader"
+              "powerblockade-prober"
             )
             healthy_count=0
             for container in "${required[@]}"; do
@@ -449,7 +463,7 @@ jobs:
             -f docker-compose.ghcr.yml \
             -f "$RUNNER_TEMP/runtime-gate.override.yml" \
             ps -a --format "{{.Name}} | {{.Status}}" 2>&1 || true
-          for c in powerblockade-admin-ui powerblockade-recursor powerblockade-dnsdist powerblockade-postgres powerblockade-dnstap-processor powerblockade-recursor-reloader powerblockade-sync-agent; do
+          for c in powerblockade-admin-ui powerblockade-recursor powerblockade-dnsdist powerblockade-postgres powerblockade-dnstap-processor powerblockade-recursor-reloader powerblockade-prober powerblockade-sync-agent; do
             echo "=== $c logs (tail 40) ==="
             docker logs "$c" --tail 40 2>&1 || true
           done
@@ -487,7 +501,7 @@ jobs:
 
       - name: Pull candidate images
         run: |
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader prober; do
             docker pull ghcr.io/zerostate-io/powerblockade-$img:${{ env.CANDIDATE_TAG }}
           done
 
@@ -534,6 +548,7 @@ jobs:
             [dnstap-processor]="${{ needs.runtime-gate.outputs.digest_dnstap_processor }}"
             [sync-agent]="${{ needs.runtime-gate.outputs.digest_sync_agent }}"
             [recursor-reloader]="${{ needs.runtime-gate.outputs.digest_recursor_reloader }}"
+            [prober]="${{ needs.runtime-gate.outputs.digest_prober }}"
           )
           for img in "${!DIGESTS[@]}"; do
             d="${DIGESTS[$img]}"
@@ -557,8 +572,9 @@ jobs:
             [dnstap-processor]="${{ needs.runtime-gate.outputs.digest_dnstap_processor }}"
             [sync-agent]="${{ needs.runtime-gate.outputs.digest_sync_agent }}"
             [recursor-reloader]="${{ needs.runtime-gate.outputs.digest_recursor_reloader }}"
+            [prober]="${{ needs.runtime-gate.outputs.digest_prober }}"
           )
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader prober; do
             d="${DIGESTS[$img]}"
             echo "Promoting $img -> $VERSION + latest (digest $d)"
             docker buildx imagetools create \
@@ -577,8 +593,9 @@ jobs:
             [dnstap-processor]="${{ needs.runtime-gate.outputs.digest_dnstap_processor }}"
             [sync-agent]="${{ needs.runtime-gate.outputs.digest_sync_agent }}"
             [recursor-reloader]="${{ needs.runtime-gate.outputs.digest_recursor_reloader }}"
+            [prober]="${{ needs.runtime-gate.outputs.digest_prober }}"
           )
-          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader; do
+          for img in admin-ui recursor dnstap-processor sync-agent recursor-reloader prober; do
             d="${DIGESTS[$img]}"
             for tag in "${VERSION}" latest; do
               got=$(docker buildx imagetools inspect "ghcr.io/zerostate-io/powerblockade-${img}:${tag}" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1)
@@ -682,7 +699,7 @@ jobs:
           echo "✅ Candidate tag: ${{ env.CANDIDATE_TAG }}"
           echo "✅ Dry run: ${{ github.event.inputs.dry_run }}"
           echo "✅ Build candidates: ${{ needs.build-candidates.result }}"
-          echo "✅ Runtime gate (all 5 images + secondary profile): ${{ needs.runtime-gate.result }}"
+          echo "✅ Runtime gate (all 6 images + secondary profile): ${{ needs.runtime-gate.result }}"
           echo "✅ Advisory install smoke: ${{ needs.smoke-test.outputs.smoke_outcome || needs.smoke-test.result || 'skipped' }}"
           echo "✅ Promote (version+latest by digest, git tag, release): ${{ needs.promote.result || 'skipped (dry_run or gate not passed)' }}"
           echo ""

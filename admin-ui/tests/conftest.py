@@ -22,6 +22,7 @@ os.environ.setdefault("POWERBLOCKADE_SHARED_DIR", "/tmp/powerblockade-shared-tes
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import get_db
@@ -52,10 +53,19 @@ def _is_sqlite_url(database_url: str) -> bool:
 
 
 def _create_test_engine(database_url: str):
-    connect_args = {"check_same_thread": False} if _is_sqlite_url(database_url) else {}
-    engine = create_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
     if _is_sqlite_url(database_url):
+        # StaticPool: ONE shared connection across threads. sqlite :memory:
+        # databases live per-connection, so SingletonThreadPool would hand
+        # the app/worker threads an empty database the moment a route
+        # commits and the session re-checks-out a connection.
+        engine = create_engine(
+            database_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
         event.listen(engine, "connect", _setup_sqlite_now)
+    else:
+        engine = create_engine(database_url, pool_pre_ping=True)
     return engine
 
 

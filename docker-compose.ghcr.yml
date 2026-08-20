@@ -27,9 +27,20 @@ services:
       DNSTAP_PROCESSOR_IP: ${DNSTAP_PROCESSOR_IP:-172.30.0.20}
       DNSTAP_WAIT_TIMEOUT_SECONDS: ${DNSTAP_WAIT_TIMEOUT_SECONDS:-60}
       RECURSOR_WAIT_TIMEOUT_SECONDS: ${RECURSOR_WAIT_TIMEOUT_SECONDS:-30}
+      # Basic-auth password for the dnsdist metrics webserver. Deliberately
+      # no default: unset/invalid makes the entrypoint generate a random
+      # per-start password with a warning (never passwordless). The
+      # webserver binds to this container's own compose-network address
+      # (never published to the host); see dnsdist/dnsdist.conf.template.
+      DNSDIST_WEB_PASSWORD: ${DNSDIST_WEB_PASSWORD:-}
+      # Opt-in dnsdist console (localhost-only inside the container; used for
+      # non-disruptive packet-cache clears). Off when unset.
+      DNSDIST_CONSOLE_KEY: ${DNSDIST_CONSOLE_KEY:-}
     ports:
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/udp"
       - "${DNSDIST_LISTEN_ADDRESS:-0.0.0.0}:53:53/tcp"
+    expose:
+      - "8083"
 
     volumes:
       - ./dnsdist/dnsdist.conf.template:/etc/dnsdist/dnsdist.conf.template:ro
@@ -67,8 +78,18 @@ services:
     environment:
       TZ: ${TIMEZONE:-America/Los_Angeles}
       RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
-    ports:
-      - "8082:8082"
+      # Dedicated basic-auth password for the metrics webserver (/metrics
+      # authenticates with the WEBserver password, never the api-key).
+      # Deliberately no default: unset/invalid makes the entrypoint
+      # generate a random per-start password with a warning.
+      RECURSOR_WEB_PASSWORD: ${RECURSOR_WEB_PASSWORD:-}
+    # 8082 is intentionally NOT published to the host. The webserver is
+    # only reachable inside the compose network (admin-ui, sync-agent and
+    # prometheus all talk to http://recursor:8082 directly), and it is
+    # gated by webserver-password plus webserver-allow-from in
+    # recursor/recursor.conf.template.
+    expose:
+      - "8082"
     volumes:
       - ./recursor/recursor.conf.template:/etc/pdns-recursor/recursor.conf.template:ro
       - ./recursor/rpz.lua:/etc/pdns-recursor/rpz.lua:ro
@@ -142,6 +163,30 @@ services:
         condition: service_started
       # No admin-ui dependency - sends to PRIMARY over network
 
+  # Synthetic warm-path prober. Its source IP is its identity: the static
+  # address below is classified as prober traffic by the dnstap processor
+  # before metrics are observed, keeping this signal out of user analytics.
+  prober:
+    image: ghcr.io/${POWERBLOCKADE_REPO:-zerostate-io}/powerblockade-prober:${POWERBLOCKADE_VERSION:-latest}
+    container_name: powerblockade-prober
+    restart: unless-stopped
+    environment:
+      PROBE_TARGET: ${PROBE_TARGET:-dnsdist:53}
+      PROBE_INTERVAL: ${PROBE_INTERVAL:-60s}
+      PROBE_JITTER_PCT: ${PROBE_JITTER_PCT:-10}
+      PROBE_TIMEOUT: ${PROBE_TIMEOUT:-2s}
+      PROBE_QTYPES: ${PROBE_QTYPES:-A}
+    expose:
+      - "9533"
+    volumes:
+      - ./scripts/benchmarks/corpus:/usr/local/share/powerblockade/corpus:ro
+    networks:
+      default:
+        ipv4_address: ${PROBER_IP:-172.30.0.30}
+    depends_on:
+      dnsdist:
+        condition: service_healthy
+
   # ============================================
   # SECONDARY-ONLY SERVICES
   # ============================================
@@ -161,6 +206,9 @@ services:
       HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-60}
       CONFIG_SYNC_INTERVAL_SECONDS: ${CONFIG_SYNC_INTERVAL_SECONDS:-300}
       RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
+      # Basic-auth password for the recursor /metrics scrape (the API key
+      # does not authorize /metrics).
+      RECURSOR_WEB_PASSWORD: ${RECURSOR_WEB_PASSWORD:-}
       RPZ_DIR: /etc/pdns-recursor/rpz
       FORWARD_ZONES_PATH: /etc/pdns-recursor/forward-zones.conf
       METRICS_BUFFER_PATH: ${METRICS_BUFFER_PATH:-/var/lib/powerblockade/metrics.db}
@@ -210,6 +258,9 @@ services:
       NODE_NAME: ${NODE_NAME:-primary}
       RECURSOR_API_URL: ${RECURSOR_API_URL:-http://recursor:8082}
       RECURSOR_API_KEY: ${RECURSOR_API_KEY:-change-me}
+      # Basic-auth password for the recursor /metrics endpoint (the API key
+      # does not authorize /metrics); used by the local-metrics scraper.
+      RECURSOR_WEB_PASSWORD: ${RECURSOR_WEB_PASSWORD:-}
       TIMEZONE: ${TIMEZONE:-America/Los_Angeles}
       GRAFANA_URL: ${GRAFANA_URL:-http://grafana:3000}
       POWERBLOCKADE_ALLOW_INSECURE: ${POWERBLOCKADE_ALLOW_INSECURE:-false}
@@ -240,12 +291,20 @@ services:
     image: prom/prometheus:v3.13.2
     container_name: powerblockade-prometheus
     restart: unless-stopped
+    # Write basic-auth credential files (from env) to /dev/shm/secrets, then
+    # exec Prometheus. Scrape jobs reference them with basic_auth.password_file
+    # because static prometheus.yml cannot expand environment variables.
+    entrypoint: ["/bin/sh", "/pb-prometheus-entrypoint.sh"]
+    environment:
+      RECURSOR_WEB_PASSWORD: ${RECURSOR_WEB_PASSWORD:-}
+      DNSDIST_WEB_PASSWORD: ${DNSDIST_WEB_PASSWORD:-}
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}'
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/docker-entrypoint.sh:/pb-prometheus-entrypoint.sh:ro
       - prometheus-data:/prometheus
     expose:
       - "9090"

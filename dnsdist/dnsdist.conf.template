@@ -32,7 +32,11 @@ newServer({
     address='${RECURSOR_IP}:5300',
     name='recursor',
     sockets=4,
-    useClientSubnet=true
+    -- ECS is NOT sent upstream: the recursor ignores incoming ECS by
+    -- default (use-incoming-edns-subnet=false, edns-subnet-allow-list
+    -- empty), so useClientSubnet=true was pure per-miss overhead.
+    -- See docs/performance/experiment-log.md E2 (2026-08-19).
+    useClientSubnet=false
 })
 setServerPolicy(firstAvailable)
 
@@ -44,12 +48,17 @@ local pc = newPacketCache(500000, {
     maxTTL=86400,        -- 24h max cache (rollback: 3600)
     minTTL=1,            -- Minimum 1 second (unchanged)
     temporaryFailureTTL=5, -- Cache SERVFAIL briefly (unchanged)
-    staleTTL=60,         -- Serve stale for 60s during outage (rollback: 0)
+    staleTTL=300,        -- Serve stale for 300s during outage (rollback: 60)
     dontAge=false,       -- Entries age normally (unchanged)
-    shuffle=true         -- Randomize RR order (unchanged)
+    shuffle=true,        -- Randomize RR order (unchanged)
+    -- Required for staleTTL to actually deliver: without this the cache
+    -- cleaner purges expired entries on its ~60s cadence (before the stale
+    -- window can be used). With it, purging pauses while ALL backends of a
+    -- pool are down (dnsdist 2.0.8 dnsdist.cc cache-maintenance logic).
+    keepStaleData=true
 })
 getPool(''):setCache(pc)
-setStaleCacheEntriesTTL(60)  -- Max age of stale entries (rollback: 0)
+setStaleCacheEntriesTTL(300)  -- Max age of stale entries (rollback: 60)
 
 -- ============================================================
 -- DNSTAP LOGGING
@@ -66,3 +75,24 @@ local fs = newFrameStreamTcpLogger('${DNSTAP_PROCESSOR_IP}:6000', {
 -- Response-only logging keeps ingestion Pi-hole-like (one row per answered query/qtype).
 -- If you later implement query-timeout fallback, re-enable query logging.
 addResponseAction(AllRule(), DnstapLogResponseAction('powerblockade-dnsdist', fs))
+
+-- ============================================================
+-- METRICS WEBSERVER (private, authenticated)
+-- ============================================================
+-- ${DNSDIST_WEB_ADDRESS} is substituted by the entrypoint with the
+-- container's own address on the compose network (or the explicit
+-- DNSDIST_WEB_ADDRESS env value). Port 8083 is never published to the
+-- host; only in-network scrapers can reach it.
+-- Auth verified on powerdns/dnsdist-20:2.0.8:
+--   - /metrics requires HTTP basic auth with the webserver password
+--     (any username); an X-API-Key header does NOT authorize /metrics.
+--   - Sources outside the ACL are dropped at the TCP level even with
+--     valid credentials.
+-- dnsdist logs a startup advisory about plain-text passwords; accepted
+-- here because the generated config lives only in /tmp inside the
+-- container with mode 0600 (see docker-entrypoint.sh).
+webserver('${DNSDIST_WEB_ADDRESS}:8083')
+setWebserverConfig({
+    password='${DNSDIST_WEB_PASSWORD}',
+    acl='172.30.0.0/16'
+})

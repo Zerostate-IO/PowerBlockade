@@ -7,6 +7,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantees.
 
+## [0.10.0] - 2026-08-19
+
+> **Release Type**: Minor Release
+> **Upgrade Safety**: Safe upgrade; migration `0019` (precache settings data
+> migration) applies automatically on admin-ui start. Operators should set
+> `RECURSOR_WEB_PASSWORD` and `DNSDIST_WEB_PASSWORD` in `.env` (see below) —
+> without them the metrics webservers generate a random per-start password and
+> stay authenticated, but Prometheus scraping returns 401 until values are set
+> and the stack is restarted. The recursor webserver port 8082 is no longer
+> published to the host; scraping happens inside the compose network.
+
+### Added
+
+- **Sub-millisecond edge latency observability**: dnstap-processor exposes a
+  Prometheus `/metrics` endpoint (port 9422) with a real-traffic response
+  latency histogram (`dnstap_processor_response_latency_seconds`, buckets
+  0.1–10 ms — the only sub-ms-capable source in the stack; native PowerDNS
+  histograms bottom out at 1 ms), plus event/buffer health counters. Fixes a
+  precision bug where sub-millisecond latencies were truncated to integer
+  milliseconds (zeroed).
+- **Synthetic warm-path prober**: new `prober` service (static IP 172.30.0.30)
+  continuously queries a frozen 10,000-domain Cisco Umbrella control corpus
+  through the dnsdist edge and reports client-observed latency on port 9533.
+  Prober traffic is isolated end-to-end: labeled series (`prober="true"`),
+  separate dashboard panels, excluded from analytics (internal subnet), and —
+  by default — dropped from event shipping (`DROP_PROBER_EVENTS=true`) while
+  still counting in metrics.
+- **Authenticated, private metrics listeners**: recursor and dnsdist
+  webservers now require basic auth (`RECURSOR_WEB_PASSWORD`,
+  `DNSDIST_WEB_PASSWORD`); recursor `:8082` is no longer published to the
+  host (fixes an information-exposure finding: `/metrics` previously served
+  client DNS data unauthenticated to any network that could reach the host).
+  Unset passwords generate a random per-start value with a loud warning —
+  the webserver never starts passwordless. dnsdist metrics webserver added
+  at `:8083` (in-network only).
+- **Prometheus/Grafana visibility**: five scrape jobs (admin-ui, recursor,
+  dnsdist, dnstap-processor, prober) with credential files; "DNS Performance"
+  Grafana dashboard (per-layer cache hit ratios, production p50/p90/p99,
+  occupancy vs capacity, processor health, isolated prober panels); new
+  `powerblockade-primary` alert group (prober absence, buffer backlog,
+  shipping lag, drops). Secondary-node push-path alerts unchanged.
+- **Boot warm burst**: on admin-ui startup, once dnsdist and recursor are
+  ready, a bounded warm pass runs over the top observed pairs (concurrency
+  and QPS ceilings, jitter, dedup, backoff, shared advisory lock with the
+  scheduled warming job). Status via `GET /precache/boot-burst` and the
+  precache page; settings `precache_boot_burst_{enabled,concurrency,qps}`.
+- **Fail-closed benchmark harness** (`dns53-benchmark.sh` v2): dual-layer
+  cache clearing (dnsdist console `expunge(0)` + `rec_control wipe-cache`)
+  with floor verification, per-layer counter-delta hit ratios, p99 gating,
+  dnsperf ≥ 2.14.0 version validation, precache quiesce with symmetric
+  restore, and a time-to-warm mode; `--self-test` offline. Opt-in dnsdist
+  console (`DNSDIST_CONSOLE_KEY`, localhost-only inside the container).
+- **Measured performance baselines** committed under
+  `docs/performance/results/`: cold p50/p95/p99 0.099/0.159/0.287 ms; warm
+  0.049/0.093/0.147 ms at 99.9% dnsdist packet-cache hit ratio; saturation
+  8,497 QPS sustained at 0.01% errors; time-to-warm 185 s (six windows run,
+  five consecutive passing windows of 30 s).
+
+### Changed
+
+- **Precache warming heats both cache layers**: warming now targets
+  `dnsdist:53` (was `recursor:5300`, which left the edge cache cold) and
+  warms observed `(qname, qtype)` pairs (A, AAAA, HTTPS/65…) ranked by
+  actual demand, with per-pair TTL tracking and a per-pass query ceiling
+  (`precache_max_queries_per_pass`, default 2000). Stored settings rows
+  still pointing at the old defaults are migrated by migration `0019`.
+- **Longer stale-serving window**: dnsdist `staleTTL`/`setStaleCacheEntriesTTL`
+  raised 60 s → 300 s, plus `keepStaleData=true` — without which stale
+  serving was silently defeated by the cache cleaner (live-verified effective
+  window was ≤31 s). Upstream outages now serve cached answers for up to
+  5 minutes instead of failing; deliberate availability-over-freshness
+  trade (rollback values documented in the template).
+- **ECS no longer sent upstream**: dnsdist `useClientSubnet=false` — the
+  recursor discards the option anyway (its `use-incoming-edns-subnet`
+  defaults false with an empty allow-list), so the per-miss ECS computation
+  was dead overhead (experiment E2: hit ratio unchanged at 99.9%).
+- Time-to-warm "warm" criterion gates inner-layer warmth on recursor
+  occupancy (stored heat) rather than inner hit ratios: behind a ~99.7% edge,
+  inner-layer ratios are sparse-sample noise by architecture.
+
+### Fixed
+
+- Benchmark harness: "cold" runs previously flushed only the recursor (dnsdist
+  packet-cache hits made "cold" runs warm), ignored flush failures, computed
+  hit ratios from lifetime counters, and silently nulled percentiles on
+  unrecognized dnsperf output. Also: `--mode all` now includes time-to-warm;
+  dnsperf version probing works across builds (2.15.0 prints the version only
+  in the run banner).
+- Benchmark quiesce handles deployments with no stored
+  `precache_enabled` settings row (fresh installs): upsert + symmetric
+  restore, instead of warning and skipping the quiesce.
+- sync-agent and the admin-ui local-metrics job now authenticate to the
+  recursor `/metrics` endpoint (they previously relied on it being
+  passwordless and would have silently 401'd after this release's auth).
+
+### Notes
+
+- **New environment variables**: `RECURSOR_WEB_PASSWORD`,
+  `DNSDIST_WEB_PASSWORD` (recommended; charset `[A-Za-z0-9._~+=@-]`),
+  `DNSDIST_CONSOLE_KEY` (optional; exact base64 from
+  `head -c 32 /dev/urandom | base64 -w0`), `DROP_PROBER_EVENTS` (default
+  true), `METRICS_LISTEN`, `PROBER_IPS`.
+- **SELinux-enforcing hosts** must label bind-mounted directories
+  (`chcon -R -t container_file_t …`) or container startup fails on the
+  read-only mounts; permissive hosts are unaffected.
+- Generated secondary-node packages now carry the same authenticated
+  recursor webserver (per-package generated password), narrowed
+  `webserver-allow-from`, and the E2/E4 tuning. **Existing secondaries should
+  be re-deployed from freshly generated thin packages** to pick up the
+  authentication; until then they remain passwordless on their own networks.
+- Known follow-ups (not in this release): removal of the unused
+  `recursor/recursor.conf` file; DNS-level `allow-from`/`addACL` tightening in
+  generated secondary configs.
+
 ## [0.9.0] - 2026-08-18
 
 > **Release Type**: Minor Release

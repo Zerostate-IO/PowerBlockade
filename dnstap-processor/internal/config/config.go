@@ -60,15 +60,18 @@ type BufferConfig struct {
 }
 
 type Config struct {
-	NodeName        string        `yaml:"node_name"`
-	DnstapSocket    string        `yaml:"dnstap_socket"`
-	DnstapListen    string        `yaml:"dnstap_listen"` // TCP listener for dnstap (optional, overrides socket)
-	ProtobufListen  string        `yaml:"protobuf_listen"`
-	Primary         PrimaryConfig `yaml:"primary"`
-	GELF            GELFConfig    `yaml:"gelf"`
-	Buffer          BufferConfig  `yaml:"buffer"`
-	Debug           bool          `yaml:"debug"`
-	InternalSubnets []string      `yaml:"internal_subnets"` // client IPs in these subnets are flagged is_internal
+	NodeName         string        `yaml:"node_name"`
+	DnstapSocket     string        `yaml:"dnstap_socket"`
+	DnstapListen     string        `yaml:"dnstap_listen"` // TCP listener for dnstap (optional, overrides socket)
+	ProtobufListen   string        `yaml:"protobuf_listen"`
+	MetricsListen    string        `yaml:"metrics_listen"`     // Prometheus /metrics listen address
+	ProberIPs        []string      `yaml:"prober_ips"`         // dnstap query source IPs exported on separate prober metric series
+	DropProberEvents bool          `yaml:"drop_prober_events"` // suppress shipping (never metrics) of prober-source events
+	Primary          PrimaryConfig `yaml:"primary"`
+	GELF             GELFConfig    `yaml:"gelf"`
+	Buffer           BufferConfig  `yaml:"buffer"`
+	Debug            bool          `yaml:"debug"`
+	InternalSubnets  []string      `yaml:"internal_subnets"` // client IPs in these subnets are flagged is_internal
 }
 
 func defaultConfig() Config {
@@ -76,6 +79,13 @@ func defaultConfig() Config {
 		NodeName:       getHostname(),
 		DnstapSocket:   "/var/run/dnstap/dnstap.sock",
 		ProtobufListen: "0.0.0.0:50001",
+		MetricsListen:  "0.0.0.0:9422",
+		ProberIPs:      []string{"172.30.0.30"},
+		// Prober events are dropped by default: the always-on synthetic
+		// prober's events are worthless as stored logs, but its metrics
+		// are still observed (classification and observation happen
+		// before the drop decision).
+		DropProberEvents: true,
 		Primary: PrimaryConfig{
 			URL:    "http://admin-ui:8080",
 			APIKey: "",
@@ -117,6 +127,26 @@ func Load() (Config, error) {
 	}
 	if v := strings.TrimSpace(os.Getenv("PROTOBUF_LISTEN")); v != "" {
 		cfg.ProtobufListen = v
+	}
+	if v := strings.TrimSpace(os.Getenv("METRICS_LISTEN")); v != "" {
+		cfg.MetricsListen = v
+	}
+	// Comma-separated dnstap query source IPs classified as synthetic
+	// prober traffic; their latency observations are exported on separate
+	// prober metric series to keep production quantiles clean.
+	if v := strings.TrimSpace(os.Getenv("PROBER_IPS")); v != "" {
+		cfg.ProberIPs = nil
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				cfg.ProberIPs = append(cfg.ProberIPs, s)
+			}
+		}
+	}
+	// DROP_PROBER_EVENTS suppresses shipping (never metrics) of
+	// prober-source events; default true. "0", "false", or "no" disable
+	// the drop; any other non-empty value keeps it on.
+	if v := strings.TrimSpace(os.Getenv("DROP_PROBER_EVENTS")); v != "" {
+		cfg.DropProberEvents = !(v == "0" || strings.EqualFold(v, "false") || strings.EqualFold(v, "no"))
 	}
 	if v := strings.TrimSpace(os.Getenv("PRIMARY_URL")); v != "" {
 		cfg.Primary.URL = v

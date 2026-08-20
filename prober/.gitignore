@@ -1,0 +1,3 @@
+# Compiled binary (anchored: a bare "prober" would also ignore the
+# internal/prober and cmd/prober directories).
+/prober

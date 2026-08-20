@@ -260,6 +260,14 @@ See [Multi-Node Architecture](docs/MULTI_NODE_ARCHITECTURE.md) for full details.
 | `postgres` | Database for logs, config, analytics |
 | `prometheus` | Metrics collection |
 | `grafana` | Dashboards (embedded in admin-ui) |
+| `prober` | Synthetic latency prober - continuously queries the edge from a fixed IP (172.30.0.30) so the "DNS Performance" Grafana dashboard has a client-observed latency baseline; its traffic is kept out of your query analytics |
+
+> **Metrics auth note**: the recursor (`:8082`) and dnsdist (`:8083`) metrics endpoints
+> are private to the compose network and require basic-auth passwords set in `.env`
+> (`RECURSOR_WEB_PASSWORD`, `DNSDIST_WEB_PASSWORD`). If left empty the services start
+> with random per-boot passwords and Prometheus scraping fails with 401 — set both,
+> then `docker compose -f docker-compose.ghcr.yml up -d` again. See `.env.example`
+> ("Metrics Listener Auth") for the generation command.
 
 ## Common Tasks
 
