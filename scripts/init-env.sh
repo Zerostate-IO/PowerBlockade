@@ -478,7 +478,21 @@ PG_DB=$(get_kv "POSTGRES_DB" "powerblockade")
 set_kv "POSTGRES_PASSWORD" "$PG_PASSWORD"
 set_kv "DATABASE_URL" "postgresql+psycopg://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB}"
 set_kv "RECURSOR_API_KEY" "$(rand_b64 24)"
-set_kv "PRIMARY_API_KEY" "$(rand_b64 24)"
+# One node API key for the whole node: admin-ui bootstraps the primary node
+# row from LOCAL_NODE_API_KEY, while sync-agent (and any local agent)
+# authenticates with PRIMARY_API_KEY — they must match or registration 401s
+# (found live in the release runtime gate: bootstrap_derived != random key).
+NODE_API_KEY=$(rand_b64 24)
+set_kv "PRIMARY_API_KEY" "$NODE_API_KEY"
+set_kv "LOCAL_NODE_API_KEY" "$NODE_API_KEY"
+# Metrics webserver passwords (0.10.0): alphanumeric only — the recursor/
+# dnsdist entrypoint charset guard accepts [A-Za-z0-9._~+=@-] and rejects
+# '/' which rand_b64 can emit. Unset values fall back to random-per-start,
+# which keeps auth on but leaves Prometheus scraping 401 — generate here so
+# fresh installs scrape immediately.
+rand_alnum() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"; }
+set_kv "RECURSOR_WEB_PASSWORD" "$(rand_alnum 32)"
+set_kv "DNSDIST_WEB_PASSWORD" "$(rand_alnum 32)"
 set_kv "GRAFANA_ADMIN_PASSWORD" "$(rand_b64 18)"
 set_kv "DNSDIST_LISTEN_ADDRESS" "$DNSDIST_LISTEN"
 set_kv "DOCKER_SUBNET" "172.30.0.0/24"
