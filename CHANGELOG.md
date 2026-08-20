@@ -112,9 +112,14 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 - **SELinux-enforcing hosts** must label bind-mounted directories
   (`chcon -R -t container_file_t …`) or container startup fails on the
   read-only mounts; permissive hosts are unaffected.
-- Known follow-ups (not in this release): CI build step for the prober
-  image; secondary-node package regeneration with the new auth/warming
-  plumbing; removal of the unused `recursor/recursor.conf` file.
+- Generated secondary-node packages now carry the same authenticated
+  recursor webserver (per-package generated password), narrowed
+  `webserver-allow-from`, and the E2/E4 tuning. **Existing secondaries should
+  be re-deployed from freshly generated thin packages** to pick up the
+  authentication; until then they remain passwordless on their own networks.
+- Known follow-ups (not in this release): removal of the unused
+  `recursor/recursor.conf` file; DNS-level `allow-from`/`addACL` tightening in
+  generated secondary configs.
 
 ## [0.9.0] - 2026-08-18
 
