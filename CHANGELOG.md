@@ -62,7 +62,8 @@ See [Release Policy](docs/RELEASE_POLICY.md) for version compatibility guarantee
 - **Measured performance baselines** committed under
   `docs/performance/results/`: cold p50/p95/p99 0.099/0.159/0.287 ms; warm
   0.049/0.093/0.147 ms at 99.9% dnsdist packet-cache hit ratio; saturation
-  8,497 QPS sustained at 0.01% errors; time-to-warm 182 s (5×30 s windows).
+  8,497 QPS sustained at 0.01% errors; time-to-warm 185 s (six windows run,
+  five consecutive passing windows of 30 s).
 
 ### Changed
 

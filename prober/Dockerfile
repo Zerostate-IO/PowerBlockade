@@ -1,6 +1,6 @@
 FROM golang:1.26-bookworm AS build
 
-ARG PB_VERSION=v0.9.0
+ARG PB_VERSION=v0.10.0
 ARG PB_GIT_SHA=unknown
 
 WORKDIR /src
@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-X main.Version=${PB_VERSION} -X
 
 FROM alpine:3.23
 
-ARG PB_VERSION=v0.9.0
+ARG PB_VERSION=v0.10.0
 ARG PB_GIT_SHA=unknown
 ARG PB_BUILD_DATE=unknown
 
