@@ -184,7 +184,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push recursor-reloader
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./recursor-reloader
           platforms: linux/amd64,linux/arm64
