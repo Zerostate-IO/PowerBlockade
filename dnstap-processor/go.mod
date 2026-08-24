@@ -3,7 +3,7 @@ module github.com/powerblockade/dnstap-processor
 go 1.25.0
 
 require (
-	github.com/dmachard/go-powerdns-protobuf v1.6.1
+	github.com/dmachard/go-powerdns-protobuf v1.7.0
 	github.com/dnstap/golang-dnstap v0.4.0
 	github.com/miekg/dns v1.1.72
 	github.com/prometheus/client_golang v1.24.1
