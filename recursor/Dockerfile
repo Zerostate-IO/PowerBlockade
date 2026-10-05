@@ -1,4 +1,4 @@
-FROM powerdns/pdns-recursor-53:5.3.10
+FROM powerdns/pdns-recursor-53:5.3.11
 
 USER 0:0
 
